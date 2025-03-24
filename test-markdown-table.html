@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown Table Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #121212;
+            color: #ffffff;
+        }
+        h1, h2 {
+            color: #90caf9;
+        }
+        pre {
+            background-color: #1e1e1e;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .table-container {
+            margin: 20px 0;
+            background-color: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background-color: rgba(144, 202, 249, 0.1);
+            color: #90caf9;
+            font-weight: bold;
+            text-align: left;
+            padding: 12px 15px;
+            border-bottom: 2px solid rgba(144, 202, 249, 0.3);
+        }
+        td {
+            padding: 10px 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        tr:nth-child(odd) {
+            background-color: rgba(0, 0, 0, 0.1);
+        }
+        tr:nth-child(even) {
+            background-color: rgba(255, 255, 255, 0.02);
+        }
+        tr:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+<body>
+    <h1>Markdown Table Test</h1>
+    
+    <h2>Example 1: Simple Table (Working)</h2>
+    <pre>
+| Aspect | Classification | Regression |
+|--------|---------------|------------|
+| Objective | Predict discrete labels or categories. | Predict continuous values. |
+| Output Type | Discrete (e.g., 0/1, Yes/No, A/B/C). | Continuous (e.g., temperature, price, height). |
+| Examples | Spam detection, image recognition, sentiment analysis. | House pricing prediction, stock market forecasting. |
+| Evaluation Metrics | Accuracy, Precision, Recall, F1-score, ROC-AUC. | Mean Absolute Error (MAE), Mean Squared Error (MSE), R². |
+| Algorithms | Logistic Regression, Decision Trees, SVM, KNN, Neural Networks. | Linear Regression, Polynomial Regression, Support Vector Regression, Random Forests. |
+| Loss Functions | Cross-Entropy Loss, Hinge Loss. | Mean Squared Error (MSE), Mean Absolute Error (MAE). |
+| Decision Boundary | Yes (e.g., separating different classes). | No (focuses on predicting a value along a continuum). |
+    </pre>
+    
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Aspect</th>
+                    <th>Classification</th>
+                    <th>Regression</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Objective</td>
+                    <td>Predict discrete labels or categories.</td>
+                    <td>Predict continuous values.</td>
+                </tr>
+                <tr>
+                    <td>Output Type</td>
+                    <td>Discrete (e.g., 0/1, Yes/No, A/B/C).</td>
+                    <td>Continuous (e.g., temperature, price, height).</td>
+                </tr>
+                <tr>
+                    <td>Examples</td>
+                    <td>Spam detection, image recognition, sentiment analysis.</td>
+                    <td>House pricing prediction, stock market forecasting.</td>
+                </tr>
+                <tr>
+                    <td>Evaluation Metrics</td>
+                    <td>Accuracy, Precision, Recall, F1-score, ROC-AUC.</td>
+                    <td>Mean Absolute Error (MAE), Mean Squared Error (MSE), R².</td>
+                </tr>
+                <tr>
+                    <td>Algorithms</td>
+                    <td>Logistic Regression, Decision Trees, SVM, KNN, Neural Networks.</td>
+                    <td>Linear Regression, Polynomial Regression, Support Vector Regression, Random Forests.</td>
+                </tr>
+                <tr>
+                    <td>Loss Functions</td>
+                    <td>Cross-Entropy Loss, Hinge Loss.</td>
+                    <td>Mean Squared Error (MSE), Mean Absolute Error (MAE).</td>
+                </tr>
+                <tr>
+                    <td>Decision Boundary</td>
+                    <td>Yes (e.g., separating different classes).</td>
+                    <td>No (focuses on predicting a value along a continuum).</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <h2>Example 2: Complex Table (Previously Not Working)</h2>
+    <pre>
+| Aspect | Description |
+|-----------------------------|-----------------------------------------------------------------------------|
+| Objective | Unsupervised ML aims to identify patterns or structures within data without labeled outcomes. In pathology, it helps discover new insights from complex datasets like histopathological images. |
+| Common Techniques | Clustering (e.g., K-means, hierarchical clustering), dimensionality reduction (e.g., PCA, t-SNE). These techniques help in grouping similar features or reducing data complexity for better analysis. |
+| Applications | - Tissue segmentation: Identifying and separating different tissue types within histological images.<br>- Pattern recognition: Detecting novel patterns that may indicate disease subtypes or progression.<br>- Biomarker discovery: Finding new biomarkers by analyzing gene expression profiles or imaging data. |
+| Advantages | - Can handle large, complex datasets without the need for labeled training data.<br>- Capable of discovering hidden structures and relationships in data.<br>- Useful for exploratory analysis to generate hypotheses. |
+| Challenges | - Interpretability: Results can be difficult to interpret without domain expertise.<br>- Validation: Lack of ground truth makes it challenging to validate findings.<br>- Sensitivity to noise: Unsupervised methods may be sensitive to data quality and preprocessing steps. |
+| Examples in Pathology | - Clustering algorithms have been used to classify different types of cancer based on gene expression profiles.<br>- Dimensionality reduction techniques help visualize high-dimensional data, such as single-cell RNA sequencing results. |
+| Future Directions | Integration with supervised learning for improved accuracy and validation, development of more interpretable models, and application in personalized medicine through better understanding of disease heterogeneity. |
+    </pre>
+    
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Aspect</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Objective</td>
+                    <td>Unsupervised ML aims to identify patterns or structures within data without labeled outcomes. In pathology, it helps discover new insights from complex datasets like histopathological images.</td>
+                </tr>
+                <tr>
+                    <td>Common Techniques</td>
+                    <td>Clustering (e.g., K-means, hierarchical clustering), dimensionality reduction (e.g., PCA, t-SNE). These techniques help in grouping similar features or reducing data complexity for better analysis.</td>
+                </tr>
+                <tr>
+                    <td>Applications</td>
+                    <td>
+                        - Tissue segmentation: Identifying and separating different tissue types within histological images.<br>
+                        - Pattern recognition: Detecting novel patterns that may indicate disease subtypes or progression.<br>
+                        - Biomarker discovery: Finding new biomarkers by analyzing gene expression profiles or imaging data.
+                    </td>
+                </tr>
+                <tr>
+                    <td>Advantages</td>
+                    <td>
+                        - Can handle large, complex datasets without the need for labeled training data.<br>
+                        - Capable of discovering hidden structures and relationships in data.<br>
+                        - Useful for exploratory analysis to generate hypotheses.
+                    </td>
+                </tr>
+                <tr>
+                    <td>Challenges</td>
+                    <td>
+                        - Interpretability: Results can be difficult to interpret without domain expertise.<br>
+                        - Validation: Lack of ground truth makes it challenging to validate findings.<br>
+                        - Sensitivity to noise: Unsupervised methods may be sensitive to data quality and preprocessing steps.
+                    </td>
+                </tr>
+                <tr>
+                    <td>Examples in Pathology</td>
+                    <td>
+                        - Clustering algorithms have been used to classify different types of cancer based on gene expression profiles.<br>
+                        - Dimensionality reduction techniques help visualize high-dimensional data, such as single-cell RNA sequencing results.
+                    </td>
+                </tr>
+                <tr>
+                    <td>Future Directions</td>
+                    <td>Integration with supervised learning for improved accuracy and validation, development of more interpretable models, and application in personalized medicine through better understanding of disease heterogeneity.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

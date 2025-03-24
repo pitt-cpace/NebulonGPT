@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  nebulon-gpt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nebulon-gpt
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    networks:
+      - ollama-network
+    volumes:
+      - ./nginx.conf:/etc/nginx/http.d/default.conf
+      - chat-data:/app/data
+    environment:
+      - NODE_ENV=production
+      # This is used during the build process
+      - REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434
+
+networks:
+  ollama-network:
+    driver: bridge
+
+volumes:
+  chat-data:
+    driver: local

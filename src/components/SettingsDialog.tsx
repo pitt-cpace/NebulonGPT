@@ -1,0 +1,185 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  TextField,
+  Typography,
+  Slider,
+  Box,
+  IconButton,
+} from '@mui/material';
+import { Settings as SettingsIcon, Close as CloseIcon } from '@mui/icons-material';
+import { ModelType } from '../types';
+
+interface SettingsDialogProps {
+  model: ModelType | null;
+  contextLength: number;
+  temperature: number;
+  maxContextLength?: number; // Maximum context length supported by the model
+  onSaveSettings: (contextLength: number, temperature: number) => void;
+}
+
+const SettingsDialog: React.FC<SettingsDialogProps> = ({
+  model,
+  contextLength,
+  temperature,
+  maxContextLength = 2048, // Default to 48000 if not provided
+  onSaveSettings,
+}) => {
+  const [open, setOpen] = useState(false);
+  const [localContextLength, setLocalContextLength] = useState(contextLength);
+  const [localTemperature, setLocalTemperature] = useState(temperature);
+  const [contextLengthError, setContextLengthError] = useState('');
+  const [temperatureError, setTemperatureError] = useState('');
+
+  // Update local state when props change
+  useEffect(() => {
+    setLocalContextLength(contextLength);
+    setLocalTemperature(temperature);
+  }, [contextLength, temperature]);
+
+  const handleOpen = () => {
+    setOpen(true);
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+    // Reset to original values
+    setLocalContextLength(contextLength);
+    setLocalTemperature(temperature);
+    setContextLengthError('');
+    setTemperatureError('');
+  };
+
+  const handleSave = () => {
+    // Validate inputs
+    if (localContextLength < 2000 || localContextLength > maxContextLength) {
+      setContextLengthError(`Context length must be between 2000 and ${maxContextLength}`);
+      return;
+    }
+
+    if (localTemperature < 0 || localTemperature > 2) {
+      setTemperatureError('Temperature must be between 0 and 2');
+      return;
+    }
+
+    onSaveSettings(localContextLength, localTemperature);
+    setOpen(false);
+  };
+
+  const handleContextLengthChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseInt(event.target.value, 10);
+    const newValue = isNaN(value) ? 0 : value;
+    setLocalContextLength(newValue);
+    
+    // Validate the context length
+    if (newValue < 2000 || newValue > maxContextLength) {
+      setContextLengthError(`Context length must be between 2000 and ${maxContextLength}`);
+    } else {
+      setContextLengthError('');
+    }
+  };
+
+  const handleTemperatureChange = (_event: Event, newValue: number | number[]) => {
+    setLocalTemperature(newValue as number);
+    setTemperatureError('');
+  };
+
+  return (
+    <>
+      <IconButton
+        color="primary"
+        onClick={handleOpen}
+        sx={{
+          position: 'absolute',
+          top: 10,
+          right: 10,
+          zIndex: 1100,
+        }}
+        title="Settings"
+      >
+        <SettingsIcon />
+      </IconButton>
+
+      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">Model Settings</Typography>
+          <IconButton edge="end" color="inherit" onClick={handleClose} aria-label="close">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" gutterBottom>
+              Current Model: {model?.name || 'No model selected'}
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <Typography id="context-length-slider" gutterBottom>
+              Context Length (2000-{maxContextLength})
+            </Typography>
+            <TextField
+              fullWidth
+              type="number"
+              value={localContextLength}
+              onChange={handleContextLengthChange}
+              onFocus={(e) => e.target.select()}
+              inputProps={{
+                min: 2000,
+                max: maxContextLength,
+                step: 1000,
+              }}
+              error={!!contextLengthError}
+              helperText={contextLengthError || 'Maximum number of tokens the model can process'}
+              margin="normal"
+              variant="outlined"
+              size="small"
+            />
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <Typography id="temperature-slider" gutterBottom>
+              Temperature: {localTemperature.toFixed(2)}
+            </Typography>
+            <Slider
+              value={localTemperature}
+              onChange={handleTemperatureChange}
+              aria-labelledby="temperature-slider"
+              min={0}
+              max={2}
+              step={0.01}
+              marks={[
+                { value: 0, label: '0' },
+                { value: 1, label: '1' },
+                { value: 2, label: '2' },
+              ]}
+              valueLabelDisplay="auto"
+            />
+            {temperatureError && (
+              <Typography color="error" variant="caption">
+                {temperatureError}
+              </Typography>
+            )}
+            <Typography variant="caption" color="text.secondary">
+              Lower values produce more deterministic responses, higher values produce more creative responses
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClose} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleSave} color="primary" variant="contained">
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+};
+
+export default SettingsDialog;
