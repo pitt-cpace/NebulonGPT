@@ -1,13 +1,18 @@
 import { SxProps, Theme } from '@mui/material/styles';
+// Import the drawerWidth from Sidebar styles
+import { drawerWidth } from './Sidebar.styles';
 
 // Styles for the ChatArea component
-export const container: SxProps<Theme> = {
-  flexGrow: 1,
+export const container = (sidebarOpen: boolean): SxProps<Theme> => ({
+  position: 'absolute',
+  right: 0,
+  left: sidebarOpen ? drawerWidth : 0,
   display: 'flex',
   flexDirection: 'column',
   height: '100vh',
   overflow: 'hidden',
-};
+  transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
+});
 
 export const appBar: SxProps<Theme> = {
   borderBottom: '1px solid #333',

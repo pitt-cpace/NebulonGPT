@@ -44,6 +44,7 @@ interface ChatAreaProps {
   onStopResponse: () => void;
   onToggleSidebar: () => void;
   onSelectModel: (model: ModelType) => void;
+  sidebarOpen: boolean; // Add sidebarOpen prop
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -55,6 +56,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onStopResponse,
   onToggleSidebar,
   onSelectModel,
+  sidebarOpen, // Destructure sidebarOpen
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
@@ -735,7 +737,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   return (
     <Box
       component="main"
-      sx={styles.container}
+      sx={styles.container(sidebarOpen)}
     >
       <AppBar
         position="static"

@@ -360,6 +360,7 @@ const App: React.FC = () => {
         loading={loading}
         models={models}
         onSelectModel={handleSelectModel}
+        sidebarOpen={sidebarOpen}
       />
     </Box>
   );
