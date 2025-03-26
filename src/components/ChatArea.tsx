@@ -228,52 +228,99 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     onSendMessage(prompt);
   };
 
-  // Handle text file selection
+  // Handle text and Word file selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     
-    // Process each selected file
-    Array.from(files).forEach(file => {
-      // Only process text files
-      if (!file.name.endsWith('.txt')) {
-        alert(`Only .txt files are supported. Skipping ${file.name}`);
-        return;
+    // Import mammoth for Word file processing
+    import('mammoth').then(mammoth => {
+      // Process each selected file
+      Array.from(files).forEach(file => {
+        // Process text files
+        if (file.name.endsWith('.txt')) {
+          const reader = new FileReader();
+          
+          reader.onload = (event) => {
+            if (!event.target || typeof event.target.result !== 'string') return;
+            
+            const content = event.target.result;
+            
+            // Create a new file attachment
+            const newAttachment: FileAttachment = {
+              id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: file.name,
+              type: 'text',
+              content: content,
+              size: file.size,
+              timestamp: new Date().toISOString(),
+            };
+            
+            // Add the attachment to the state
+            setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+          };
+          
+          reader.onerror = () => {
+            alert(`Error reading file: ${file.name}`);
+          };
+          
+          // Read the file as text
+          reader.readAsText(file);
+        }
+        // Process Word files
+        else if (file.name.endsWith('.docx')) {
+          const reader = new FileReader();
+          
+          reader.onload = async (event) => {
+            if (!event.target || !event.target.result) return;
+            
+            try {
+              // Convert the ArrayBuffer to a Uint8Array for mammoth
+              const arrayBuffer = event.target.result as ArrayBuffer;
+              
+              // Extract text from the Word document
+              const result = await mammoth.extractRawText({ arrayBuffer });
+              const content = result.value; // The extracted text
+              
+              // Create a new file attachment
+              const newAttachment: FileAttachment = {
+                id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                name: file.name,
+                type: 'text', // Still treat it as text for the LLM
+                content: content,
+                size: file.size,
+                timestamp: new Date().toISOString(),
+              };
+              
+              // Add the attachment to the state
+              setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+            } catch (error) {
+              console.error('Error extracting text from Word file:', error);
+              alert(`Error processing Word file: ${file.name}`);
+            }
+          };
+          
+          reader.onerror = () => {
+            alert(`Error reading file: ${file.name}`);
+          };
+          
+          // Read the file as an ArrayBuffer for mammoth
+          reader.readAsArrayBuffer(file);
+        }
+        // Skip unsupported files
+        else {
+          alert(`Only .txt and .docx files are supported. Skipping ${file.name}`);
+        }
+      });
+      
+      // Reset the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
-      
-      const reader = new FileReader();
-      
-      reader.onload = (event) => {
-        if (!event.target || typeof event.target.result !== 'string') return;
-        
-        const content = event.target.result;
-        
-        // Create a new file attachment
-        const newAttachment: FileAttachment = {
-          id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          name: file.name,
-          type: 'text',
-          content: content,
-          size: file.size,
-          timestamp: new Date().toISOString(),
-        };
-        
-        // Add the attachment to the state
-        setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
-      };
-      
-      reader.onerror = () => {
-        alert(`Error reading file: ${file.name}`);
-      };
-      
-      // Read the file as text
-      reader.readAsText(file);
+    }).catch(error => {
+      console.error('Error loading mammoth library:', error);
+      alert('Failed to load document processing library. Please try again.');
     });
-    
-    // Reset the file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
   };
   
   // Handle image file selection
@@ -1046,7 +1093,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 type="file"
                 ref={fileInputRef}
                 style={{ display: 'none' }}
-                accept=".txt"
+                accept=".txt,.docx"
                 multiple
                 onChange={handleFileSelect}
               />
