@@ -33,6 +33,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType } from '../types';
 import { getSuggestedPrompts } from '../services/api';
+import * as styles from '../styles/components/ChatArea.styles';
 
 interface ChatAreaProps {
   chat: ChatType | null;
@@ -217,15 +218,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     table: ({ node, children, ...props }: any) => (
       <TableContainer 
         component={Paper} 
-        sx={{ 
-          my: 3,
-          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-          borderRadius: 2,
-          overflow: 'hidden',
-          boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-          width: '100%',
-          maxWidth: '100%',
-        }}
+        sx={styles.tableContainer}
         className="enhanced-table"
       >
         <Table size="small" {...props}>
@@ -236,9 +229,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Override the default thead renderer
     thead: ({ node, children, ...props }: any) => (
       <TableHead 
-        sx={{ 
-          backgroundColor: 'rgba(144, 202, 249, 0.1)',
-        }} 
+        sx={styles.tableHead} 
         {...props}
       >
         {children}
@@ -251,35 +242,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       </TableBody>
     ),
     // Override the default tr renderer
-    tr: ({ node, children, isHeader, ...props }: any) => (
-      <TableRow 
-        sx={{ 
-          '&:nth-of-type(odd)': { 
-            backgroundColor: 'rgba(255, 255, 255, 0.02)' 
-          },
-          '&:hover': { 
-            backgroundColor: 'rgba(255, 255, 255, 0.05)' 
-          },
-          transition: 'background-color 0.2s',
-        }} 
-        {...props}
-      >
-        {children}
-      </TableRow>
-    ),
+    tr: ({ node, children, isHeader, ...props }: any) => {
+      const isOdd = props.index % 2 === 1;
+      return (
+        <TableRow 
+          sx={isOdd ? styles.tableRowOdd : styles.tableRowEven} 
+          {...props}
+        >
+          {children}
+        </TableRow>
+      );
+    },
     // Override the default th renderer
     th: ({ node, children, ...props }: any) => (
       <TableCell 
         component="th"
         align="left"
-        sx={{ 
-          fontWeight: 'bold', 
-          borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-          color: '#90caf9',
-          py: 2,
-          px: 2,
-          whiteSpace: 'nowrap',
-        }} 
+        sx={styles.tableHeaderCell} 
         {...props}
       >
         {children}
@@ -289,11 +268,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     td: ({ node, children, ...props }: any) => (
       <TableCell 
         align="left"
-        sx={{ 
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-          py: 1.5,
-          px: 2,
-        }} 
+        sx={styles.tableCell} 
         {...props}
       >
         {children}
@@ -305,15 +280,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       return !inline ? (
         <Box
           component="pre"
-          sx={{
-            backgroundColor: 'rgba(0, 0, 0, 0.3)',
-            borderRadius: 2,
-            p: 2,
-            overflowX: 'auto',
-            my: 2,
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-          }}
+          sx={styles.codeBlock}
           className={className}
           {...props}
         >
@@ -324,13 +291,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       ) : (
         <code
           className={className}
-          sx={{
-            backgroundColor: 'rgba(0, 0, 0, 0.2)',
-            borderRadius: 1,
-            px: 0.5,
-            py: 0.25,
-            fontFamily: 'monospace',
-          }}
+          sx={styles.inlineCode}
           {...props}
         >
           {children}
@@ -436,28 +397,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <TableContainer 
             key={`table-${key++}`}
             component={Paper} 
-            sx={{ 
-              my: 3,
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: 2,
-              overflow: 'hidden',
-              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-              width: '100%',
-            }}
+            sx={styles.tableContainer}
           >
             <Table>
-              <TableHead sx={{ backgroundColor: 'rgba(144, 202, 249, 0.1)' }}>
+              <TableHead sx={styles.tableHead}>
                 <TableRow>
                   {headers.map((header, idx) => (
                     <TableCell 
                       key={idx}
-                      sx={{ 
-                        fontWeight: 'bold', 
-                        borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-                        color: '#90caf9',
-                        py: 2,
-                        px: 2,
-                      }}
+                      sx={styles.tableHeaderCell}
                     >
                       {header}
                     </TableCell>
@@ -468,20 +416,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 {rows.map((row, rowIdx) => (
                   <TableRow 
                     key={rowIdx}
-                    sx={{ 
-                      '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.1)' },
-                      '&:nth-of-type(even)': { backgroundColor: 'rgba(255, 255, 255, 0.02)' },
-                      '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
-                    }}
+                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
                   >
                     {row.map((cell, cellIdx) => (
                       <TableCell 
                         key={cellIdx}
-                        sx={{ 
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                          py: 1.5,
-                          px: 2,
-                        }}
+                        sx={styles.tableCell}
                       >
                         {cell}
                       </TableCell>
@@ -540,28 +480,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <TableContainer 
             key={`table-${key++}`}
             component={Paper} 
-            sx={{ 
-              my: 3,
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: 2,
-              overflow: 'hidden',
-              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-              width: '100%',
-            }}
+            sx={styles.tableContainer}
           >
             <Table>
-              <TableHead sx={{ backgroundColor: 'rgba(144, 202, 249, 0.1)' }}>
+              <TableHead sx={styles.tableHead}>
                 <TableRow>
                   {headers.map((header, idx) => (
                     <TableCell 
                       key={idx}
-                      sx={{ 
-                        fontWeight: 'bold', 
-                        borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-                        color: '#90caf9',
-                        py: 2,
-                        px: 2,
-                      }}
+                      sx={styles.tableHeaderCell}
                     >
                       {header.replace(/^\*\*(.*)\*\*$/, '$1')} {/* Remove markdown bold formatting */}
                     </TableCell>
@@ -572,20 +499,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 {rows.map((row, rowIdx) => (
                   <TableRow 
                     key={rowIdx}
-                    sx={{ 
-                      '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.1)' },
-                      '&:nth-of-type(even)': { backgroundColor: 'rgba(255, 255, 255, 0.02)' },
-                      '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
-                    }}
+                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
                   >
                     {row.map((cell, cellIdx) => (
                       <TableCell 
                         key={cellIdx}
-                        sx={{ 
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                          py: 1.5,
-                          px: 2,
-                        }}
+                        sx={styles.tableCell}
                       >
                         {cell}
                       </TableCell>
@@ -649,28 +568,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <TableContainer 
             key={`table-${key++}`}
             component={Paper} 
-            sx={{ 
-              my: 3,
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: 2,
-              overflow: 'hidden',
-              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-              width: '100%',
-            }}
+            sx={styles.tableContainer}
           >
             <Table>
-              <TableHead sx={{ backgroundColor: 'rgba(144, 202, 249, 0.1)' }}>
+              <TableHead sx={styles.tableHead}>
                 <TableRow>
                   {headers.map((header, idx) => (
                     <TableCell 
                       key={idx}
-                      sx={{ 
-                        fontWeight: 'bold', 
-                        borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-                        color: '#90caf9',
-                        py: 2,
-                        px: 2,
-                      }}
+                      sx={styles.tableHeaderCell}
                     >
                       {header.replace(/^\*\*(.*)\*\*$/, '$1')} {/* Remove markdown bold formatting */}
                     </TableCell>
@@ -681,20 +587,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 {rows.map((row, rowIdx) => (
                   <TableRow 
                     key={rowIdx}
-                    sx={{ 
-                      '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.1)' },
-                      '&:nth-of-type(even)': { backgroundColor: 'rgba(255, 255, 255, 0.02)' },
-                      '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
-                    }}
+                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
                   >
                     {row.map((cell, cellIdx) => (
                       <TableCell 
                         key={cellIdx}
-                        sx={{ 
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                          py: 1.5,
-                          px: 2,
-                        }}
+                        sx={styles.tableCell}
                       >
                         {cell}
                       </TableCell>
@@ -761,28 +659,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return (
       <TableContainer 
         component={Paper} 
-        sx={{ 
-          my: 3,
-          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-          borderRadius: 2,
-          overflow: 'hidden',
-          boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-          width: '100%',
-        }}
+        sx={styles.tableContainer}
       >
         <Table>
-          <TableHead sx={{ backgroundColor: 'rgba(144, 202, 249, 0.1)' }}>
+          <TableHead sx={styles.tableHead}>
             <TableRow>
               {headers.map((header, idx) => (
                 <TableCell 
                   key={idx}
-                  sx={{ 
-                    fontWeight: 'bold', 
-                    borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-                    color: '#90caf9',
-                    py: 2,
-                    px: 2,
-                  }}
+                  sx={styles.tableHeaderCell}
                 >
                   {header}
                 </TableCell>
@@ -793,20 +678,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             {tableData.map((row, rowIdx) => (
               <TableRow 
                 key={rowIdx}
-                sx={{ 
-                  '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.1)' },
-                  '&:nth-of-type(even)': { backgroundColor: 'rgba(255, 255, 255, 0.02)' },
-                  '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
-                }}
+                sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
               >
                 {row.map((cell, cellIdx) => (
                   <TableCell 
                     key={cellIdx}
-                    sx={{ 
-                      borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                      py: 1.5,
-                      px: 2,
-                    }}
+                    sx={styles.tableCell}
                   >
                     {cell}
                   </TableCell>
@@ -825,30 +702,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return (
       <Box
         key={message.id}
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-start',
-          mb: 2,
-          maxWidth: '100%',
-        }}
+        sx={styles.messageBox}
       >
         <Box
-          sx={{
-            display: 'flex',
-            p: 2,
-            borderRadius: 2,
-            backgroundColor: isUser ? 'rgba(144, 202, 249, 0.08)' : 'rgba(255, 255, 255, 0.05)',
-            maxWidth: '100%',
-            width: '100%',
-          }}
+          sx={isUser ? styles.userMessage : styles.assistantMessage}
         >
           <Box sx={{ width: '100%' }}>
             <Typography
               variant="body1"
               component="div"
               className="markdown-content"
-              sx={{ wordBreak: 'break-word' }}
+              sx={styles.messageContent}
             >
               {isUser ? (
                 message.content
@@ -871,19 +735,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   return (
     <Box
       component="main"
-      sx={{
-        flexGrow: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        overflow: 'hidden',
-      }}
+      sx={styles.container}
     >
       <AppBar
         position="static"
         color="transparent"
         elevation={0}
-        sx={{ borderBottom: '1px solid #333' }}
+        sx={styles.appBar}
       >
         <Toolbar>
           <IconButton
@@ -899,11 +757,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <Button
             onClick={handleOpenModelMenu}
             endIcon={<KeyboardArrowDownIcon />}
-            sx={{
-              textTransform: 'none',
-              color: 'white',
-              fontWeight: 'normal',
-            }}
+            sx={styles.modelSelector}
           >
             {model?.name || 'Select Model'}
           </Button>
@@ -937,16 +791,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
       {!chat ? (
         <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexGrow: 1,
-            p: 3,
-          }}
+          sx={styles.welcomeContainer}
         >
-          <Box sx={{ textAlign: 'center', mb: 4 }}>
+          <Box sx={styles.welcomeHeader}>
             <Typography variant="h4" gutterBottom>
               {model?.name || 'Nebulon-GPT'}
             </Typography>
@@ -958,9 +805,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             </Typography>
           </Box>
 
-          <Typography variant="h6" gutterBottom sx={{ alignSelf: 'flex-start', mb: 2 }}>
+          <Typography variant="h6" gutterBottom sx={styles.suggestedPromptsHeader}>
             <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box component="span" sx={{ opacity: 0.6 }}>✨</Box> Suggested
+              <Box component="span" sx={styles.sparkleIcon}>✨</Box> Suggested
             </Box>
           </Typography>
 
@@ -969,10 +816,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               <Grid item xs={12} key={index}>
                 <Card 
                   variant="outlined" 
-                  sx={{ 
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                  }}
+                  sx={styles.promptCard}
                 >
                   <CardActionArea onClick={() => handleSuggestedPrompt(prompt.prompt)}>
                     <CardContent>
@@ -990,13 +834,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       ) : (
         <>
           <Box
-            sx={{
-              flexGrow: 1,
-              p: 3,
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
+            sx={styles.messagesContainer}
           >
             {chat.messages.map(renderMessage)}
             <div ref={messagesEndRef} />
@@ -1005,26 +843,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <Box
             component={Paper}
             elevation={0}
-            sx={{
-              p: 2,
-              borderTop: '1px solid #333',
-              backgroundColor: 'background.paper',
-            }}
+            sx={styles.inputContainer}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Box sx={styles.inputBox}>
               <Box sx={{ position: 'relative' }}>
                 <IconButton 
                   size="small" 
-                  sx={{ 
-                    mr: 1,
-                    color: isListening ? 'error.main' : (speechError ? 'warning.main' : 'inherit'),
-                    animation: isListening ? 'pulse 1.5s infinite' : 'none',
-                    '@keyframes pulse': {
-                      '0%': { opacity: 1 },
-                      '50%': { opacity: 0.5 },
-                      '100%': { opacity: 1 },
-                    },
-                  }}
+                  sx={isListening ? styles.micButtonActive : (speechError ? styles.micButtonError : styles.micButton)}
                   onClick={toggleListening}
                   disabled={loading || !recognitionRef.current}
                   title={speechError || (isListening ? 'Stop dictation' : 'Start dictation')}
@@ -1035,13 +860,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   <Typography 
                     variant="caption" 
                     color="warning.main" 
-                    sx={{ 
-                      position: 'absolute', 
-                      bottom: -20, 
-                      left: 0, 
-                      whiteSpace: 'nowrap',
-                      fontSize: '0.7rem'
-                    }}
+                    sx={styles.micErrorText}
                   >
                     {speechError}
                   </Typography>
@@ -1057,32 +876,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 onKeyPress={handleKeyPress}
                 disabled={loading}
                 InputProps={{
-                  sx: {
-                    borderRadius: 4,
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                    '&:hover': {
-                      backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                    },
-                  },
+                  sx: styles.textField,
                   endAdornment: isListening && interimTranscript ? (
-                    <Box 
-                      sx={{ 
-                        position: 'absolute',
-                        bottom: '100%',
-                        left: 0,
-                        right: 0,
-                        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                        color: 'rgba(255, 255, 255, 0.7)',
-                        padding: '8px 12px',
-                        borderRadius: '4px',
-                        fontSize: '0.85rem',
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        zIndex: 10,
-                      }}
-                    >
+                    <Box sx={styles.interimTranscript}>
                       {interimTranscript}
                     </Box>
                   ) : null,

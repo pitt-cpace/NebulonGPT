@@ -28,6 +28,7 @@ import {
   AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material';
 import { ChatType } from '../types';
+import * as styles from '../styles/components/Sidebar.styles';
 
 interface SidebarProps {
   open: boolean;
@@ -38,8 +39,6 @@ interface SidebarProps {
   onDeleteChat: (chatId: string) => void;
   onUpdateChatTitle: (chatId: string, newTitle: string) => void;
 }
-
-const drawerWidth = 280;
 
 const Sidebar: React.FC<SidebarProps> = ({
   open,
@@ -89,62 +88,36 @@ const Sidebar: React.FC<SidebarProps> = ({
       variant="persistent"
       anchor="left"
       open={open}
-      sx={{
-        width: drawerWidth,
-        flexShrink: 0,
-        '& .MuiDrawer-paper': {
-          width: drawerWidth,
-          boxSizing: 'border-box',
-          backgroundColor: '#121212',
-          borderRight: '1px solid #333',
-        },
-      }}
+      sx={styles.drawer}
     >
-      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Box sx={styles.contentContainer}>
         {/* Logo and App Name */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-          <Avatar
-            sx={{ 
-              bgcolor: 'rgba(144, 202, 249, 0.2)',
-              color: '#90caf9',
-              width: 40,
-              height: 40,
-            }}
-          >
+        <Box sx={styles.logoContainer}>
+          <Avatar sx={styles.logoAvatar}>
             <AutoAwesomeIcon />
           </Avatar>
           <Box>
-            <Typography variant="h6" component="div" sx={{ lineHeight: 1.2 }}>
+            <Typography variant="h6" component="div" sx={styles.appTitle}>
               Nebulon-GPT
             </Typography>
             <Typography variant="caption" color="text.secondary">
               Your Private AI Assistant
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={styles.appSubtitle}>
               by HH Rashidi
             </Typography>
           </Box>
         </Box>
         
         {/* New Chat Button */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={styles.newChatButtonContainer}>
           <Tooltip title="Create a new chat">
             <Button
               variant="contained"
               startIcon={<AddIcon />}
               onClick={onCreateNewChat}
               fullWidth
-              sx={{ 
-                backgroundColor: 'rgba(144, 202, 249, 0.1)',
-                color: '#90caf9',
-                textTransform: 'none',
-                justifyContent: 'flex-start',
-                '&:hover': {
-                  backgroundColor: 'rgba(144, 202, 249, 0.2)',
-                },
-                borderRadius: 2,
-                py: 1,
-              }}
+              sx={styles.newChatButton}
             >
               New Chat
             </Button>
@@ -152,7 +125,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </Box>
       </Box>
 
-      <Divider sx={{ borderColor: '#333' }} />
+      <Divider sx={styles.divider} />
 
       <List>
         <ListItem disablePadding>
@@ -165,7 +138,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </ListItem>
       </List>
 
-      <Box sx={{ px: 2, py: 1 }}>
+      <Box sx={styles.searchContainer}>
         <TextField
           fullWidth
           placeholder="Search"
@@ -179,18 +152,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               </InputAdornment>
             ),
           }}
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              borderRadius: 2,
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              '&:hover .MuiOutlinedInput-notchedOutline': {
-                borderColor: 'rgba(255, 255, 255, 0.1)',
-              },
-              '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                borderColor: 'primary.main',
-              },
-            },
-          }}
+          sx={styles.searchField}
         />
       </Box>
 
@@ -207,17 +169,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                   key={chat.id}
                   selected={chat.id === currentChatId}
                   onClick={() => onSelectChat(chat.id)}
-                  sx={{
-                    pl: 4,
-                    '&.Mui-selected': {
-                      backgroundColor: 'rgba(144, 202, 249, 0.08)',
-                    },
-                    '&.Mui-selected:hover': {
-                      backgroundColor: 'rgba(144, 202, 249, 0.12)',
-                    },
-                  }}
+                  sx={styles.chatListItem}
                 >
-                  <ListItemIcon sx={{ minWidth: 36 }}>
+                  <ListItemIcon sx={styles.chatListItemIcon}>
                     <ChatIcon fontSize="small" />
                   </ListItemIcon>
                   {editingChatId === chat.id ? (
@@ -229,14 +183,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       onBlur={() => handleSaveTitle(chat.id)}
                       autoFocus
                       onClick={(e) => e.stopPropagation()}
-                      sx={{ 
-                        flex: 1,
-                        mr: 1,
-                        '& .MuiOutlinedInput-root': {
-                          borderRadius: 1,
-                          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                        }
-                      }}
+                      sx={styles.editTextField}
                     />
                   ) : (
                     <ListItemText 
@@ -261,12 +208,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                           e.stopPropagation();
                           onDeleteChat(chat.id);
                         }}
-                        sx={{ 
-                          opacity: 0,
-                          transition: 'opacity 0.2s',
-                          '&:hover': { opacity: 1 },
-                          '.MuiListItemButton-root:hover &': { opacity: 0.7 },
-                        }}
+                        sx={styles.deleteButton}
                       >
                         <DeleteIcon fontSize="small" />
                       </IconButton>
@@ -275,7 +217,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </ListItemButton>
               ))
             ) : (
-              <ListItem sx={{ pl: 4 }}>
+              <ListItem sx={styles.noChatFound}>
                 <ListItemText 
                   primary="No chats found" 
                   primaryTypographyProps={{ 

@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import { Settings as SettingsIcon, Close as CloseIcon } from '@mui/icons-material';
 import { ModelType } from '../types';
+import * as styles from '../styles/components/SettingsDialog.styles';
 
 interface SettingsDialogProps {
   model: ModelType | null;
@@ -93,32 +94,27 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       <IconButton
         color="primary"
         onClick={handleOpen}
-        sx={{
-          position: 'absolute',
-          top: 10,
-          right: 10,
-          zIndex: 1100,
-        }}
+        sx={styles.settingsButton}
         title="Settings"
       >
         <SettingsIcon />
       </IconButton>
 
       <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <DialogTitle sx={styles.dialogTitle}>
           <Typography variant="h6">Model Settings</Typography>
           <IconButton edge="end" color="inherit" onClick={handleClose} aria-label="close">
             <CloseIcon />
           </IconButton>
         </DialogTitle>
         <DialogContent dividers>
-          <Box sx={{ mb: 3 }}>
+          <Box sx={styles.sectionContainer}>
             <Typography variant="subtitle1" gutterBottom>
               Current Model: {model?.name || 'No model selected'}
             </Typography>
           </Box>
 
-          <Box sx={{ mb: 3 }}>
+          <Box sx={styles.sectionContainer}>
             <Typography id="context-length-slider" gutterBottom>
               Context Length (2000-{maxContextLength})
             </Typography>
@@ -141,7 +137,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             />
           </Box>
 
-          <Box sx={{ mb: 3 }}>
+          <Box sx={styles.sliderContainer}>
             <Typography id="temperature-slider" gutterBottom>
               Temperature: {localTemperature.toFixed(2)}
             </Typography>

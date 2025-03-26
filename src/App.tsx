@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, CssBaseline } from '@mui/material';
+import * as styles from './styles/components/App.styles';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import SettingsDialog from './components/SettingsDialog';
@@ -328,7 +329,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <Box sx={styles.container}>
       <CssBaseline />
       
       {/* Settings dialog */}
