@@ -63,11 +63,19 @@ const App: React.FC = () => {
       if (savedChats.length > 0) {
         setChats(savedChats);
         setCurrentChat(savedChats[0]);
+        
+        // If models are already loaded, set the selected model based on the first chat's model ID
+        if (models.length > 0 && savedChats[0].modelId) {
+          const chatModel = models.find(m => m.id === savedChats[0].modelId);
+          if (chatModel) {
+            setSelectedModel(chatModel);
+          }
+        }
       }
     };
     
     fetchChats();
-  }, [loadChatsFromServer]);
+  }, [loadChatsFromServer, models]);
 
   // Save chats to server whenever they change
   useEffect(() => {
@@ -143,6 +151,14 @@ const App: React.FC = () => {
     const chat = chats.find(c => c.id === chatId);
     if (chat) {
       setCurrentChat(chat);
+      
+      // Set the model to the one used in this chat
+      if (chat.modelId) {
+        const chatModel = models.find(m => m.id === chat.modelId);
+        if (chatModel) {
+          setSelectedModel(chatModel);
+        }
+      }
     }
   };
 
@@ -151,7 +167,17 @@ const App: React.FC = () => {
     setChats(updatedChats);
     
     if (currentChat?.id === chatId) {
-      setCurrentChat(updatedChats.length > 0 ? updatedChats[0] : null);
+      // Set the new current chat
+      const newCurrentChat = updatedChats.length > 0 ? updatedChats[0] : null;
+      setCurrentChat(newCurrentChat);
+      
+      // Update the selected model to match the new current chat's model
+      if (newCurrentChat && newCurrentChat.modelId) {
+        const chatModel = models.find(m => m.id === newCurrentChat.modelId);
+        if (chatModel) {
+          setSelectedModel(chatModel);
+        }
+      }
     }
   };
 
@@ -305,6 +331,24 @@ const App: React.FC = () => {
 
   const handleSelectModel = async (model: ModelType) => {
     setSelectedModel(model);
+    
+    // Update the model ID in the current chat
+    if (currentChat) {
+      const updatedChat = {
+        ...currentChat,
+        modelId: model.id
+      };
+      
+      // Update the current chat
+      setCurrentChat(updatedChat);
+      
+      // Update the chat in the chats array
+      const updatedChats = chats.map(chat => 
+        chat.id === currentChat.id ? updatedChat : chat
+      );
+      
+      setChats(updatedChats);
+    }
     
     // Fetch model details to get context length
     try {
