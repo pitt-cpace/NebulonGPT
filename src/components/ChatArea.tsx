@@ -29,9 +29,14 @@ import {
   Mic as MicIcon,
   MoreVert as MoreVertIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
+  Add as AddIcon,
+  Description as DescriptionIcon,
+  Close as CloseIcon,
+  InsertDriveFile as InsertDriveFileIcon,
+  Image as ImageIcon,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
-import { ModelType, ChatType, MessageType } from '../types';
+import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
 import { getSuggestedPrompts } from '../services/api';
 import * as styles from '../styles/components/ChatArea.styles';
 
@@ -40,7 +45,7 @@ interface ChatAreaProps {
   model: ModelType | null;
   models: ModelType[];
   loading: boolean;
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, attachments?: FileAttachment[]) => void;
   onStopResponse: () => void;
   onToggleSidebar: () => void;
   onSelectModel: (model: ModelType) => void;
@@ -60,12 +65,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
+  const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [interimTranscript, setInterimTranscript] = useState('');
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const suggestedPrompts = getSuggestedPrompts();
 
   // Scroll to bottom when messages change
@@ -184,9 +193,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   }, [isListening, message]);
 
   const handleSendMessage = () => {
-    if (message.trim() && !loading) {
-      onSendMessage(message);
+    // Allow sending if there's a message OR attachments
+    if ((message.trim() || attachments.length > 0) && !loading) {
+      // Send message with any attachments
+      onSendMessage(message.trim() || "Attached files", attachments.length > 0 ? attachments : undefined);
+      
+      // Clear message and attachments
       setMessage('');
+      setAttachments([]);
     }
   };
 
@@ -212,6 +226,119 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   const handleSuggestedPrompt = (prompt: string) => {
     onSendMessage(prompt);
+  };
+
+  // Handle text file selection
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    // Process each selected file
+    Array.from(files).forEach(file => {
+      // Only process text files
+      if (!file.name.endsWith('.txt')) {
+        alert(`Only .txt files are supported. Skipping ${file.name}`);
+        return;
+      }
+      
+      const reader = new FileReader();
+      
+      reader.onload = (event) => {
+        if (!event.target || typeof event.target.result !== 'string') return;
+        
+        const content = event.target.result;
+        
+        // Create a new file attachment
+        const newAttachment: FileAttachment = {
+          id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          name: file.name,
+          type: 'text',
+          content: content,
+          size: file.size,
+          timestamp: new Date().toISOString(),
+        };
+        
+        // Add the attachment to the state
+        setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+      };
+      
+      reader.onerror = () => {
+        alert(`Error reading file: ${file.name}`);
+      };
+      
+      // Read the file as text
+      reader.readAsText(file);
+    });
+    
+    // Reset the file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+  
+  // Handle image file selection
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    // Process each selected image file
+    Array.from(files).forEach(file => {
+      // Verify it's an image file
+      if (!file.type.startsWith('image/')) {
+        alert(`Only image files are supported. Skipping ${file.name}`);
+        return;
+      }
+      
+      const reader = new FileReader();
+      
+      reader.onload = (event) => {
+        if (!event.target || typeof event.target.result !== 'string') return;
+        
+        const dataUrl = event.target.result;
+        
+        // Create a new image attachment
+        const newAttachment: FileAttachment = {
+          id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          name: file.name,
+          type: 'image',
+          content: dataUrl, // Store the image as a data URL
+          size: file.size,
+          timestamp: new Date().toISOString(),
+        };
+        
+        // Add the attachment to the state
+        setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+      };
+      
+      reader.onerror = () => {
+        alert(`Error reading image: ${file.name}`);
+      };
+      
+      // Read the image as a data URL
+      reader.readAsDataURL(file);
+    });
+    
+    // Reset the file input
+    if (imageInputRef.current) {
+      imageInputRef.current.value = '';
+    }
+  };
+  
+  // Handle attachment removal
+  const handleRemoveAttachment = (attachmentId: string) => {
+    // Simply filter out the attachment with the given ID
+    const updatedAttachments = attachments.filter(
+      (attachment) => attachment.id !== attachmentId
+    );
+    
+    setAttachments(updatedAttachments);
+  };
+  
+  // Format file size for display
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   // Custom renderers for ReactMarkdown
@@ -710,6 +837,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           sx={isUser ? styles.userMessage : styles.assistantMessage}
         >
           <Box sx={{ width: '100%' }}>
+            {/* Render message content */}
             <Typography
               variant="body1"
               component="div"
@@ -728,6 +856,51 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 </>
               )}
             </Typography>
+            
+            {/* Render file attachments if present */}
+            {message.attachments && message.attachments.length > 0 && (
+              <Box sx={{ mt: 2, mb: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Attachments:
+                </Typography>
+                {message.attachments.map((attachment) => (
+                  attachment.type === 'image' ? (
+                    <Box key={attachment.id} sx={{ mb: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                        <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                        <Typography variant="body2" sx={styles.attachmentName}>
+                          {attachment.name}
+                        </Typography>
+                        <Typography variant="caption" sx={styles.attachmentSize}>
+                          {formatFileSize(attachment.size)}
+                        </Typography>
+                      </Box>
+                      <Box 
+                        component="img"
+                        src={attachment.content}
+                        alt={attachment.name}
+                        sx={{ 
+                          maxWidth: '100%', 
+                          maxHeight: '300px',
+                          borderRadius: 1,
+                          objectFit: 'contain'
+                        }}
+                      />
+                    </Box>
+                  ) : (
+                    <Box key={attachment.id} sx={styles.attachmentPreview}>
+                      <DescriptionIcon sx={styles.attachmentIcon} />
+                      <Typography variant="body2" sx={styles.attachmentName}>
+                        {attachment.name}
+                      </Typography>
+                      <Typography variant="caption" sx={styles.attachmentSize}>
+                        {formatFileSize(attachment.size)}
+                      </Typography>
+                    </Box>
+                  )
+                ))}
+              </Box>
+            )}
           </Box>
         </Box>
       </Box>
@@ -868,25 +1041,155 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   </Typography>
                 )}
               </Box>
-              <TextField
-                fullWidth
-                placeholder="How can I help you today?"
-                multiline
-                maxRows={4}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                disabled={loading}
-                InputProps={{
-                  sx: styles.textField,
-                  endAdornment: isListening && interimTranscript ? (
-                    <Box sx={styles.interimTranscript}>
-                      {interimTranscript}
-                    </Box>
-                  ) : null,
-                }}
-                variant="outlined"
+              {/* Hidden file inputs */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                accept=".txt"
+                multiple
+                onChange={handleFileSelect}
               />
+              <input
+                type="file"
+                ref={imageInputRef}
+                style={{ display: 'none' }}
+                accept="image/*"
+                multiple
+                onChange={handleImageSelect}
+              />
+              
+              {/* Add attachment button with menu */}
+              <Box sx={{ position: 'relative' }}>
+                <IconButton
+                  size="small"
+                  onClick={(e) => setAttachMenuAnchor(e.currentTarget)}
+                  disabled={loading}
+                  title="Add attachment"
+                  sx={styles.fileUploadButton}
+                >
+                  <AddIcon fontSize="small" />
+                </IconButton>
+                <Menu
+                  anchorEl={attachMenuAnchor}
+                  open={Boolean(attachMenuAnchor)}
+                  onClose={() => setAttachMenuAnchor(null)}
+                  anchorOrigin={{
+                    vertical: 'top',
+                    horizontal: 'left',
+                  }}
+                  transformOrigin={{
+                    vertical: 'bottom',
+                    horizontal: 'left',
+                  }}
+                >
+                  <MenuItem 
+                    onClick={() => {
+                      setAttachMenuAnchor(null);
+                      fileInputRef.current?.click();
+                    }}
+                    sx={{ minWidth: '150px' }}
+                  >
+                    <InsertDriveFileIcon fontSize="small" sx={{ mr: 1 }} />
+                    <Typography variant="body2">Document</Typography>
+                  </MenuItem>
+                  <MenuItem 
+                    onClick={() => {
+                      setAttachMenuAnchor(null);
+                      imageInputRef.current?.click();
+                    }}
+                    sx={{ minWidth: '150px' }}
+                  >
+                    <ImageIcon fontSize="small" sx={{ mr: 1 }} />
+                    <Typography variant="body2">Image</Typography>
+                  </MenuItem>
+                </Menu>
+              </Box>
+              
+              <Box sx={{ width: '100%' }}>
+                {/* File attachment chips displayed above the text field */}
+                {attachments.length > 0 && (
+                  <Box 
+                    sx={{ 
+                      display: 'flex', 
+                      flexWrap: 'wrap', 
+                      gap: 0.5, 
+                      p: 1, 
+                      mb: 1,
+                      borderRadius: 1,
+                      bgcolor: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      width: '100%'
+                    }}
+                  >
+                    {attachments.map((attachment) => (
+                      <Box 
+                        key={attachment.id} 
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          bgcolor: 'action.hover',
+                          borderRadius: 1,
+                          p: 0.5,
+                          maxWidth: '100%',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        {attachment.type === 'image' ? (
+                          <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                        ) : (
+                          <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                        )}
+                        <Typography 
+                          variant="caption" 
+                          sx={{ 
+                            maxWidth: '150px', 
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {attachment.name}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveAttachment(attachment.id);
+                          }}
+                          sx={{ 
+                            ml: 0.5, 
+                            p: 0.25,
+                            '&:hover': { bgcolor: 'action.selected' }
+                          }}
+                        >
+                          <CloseIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+                
+                <TextField
+                  fullWidth
+                  placeholder="How can I help you today?"
+                  multiline
+                  maxRows={4}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  disabled={loading}
+                  InputProps={{
+                    sx: styles.textField,
+                    endAdornment: isListening && interimTranscript ? (
+                      <Box sx={styles.interimTranscript}>
+                        {interimTranscript}
+                      </Box>
+                    ) : null,
+                  }}
+                  variant="outlined"
+                />
+              </Box>
               {loading ? (
                 <IconButton
                   color="error"
@@ -899,7 +1202,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 <IconButton
                   color="primary"
                   onClick={handleSendMessage}
-                  disabled={!message.trim()}
+                  disabled={!message.trim() && attachments.length === 0}
                   sx={{ ml: 1 }}
                 >
                   <SendIcon />

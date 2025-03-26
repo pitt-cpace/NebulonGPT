@@ -4,7 +4,7 @@ import * as styles from './styles/components/App.styles';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import SettingsDialog from './components/SettingsDialog';
-import { ModelType, ChatType, MessageType } from './types';
+import { ModelType, ChatType, MessageType, FileAttachment } from './types';
 import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
 
 const App: React.FC = () => {
@@ -173,7 +173,7 @@ const App: React.FC = () => {
     await cancelStream();
   };
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, attachments?: FileAttachment[]) => {
     if (!currentChat || !selectedModel) return;
     
     const userMessage: MessageType = {
@@ -181,6 +181,7 @@ const App: React.FC = () => {
       role: 'user',
       content,
       timestamp: new Date().toISOString(),
+      attachments, // Add attachments to the message
     };
     
     // Update current chat with user message

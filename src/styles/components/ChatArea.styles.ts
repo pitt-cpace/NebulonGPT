@@ -73,6 +73,51 @@ export const inputBox: SxProps<Theme> = {
   alignItems: 'center',
 };
 
+export const fileUploadButton: SxProps<Theme> = {
+  mr: 1,
+  color: 'text.secondary',
+  '&:hover': {
+    color: 'primary.main',
+  },
+};
+
+export const fileInput: SxProps<Theme> = {
+  display: 'none',
+};
+
+export const attachmentPreview: SxProps<Theme> = {
+  display: 'flex',
+  alignItems: 'center',
+  p: 1,
+  my: 1,
+  borderRadius: 1,
+  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  border: '1px solid rgba(255, 255, 255, 0.1)',
+};
+
+export const attachmentIcon: SxProps<Theme> = {
+  mr: 1,
+  color: 'primary.main',
+};
+
+export const attachmentName: SxProps<Theme> = {
+  flexGrow: 1,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+export const attachmentSize: SxProps<Theme> = {
+  ml: 1,
+  color: 'text.secondary',
+  fontSize: '0.75rem',
+};
+
+export const attachmentRemove: SxProps<Theme> = {
+  ml: 1,
+  p: 0.5,
+};
+
 export const micButton: SxProps<Theme> = {
   mr: 1,
 };
