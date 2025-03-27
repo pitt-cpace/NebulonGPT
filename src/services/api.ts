@@ -122,24 +122,24 @@ export const sendMessage = async (
         // Array to hold image attachments for this specific message
         const messageImages: string[] = [];
         
-        // Process each attachment
-        msg.attachments.forEach(attachment => {
-          // Handle text attachments by including their content in the message
-          if (attachment.type === 'text' && attachment.content) {
-            enhancedContent += `\n\n--- File: ${attachment.name} ---\n${attachment.content}\n---\n`;
-          }
-          
-          // Collect image attachments for this message
-          if (attachment.type === 'image' && attachment.content) {
-            // Extract base64 data from data URL (remove the prefix like "data:image/jpeg;base64,")
-            const base64Data = attachment.content.split(',')[1];
-            if (base64Data) {
-              messageImages.push(base64Data);
-              // Also add to the global array for logging purposes
-              imageAttachments.push(base64Data);
-            }
-          }
-        });
+    // Process each attachment
+    msg.attachments.forEach(attachment => {
+      // Handle text and PDF attachments by including their content in the message
+      if ((attachment.type === 'text' || attachment.type === 'pdf') && attachment.content) {
+        enhancedContent += `\n\n--- File: ${attachment.name} ---\n${attachment.content}\n---\n`;
+      }
+      
+      // Collect image attachments for this message
+      if (attachment.type === 'image' && attachment.content) {
+        // Extract base64 data from data URL (remove the prefix like "data:image/jpeg;base64,")
+        const base64Data = attachment.content.split(',')[1];
+        if (base64Data) {
+          messageImages.push(base64Data);
+          // Also add to the global array for logging purposes
+          imageAttachments.push(base64Data);
+        }
+      }
+    });
         
         // Return message with images included in the message object per Ollama API docs
         return {

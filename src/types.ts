@@ -11,8 +11,9 @@ export interface ModelType {
 export interface FileAttachment {
   id: string;
   name: string;
-  type: 'text' | 'image' | 'document' | 'audio'; // Starting with 'text', will expand later
+  type: 'text' | 'image' | 'document' | 'pdf' | 'audio'; // Added 'pdf' type
   content?: string; // For text files, we'll store the content directly
+  images?: string[]; // Array of image data URLs for PDFs with images
   url?: string;     // For future use with other file types
   size: number;
   timestamp: string;

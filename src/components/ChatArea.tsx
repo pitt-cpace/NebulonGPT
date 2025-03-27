@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import { TextItem } from 'pdfjs-dist/types/src/display/api';
 import {
   Box,
   Typography,
@@ -39,6 +41,9 @@ import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
 import { getSuggestedPrompts } from '../services/api';
 import * as styles from '../styles/components/ChatArea.styles';
+
+// Set the worker source path
+GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
 
 interface ChatAreaProps {
   chat: ChatType | null;
@@ -195,8 +200,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const handleSendMessage = () => {
     // Allow sending if there's a message OR attachments
     if ((message.trim() || attachments.length > 0) && !loading) {
-      // Send message with any attachments
-      onSendMessage(message.trim() || "Attached files", attachments.length > 0 ? attachments : undefined);
+      // Send message with any attachments - don't add "Attached files" text
+      onSendMessage(message.trim(), attachments.length > 0 ? attachments : undefined);
       
       // Clear message and attachments
       setMessage('');
@@ -228,6 +233,110 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     onSendMessage(prompt);
   };
 
+  // Handle PDF file selection
+  const handlePdfSelect = async (file: File) => {
+    try {
+      // Read the file as ArrayBuffer
+      const arrayBuffer = await file.arrayBuffer();
+      
+      // Load the PDF document
+      const loadingTask = getDocument(arrayBuffer);
+      const pdf = await loadingTask.promise;
+      
+      // Extract text from all pages
+      let fullText = '';
+      const numPages = pdf.numPages;
+      const extractedImages: string[] = [];
+      
+      for (let i = 1; i <= numPages; i++) {
+        const page = await pdf.getPage(i);
+        
+        // Extract text content
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .filter(item => 'str' in item)
+          .map(item => (item as TextItem).str)
+          .join(' ');
+        
+        fullText += `[Page ${i}]\n${pageText}\n\n`;
+        
+        // Extract images from the page
+        try {
+          // Get the operator list which contains all drawing operations
+          const opList = await page.getOperatorList();
+          
+          // Get all image IDs from the operator list
+          const imageIds = new Set<string>();
+          for (let j = 0; j < opList.fnArray.length; j++) {
+            const fnId = opList.fnArray[j];
+            if (fnId === 83) { // 83 is the ID for the "paintImageXObject" operation
+              const imageId = opList.argsArray[j][0];
+              if (typeof imageId === 'string') {
+                imageIds.add(imageId);
+              }
+            }
+          }
+          
+          // Extract each image
+          for (const imageId of Array.from(imageIds)) {
+            try {
+              // Get the image data
+              const img = await page.objs.get(imageId);
+              if (img && img.src) {
+                // If the image has a src property, it's likely a data URL or URL
+                extractedImages.push(img.src);
+              } else if (img && img.data && img.width && img.height) {
+                // Create a canvas to draw the image
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                
+                if (ctx) {
+                  // Create an ImageData object
+                  const imageData = ctx.createImageData(img.width, img.height);
+                  
+                  // Copy the image data to the ImageData object
+                  for (let i = 0; i < img.data.length; i++) {
+                    imageData.data[i] = img.data[i];
+                  }
+                  
+                  // Put the ImageData on the canvas
+                  ctx.putImageData(imageData, 0, 0);
+                  
+                  // Convert the canvas to a data URL
+                  const dataUrl = canvas.toDataURL('image/png');
+                  extractedImages.push(dataUrl);
+                }
+              }
+            } catch (imgError) {
+              console.warn(`Error extracting image ${imageId}:`, imgError);
+            }
+          }
+        } catch (pageError) {
+          console.warn(`Error extracting images from page ${i}:`, pageError);
+        }
+      }
+      
+      // Create a new file attachment
+      const newAttachment: FileAttachment = {
+        id: `pdf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: file.name,
+        type: 'pdf',
+        content: fullText, // Store the extracted text
+        images: extractedImages.length > 0 ? extractedImages : undefined, // Store extracted images
+        size: file.size,
+        timestamp: new Date().toISOString(),
+      };
+      
+      // Add the attachment to the state
+      setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+    } catch (error) {
+      console.error('Error processing PDF:', error);
+      alert(`Error processing PDF: ${file.name}`);
+    }
+  };
+
   // Handle text and Word file selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -237,8 +346,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     import('mammoth').then(mammoth => {
       // Process each selected file
       Array.from(files).forEach(file => {
+        // Process PDF files
+        if (file.name.endsWith('.pdf')) {
+          handlePdfSelect(file);
+        }
         // Process text files
-        if (file.name.endsWith('.txt')) {
+        else if (file.name.endsWith('.txt')) {
           const reader = new FileReader();
           
           reader.onload = (event) => {
@@ -309,7 +422,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         }
         // Skip unsupported files
         else {
-          alert(`Only .txt and .docx files are supported. Skipping ${file.name}`);
+          alert(`Only .txt, .docx, and .pdf files are supported. Skipping ${file.name}`);
         }
       });
       
@@ -910,11 +1023,130 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
                   Attachments:
                 </Typography>
-                {message.attachments.map((attachment) => (
-                  attachment.type === 'image' ? (
-                    <Box key={attachment.id} sx={{ mb: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-                        <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                {message.attachments.map((attachment) => {
+                  if (attachment.type === 'image') {
+                    return (
+                      <Box key={attachment.id} sx={{ mb: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                          <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                          <Typography variant="body2" sx={styles.attachmentName}>
+                            {attachment.name}
+                          </Typography>
+                          <Typography variant="caption" sx={styles.attachmentSize}>
+                            {formatFileSize(attachment.size)}
+                          </Typography>
+                        </Box>
+                        <Box 
+                          component="img"
+                          src={attachment.content}
+                          alt={attachment.name}
+                          sx={{ 
+                            maxWidth: '100%', 
+                            maxHeight: '300px',
+                            borderRadius: 1,
+                            objectFit: 'contain'
+                          }}
+                        />
+                      </Box>
+                    );
+                  } else if (attachment.type === 'pdf') {
+                    return (
+                      <Box key={attachment.id} sx={{ mb: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                          <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                          <Typography variant="body2" sx={styles.attachmentName}>
+                            {attachment.name} (PDF)
+                          </Typography>
+                          <Typography variant="caption" sx={styles.attachmentSize}>
+                            {formatFileSize(attachment.size)}
+                          </Typography>
+                        </Box>
+                        
+                        {/* Simple PDF preview with extracted content */}
+                        <Box sx={{ 
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 1,
+                          p: 1,
+                          bgcolor: 'background.paper',
+                        }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                            PDF Content Preview
+                          </Typography>
+                          
+                          {/* Show a small preview of the text */}
+                          {attachment.content && (
+                            <Box 
+                              sx={{ 
+                                maxHeight: '100px', 
+                                overflowY: 'auto',
+                                p: 1,
+                                bgcolor: 'action.hover',
+                                borderRadius: 1,
+                                mb: 1,
+                                fontSize: '0.75rem'
+                              }}
+                            >
+                              <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                                {attachment.content.length > 300 
+                                  ? `${attachment.content.substring(0, 300)}...`
+                                  : attachment.content
+                                }
+                              </pre>
+                            </Box>
+                          )}
+                          
+                          {/* Show thumbnails of extracted images if any */}
+                          {attachment.images && attachment.images.length > 0 && (
+                            <Box>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                {attachment.images.length} image{attachment.images.length !== 1 ? 's' : ''} extracted
+                              </Typography>
+                              <Box sx={{ 
+                                display: 'flex', 
+                                flexWrap: 'wrap', 
+                                gap: 0.5,
+                                maxHeight: '100px',
+                                overflowY: 'auto'
+                              }}>
+                                {attachment.images.slice(0, 4).map((imgSrc, index) => (
+                                  <Box 
+                                    key={index}
+                                    component="img"
+                                    src={imgSrc}
+                                    alt={`Image ${index + 1} from ${attachment.name}`}
+                                    sx={{ 
+                                      width: '40px', 
+                                      height: '40px',
+                                      objectFit: 'cover',
+                                      borderRadius: 0.5,
+                                    }}
+                                  />
+                                ))}
+                                {attachment.images.length > 4 && (
+                                  <Box sx={{ 
+                                    width: '40px', 
+                                    height: '40px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    bgcolor: 'action.hover',
+                                    borderRadius: 0.5,
+                                    fontSize: '0.75rem'
+                                  }}>
+                                    +{attachment.images.length - 4}
+                                  </Box>
+                                )}
+                              </Box>
+                            </Box>
+                          )}
+                        </Box>
+                      </Box>
+                    );
+                  } else {
+                    return (
+                      <Box key={attachment.id} sx={styles.attachmentPreview}>
+                        <DescriptionIcon sx={styles.attachmentIcon} />
                         <Typography variant="body2" sx={styles.attachmentName}>
                           {attachment.name}
                         </Typography>
@@ -922,30 +1154,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                           {formatFileSize(attachment.size)}
                         </Typography>
                       </Box>
-                      <Box 
-                        component="img"
-                        src={attachment.content}
-                        alt={attachment.name}
-                        sx={{ 
-                          maxWidth: '100%', 
-                          maxHeight: '300px',
-                          borderRadius: 1,
-                          objectFit: 'contain'
-                        }}
-                      />
-                    </Box>
-                  ) : (
-                    <Box key={attachment.id} sx={styles.attachmentPreview}>
-                      <DescriptionIcon sx={styles.attachmentIcon} />
-                      <Typography variant="body2" sx={styles.attachmentName}>
-                        {attachment.name}
-                      </Typography>
-                      <Typography variant="caption" sx={styles.attachmentSize}>
-                        {formatFileSize(attachment.size)}
-                      </Typography>
-                    </Box>
-                  )
-                ))}
+                    );
+                  }
+                })}
               </Box>
             )}
           </Box>
@@ -1093,7 +1304,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 type="file"
                 ref={fileInputRef}
                 style={{ display: 'none' }}
-                accept=".txt,.docx"
+                accept=".txt,.docx,.pdf"
                 multiple
                 onChange={handleFileSelect}
               />
