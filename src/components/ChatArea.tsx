@@ -200,8 +200,35 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const handleSendMessage = () => {
     // Allow sending if there's a message OR attachments
     if ((message.trim() || attachments.length > 0) && !loading) {
-      // Send message with any attachments - don't add "Attached files" text
-      onSendMessage(message.trim(), attachments.length > 0 ? attachments : undefined);
+      let messageText = message.trim();
+      
+      // Check if there are PDF attachments and add a special prompt
+      const hasPdfAttachments = attachments.some(attachment => attachment.type === 'pdf');
+      if (hasPdfAttachments) {
+        // Count PDF attachments with text and images
+        const pdfWithTextCount = attachments.filter(att => att.type === 'pdf' && att.content).length;
+        const pdfWithImagesCount = attachments.filter(att => att.type === 'pdf' && att.images && att.images.length > 0).length;
+        
+        // Create a descriptive prefix for the message
+        let pdfDescription = "I've attached PDF file(s)";
+        if (pdfWithTextCount > 0 && pdfWithImagesCount > 0) {
+          pdfDescription += " containing both text and images";
+        } else if (pdfWithTextCount > 0) {
+          pdfDescription += " containing text";
+        } else if (pdfWithImagesCount > 0) {
+          pdfDescription += " containing images";
+        }
+        
+        // Add the PDF description to the message if there's no existing message
+        if (!messageText) {
+          messageText = pdfDescription + ".";
+        } else {
+          messageText = messageText + pdfDescription + ".";
+        }
+      }
+      
+      // Send message with any attachments
+      onSendMessage(messageText, attachments.length > 0 ? attachments : undefined);
       
       // Clear message and attachments
       setMessage('');
