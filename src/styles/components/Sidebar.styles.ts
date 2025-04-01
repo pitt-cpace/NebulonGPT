@@ -45,6 +45,24 @@ export const appSubtitle: SxProps<Theme> = {
   mt: 0.5,
 };
 
+export const byLogoContainer: SxProps<Theme> = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 1,
+  mt: 0.5,
+};
+
+export const byText: SxProps<Theme> = {
+  fontWeight: 'bold',
+  fontSize: '0.7rem',
+};
+
+export const cpaceLogo: SxProps<Theme> = {
+  width: '100%',
+  maxWidth: 135,
+  height: 'auto',
+};
+
 export const newChatButtonContainer: SxProps<Theme> = {
   display: 'flex',
   alignItems: 'center',

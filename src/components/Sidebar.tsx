@@ -103,9 +103,16 @@ const Sidebar: React.FC<SidebarProps> = ({
             <Typography variant="caption" color="text.secondary">
               Your Private AI Assistant
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={styles.appSubtitle}>
-              by HH Rashidi
-            </Typography>
+            <Box sx={styles.byLogoContainer}>
+              <Typography variant="caption" color="text.secondary" sx={styles.byText}>
+                BY
+              </Typography>
+              <Box component="img" 
+                src="/cpace-logo.png" 
+                alt="CPACE Logo" 
+                sx={styles.cpaceLogo} 
+              />
+            </Box>
           </Box>
         </Box>
         
