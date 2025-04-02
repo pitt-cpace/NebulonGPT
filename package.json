@@ -13,6 +13,7 @@
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "mammoth": "^1.9.0",
+    "pdfjs-dist": "^3.11.174",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^8.0.7",
@@ -23,7 +24,9 @@
   "devDependencies": {
     "@types/node": "^16.18.30",
     "@types/react": "^18.2.6",
-    "@types/react-dom": "^18.2.4"
+    "@types/react-dom": "^18.2.4",
+    "@types/pdfjs-dist": "^2.10.378",
+    "@types/dom-speech-recognition": "^0.0.4"
   },
   "scripts": {
     "start": "react-scripts start",
