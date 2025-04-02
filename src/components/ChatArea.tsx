@@ -79,7 +79,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
   const suggestedPrompts = getSuggestedPrompts();
 
   // Scroll to bottom when messages change
@@ -364,33 +363,100 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
-  // Handle text and Word file selection
+  // Handle file selection for all supported file types
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     
-    // Import mammoth for Word file processing
-    import('mammoth').then(mammoth => {
-      // Process each selected file
-      Array.from(files).forEach(file => {
-        // Process PDF files
-        if (file.name.endsWith('.pdf')) {
-          handlePdfSelect(file);
-        }
-        // Process text files
-        else if (file.name.endsWith('.txt')) {
-          const reader = new FileReader();
+    // Process each selected file
+    Array.from(files).forEach(file => {
+      // Process image files
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        
+        reader.onload = (event) => {
+          if (!event.target || typeof event.target.result !== 'string') return;
           
-          reader.onload = (event) => {
-            if (!event.target || typeof event.target.result !== 'string') return;
+          const dataUrl = event.target.result;
+          
+          // Create a new image attachment
+          const newAttachment: FileAttachment = {
+            id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: file.name,
+            type: 'image',
+            content: dataUrl, // Store the image as a data URL
+            size: file.size,
+            timestamp: new Date().toISOString(),
+          };
+          
+          // Add the attachment to the state
+          setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+        };
+        
+        reader.onerror = () => {
+          alert(`Error reading image: ${file.name}`);
+        };
+        
+        // Read the image as a data URL
+        reader.readAsDataURL(file);
+      }
+      // Process PDF files
+      else if (file.name.endsWith('.pdf')) {
+        handlePdfSelect(file);
+      }
+      // Process text files
+      else if (file.name.endsWith('.txt')) {
+        const reader = new FileReader();
+        
+        reader.onload = (event) => {
+          if (!event.target || typeof event.target.result !== 'string') return;
+          
+          const content = event.target.result;
+          
+          // Create a new file attachment
+          const newAttachment: FileAttachment = {
+            id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: file.name,
+            type: 'text',
+            content: content,
+            size: file.size,
+            timestamp: new Date().toISOString(),
+          };
+          
+          // Add the attachment to the state
+          setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+        };
+        
+        reader.onerror = () => {
+          alert(`Error reading file: ${file.name}`);
+        };
+        
+        // Read the file as text
+        reader.readAsText(file);
+      }
+      // Process Word files
+      else if (file.name.endsWith('.docx')) {
+        const reader = new FileReader();
+        
+        reader.onload = async (event) => {
+          if (!event.target || !event.target.result) return;
+          
+          try {
+            // Import mammoth for Word file processing
+            const mammoth = await import('mammoth');
             
-            const content = event.target.result;
+            // Convert the ArrayBuffer to a Uint8Array for mammoth
+            const arrayBuffer = event.target.result as ArrayBuffer;
+            
+            // Extract text from the Word document
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            const content = result.value; // The extracted text
             
             // Create a new file attachment
             const newAttachment: FileAttachment = {
               id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               name: file.name,
-              type: 'text',
+              type: 'text', // Still treat it as text for the LLM
               content: content,
               size: file.size,
               timestamp: new Date().toISOString(),
@@ -398,116 +464,28 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             
             // Add the attachment to the state
             setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
-          };
-          
-          reader.onerror = () => {
-            alert(`Error reading file: ${file.name}`);
-          };
-          
-          // Read the file as text
-          reader.readAsText(file);
-        }
-        // Process Word files
-        else if (file.name.endsWith('.docx')) {
-          const reader = new FileReader();
-          
-          reader.onload = async (event) => {
-            if (!event.target || !event.target.result) return;
-            
-            try {
-              // Convert the ArrayBuffer to a Uint8Array for mammoth
-              const arrayBuffer = event.target.result as ArrayBuffer;
-              
-              // Extract text from the Word document
-              const result = await mammoth.extractRawText({ arrayBuffer });
-              const content = result.value; // The extracted text
-              
-              // Create a new file attachment
-              const newAttachment: FileAttachment = {
-                id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                name: file.name,
-                type: 'text', // Still treat it as text for the LLM
-                content: content,
-                size: file.size,
-                timestamp: new Date().toISOString(),
-              };
-              
-              // Add the attachment to the state
-              setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
-            } catch (error) {
-              console.error('Error extracting text from Word file:', error);
-              alert(`Error processing Word file: ${file.name}`);
-            }
-          };
-          
-          reader.onerror = () => {
-            alert(`Error reading file: ${file.name}`);
-          };
-          
-          // Read the file as an ArrayBuffer for mammoth
-          reader.readAsArrayBuffer(file);
-        }
-        // Skip unsupported files
-        else {
-          alert(`Only .txt, .docx, and .pdf files are supported. Skipping ${file.name}`);
-        }
-      });
-      
-      // Reset the file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    }).catch(error => {
-      console.error('Error loading mammoth library:', error);
-      alert('Failed to load document processing library. Please try again.');
-    });
-  };
-  
-  // Handle image file selection
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    
-    // Process each selected image file
-    Array.from(files).forEach(file => {
-      // Verify it's an image file
-      if (!file.type.startsWith('image/')) {
-        alert(`Only image files are supported. Skipping ${file.name}`);
-        return;
-      }
-      
-      const reader = new FileReader();
-      
-      reader.onload = (event) => {
-        if (!event.target || typeof event.target.result !== 'string') return;
-        
-        const dataUrl = event.target.result;
-        
-        // Create a new image attachment
-        const newAttachment: FileAttachment = {
-          id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          name: file.name,
-          type: 'image',
-          content: dataUrl, // Store the image as a data URL
-          size: file.size,
-          timestamp: new Date().toISOString(),
+          } catch (error) {
+            console.error('Error extracting text from Word file:', error);
+            alert(`Error processing Word file: ${file.name}`);
+          }
         };
         
-        // Add the attachment to the state
-        setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
-      };
-      
-      reader.onerror = () => {
-        alert(`Error reading image: ${file.name}`);
-      };
-      
-      // Read the image as a data URL
-      reader.readAsDataURL(file);
+        reader.onerror = () => {
+          alert(`Error reading file: ${file.name}`);
+        };
+        
+        // Read the file as an ArrayBuffer for mammoth
+        reader.readAsArrayBuffer(file);
+      }
+      // Skip unsupported files
+      else {
+        alert(`Only .txt, .docx, .pdf, and image files are supported. Skipping ${file.name}`);
+      }
     });
     
     // Reset the file input
-    if (imageInputRef.current) {
-      imageInputRef.current.value = '';
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
   
@@ -1326,69 +1304,27 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   </Typography>
                 )}
               </Box>
-              {/* Hidden file inputs */}
+              {/* Hidden unified file input */}
               <input
                 type="file"
                 ref={fileInputRef}
                 style={{ display: 'none' }}
-                accept=".txt,.docx,.pdf"
+                accept=".txt,.docx,.pdf,image/*"
                 multiple
                 onChange={handleFileSelect}
               />
-              <input
-                type="file"
-                ref={imageInputRef}
-                style={{ display: 'none' }}
-                accept="image/*"
-                multiple
-                onChange={handleImageSelect}
-              />
               
-              {/* Add attachment button with menu */}
+              {/* Add attachment button - direct file browser */}
               <Box sx={{ position: 'relative' }}>
                 <IconButton
                   size="small"
-                  onClick={(e) => setAttachMenuAnchor(e.currentTarget)}
+                  onClick={() => fileInputRef.current?.click()}
                   disabled={loading}
                   title="Add attachment"
                   sx={styles.fileUploadButton}
                 >
                   <AddIcon fontSize="small" />
                 </IconButton>
-                <Menu
-                  anchorEl={attachMenuAnchor}
-                  open={Boolean(attachMenuAnchor)}
-                  onClose={() => setAttachMenuAnchor(null)}
-                  anchorOrigin={{
-                    vertical: 'top',
-                    horizontal: 'left',
-                  }}
-                  transformOrigin={{
-                    vertical: 'bottom',
-                    horizontal: 'left',
-                  }}
-                >
-                  <MenuItem 
-                    onClick={() => {
-                      setAttachMenuAnchor(null);
-                      fileInputRef.current?.click();
-                    }}
-                    sx={{ minWidth: '150px' }}
-                  >
-                    <InsertDriveFileIcon fontSize="small" sx={{ mr: 1 }} />
-                    <Typography variant="body2">Document</Typography>
-                  </MenuItem>
-                  <MenuItem 
-                    onClick={() => {
-                      setAttachMenuAnchor(null);
-                      imageInputRef.current?.click();
-                    }}
-                    sx={{ minWidth: '150px' }}
-                  >
-                    <ImageIcon fontSize="small" sx={{ mr: 1 }} />
-                    <Typography variant="body2">Image</Typography>
-                  </MenuItem>
-                </Menu>
               </Box>
               
               <Box sx={{ width: '100%' }}>
