@@ -1,55 +1,22 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css';
+// Styles are now fully migrated to globalStyles.ts
 import App from './App';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
+import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import theme from './styles/theme';
+import getGlobalStyleOverrides from './styles/globalStyles';
 
-const darkTheme = createTheme({
-  palette: {
-    mode: 'dark',
-    background: {
-      default: '#121212',
-      paper: '#1e1e1e',
-    },
-    primary: {
-      main: '#90caf9',
-    },
-    secondary: {
-      main: '#f48fb1',
-    },
-  },
-  typography: {
-    fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
-  },
+// Update theme with global style overrides
+const themeWithGlobalStyles = {
+  ...theme,
   components: {
+    ...theme.components,
     MuiCssBaseline: {
-      styleOverrides: {
-        body: {
-          scrollbarColor: "#6b6b6b #2b2b2b",
-          "&::-webkit-scrollbar, & *::-webkit-scrollbar": {
-            backgroundColor: "#2b2b2b",
-            width: "8px",
-          },
-          "&::-webkit-scrollbar-thumb, & *::-webkit-scrollbar-thumb": {
-            borderRadius: 8,
-            backgroundColor: "#6b6b6b",
-            minHeight: 24,
-          },
-          "&::-webkit-scrollbar-thumb:focus, & *::-webkit-scrollbar-thumb:focus": {
-            backgroundColor: "#959595",
-          },
-          "&::-webkit-scrollbar-thumb:active, & *::-webkit-scrollbar-thumb:active": {
-            backgroundColor: "#959595",
-          },
-          "&::-webkit-scrollbar-thumb:hover, & *::-webkit-scrollbar-thumb:hover": {
-            backgroundColor: "#959595",
-          },
-        },
-      },
+      styleOverrides: getGlobalStyleOverrides(theme),
     },
   },
-});
+};
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
@@ -57,7 +24,7 @@ const root = ReactDOM.createRoot(
 
 root.render(
   <React.StrictMode>
-    <ThemeProvider theme={darkTheme}>
+    <ThemeProvider theme={themeWithGlobalStyles}>
       <CssBaseline />
       <App />
     </ThemeProvider>

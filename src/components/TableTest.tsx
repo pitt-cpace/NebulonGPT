@@ -1,6 +1,7 @@
 import React from 'react';
 import TableRenderer from './TableRenderer';
 import { Box, Typography, Button } from '@mui/material';
+import * as styles from '../styles/components/TableTest.styles';
 
 /**
  * Test component for verifying table rendering functionality
@@ -19,8 +20,8 @@ const TableTest: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 4, maxWidth: '800px', margin: '0 auto' }}>
-      <Typography variant="h4" gutterBottom sx={{ color: '#90caf9' }}>
+    <Box sx={styles.container}>
+      <Typography variant="h4" gutterBottom sx={styles.title}>
         Table Rendering Test
       </Typography>
       
@@ -28,14 +29,14 @@ const TableTest: React.FC = () => {
         This is a test to verify that the TableRenderer component is working correctly.
       </Typography>
       
-      <Typography variant="h5" gutterBottom sx={{ mt: 3 }}>
+      <Typography variant="h5" gutterBottom sx={styles.subtitle}>
         Top 5 Programming Languages
       </Typography>
       
       {/* Use the TableRenderer component with our sample data */}
       <TableRenderer tableData={tableData} />
       
-      <Box sx={{ mt: 4 }}>
+      <Box sx={styles.footer}>
         <Typography variant="body2" color="text.secondary">
           If you can see a properly formatted table above, the table rendering functionality is working correctly.
         </Typography>

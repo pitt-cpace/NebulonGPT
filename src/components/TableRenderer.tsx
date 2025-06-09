@@ -8,6 +8,7 @@ import {
   TableRow,
   Paper,
 } from '@mui/material';
+import * as styles from '../styles/components/TableRenderer.styles';
 
 interface TableData {
   headers: string[];
@@ -29,28 +30,15 @@ const TableRenderer: React.FC<TableRendererProps> = ({ tableData }) => {
   return (
     <TableContainer 
       component={Paper} 
-      sx={{ 
-        my: 3,
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-        borderRadius: 2,
-        overflow: 'hidden',
-        boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-        width: '100%',
-      }}
+      sx={styles.tableContainer}
     >
       <Table>
-        <TableHead sx={{ backgroundColor: 'rgba(144, 202, 249, 0.1)' }}>
+        <TableHead sx={styles.tableHead}>
           <TableRow>
             {headers.map((header, idx) => (
               <TableCell 
                 key={idx}
-                sx={{ 
-                  fontWeight: 'bold', 
-                  borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-                  color: '#90caf9',
-                  py: 2,
-                  px: 2,
-                }}
+                sx={styles.tableHeaderCell}
               >
                 {header}
               </TableCell>
@@ -61,20 +49,12 @@ const TableRenderer: React.FC<TableRendererProps> = ({ tableData }) => {
           {rows.map((row, rowIdx) => (
             <TableRow 
               key={rowIdx}
-              sx={{ 
-                '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.1)' },
-                '&:nth-of-type(even)': { backgroundColor: 'rgba(255, 255, 255, 0.02)' },
-                '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
-              }}
+              sx={styles.tableRow}
             >
               {row.map((cell, cellIdx) => (
                 <TableCell 
                   key={cellIdx}
-                  sx={{ 
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                    py: 1.5,
-                    px: 2,
-                  }}
+                  sx={styles.tableCell}
                 >
                   {cell}
                 </TableCell>

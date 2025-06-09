@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import { TextItem } from 'pdfjs-dist/types/src/display/api';
 import {
   Box,
   Typography,
@@ -29,20 +31,30 @@ import {
   Mic as MicIcon,
   MoreVert as MoreVertIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
+  Add as AddIcon,
+  Description as DescriptionIcon,
+  Close as CloseIcon,
+  InsertDriveFile as InsertDriveFileIcon,
+  Image as ImageIcon,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
-import { ModelType, ChatType, MessageType } from '../types';
+import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
 import { getSuggestedPrompts } from '../services/api';
+import * as styles from '../styles/components/ChatArea.styles';
+
+// Set the worker source path
+GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
 
 interface ChatAreaProps {
   chat: ChatType | null;
   model: ModelType | null;
   models: ModelType[];
   loading: boolean;
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, attachments?: FileAttachment[]) => void;
   onStopResponse: () => void;
   onToggleSidebar: () => void;
   onSelectModel: (model: ModelType) => void;
+  sidebarOpen: boolean; // Add sidebarOpen prop
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -54,15 +66,19 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onStopResponse,
   onToggleSidebar,
   onSelectModel,
+  sidebarOpen, // Destructure sidebarOpen
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
+  const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [interimTranscript, setInterimTranscript] = useState('');
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const suggestedPrompts = getSuggestedPrompts();
 
   // Scroll to bottom when messages change
@@ -181,9 +197,41 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   }, [isListening, message]);
 
   const handleSendMessage = () => {
-    if (message.trim() && !loading) {
-      onSendMessage(message);
+    // Allow sending if there's a message OR attachments
+    if ((message.trim() || attachments.length > 0) && !loading) {
+      let messageText = message.trim();
+      
+      // Check if there are PDF attachments and add a special prompt
+      const hasPdfAttachments = attachments.some(attachment => attachment.type === 'pdf');
+      if (hasPdfAttachments) {
+        // Count PDF attachments with text and images
+        const pdfWithTextCount = attachments.filter(att => att.type === 'pdf' && att.content).length;
+        const pdfWithImagesCount = attachments.filter(att => att.type === 'pdf' && att.images && att.images.length > 0).length;
+        
+        // Create a descriptive prefix for the message
+        let pdfDescription = "I've attached PDF file(s)";
+        if (pdfWithTextCount > 0 && pdfWithImagesCount > 0) {
+          pdfDescription += " containing both text and images";
+        } else if (pdfWithTextCount > 0) {
+          pdfDescription += " containing text";
+        } else if (pdfWithImagesCount > 0) {
+          pdfDescription += " containing images";
+        }
+        
+        // Add the PDF description to the message if there's no existing message
+        if (!messageText) {
+          messageText = pdfDescription + ".";
+        } else {
+          messageText = messageText + pdfDescription + ".";
+        }
+      }
+      
+      // Send message with any attachments
+      onSendMessage(messageText, attachments.length > 0 ? attachments : undefined);
+      
+      // Clear message and attachments
       setMessage('');
+      setAttachments([]);
     }
   };
 
@@ -211,21 +259,260 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     onSendMessage(prompt);
   };
 
+  // Handle PDF file selection
+  const handlePdfSelect = async (file: File) => {
+    try {
+      // Read the file as ArrayBuffer
+      const arrayBuffer = await file.arrayBuffer();
+      
+      // Load the PDF document
+      const loadingTask = getDocument(arrayBuffer);
+      const pdf = await loadingTask.promise;
+      
+      // Extract text from all pages
+      let fullText = '';
+      const numPages = pdf.numPages;
+      const extractedImages: string[] = [];
+      
+      for (let i = 1; i <= numPages; i++) {
+        const page = await pdf.getPage(i);
+        
+        // Extract text content
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .filter(item => 'str' in item)
+          .map(item => (item as TextItem).str)
+          .join(' ');
+        
+        fullText += `[Page ${i}]\n${pageText}\n\n`;
+        
+        // Extract images from the page
+        try {
+          // Get the operator list which contains all drawing operations
+          const opList = await page.getOperatorList();
+          
+          // Get all image IDs from the operator list
+          const imageIds = new Set<string>();
+          for (let j = 0; j < opList.fnArray.length; j++) {
+            const fnId = opList.fnArray[j];
+            if (fnId === 83) { // 83 is the ID for the "paintImageXObject" operation
+              const imageId = opList.argsArray[j][0];
+              if (typeof imageId === 'string') {
+                imageIds.add(imageId);
+              }
+            }
+          }
+          
+          // Extract each image
+          for (const imageId of Array.from(imageIds)) {
+            try {
+              // Get the image data
+              const img = await page.objs.get(imageId);
+              if (img && img.src) {
+                // If the image has a src property, it's likely a data URL or URL
+                extractedImages.push(img.src);
+              } else if (img && img.data && img.width && img.height) {
+                // Create a canvas to draw the image
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                
+                if (ctx) {
+                  // Create an ImageData object
+                  const imageData = ctx.createImageData(img.width, img.height);
+                  
+                  // Copy the image data to the ImageData object
+                  for (let i = 0; i < img.data.length; i++) {
+                    imageData.data[i] = img.data[i];
+                  }
+                  
+                  // Put the ImageData on the canvas
+                  ctx.putImageData(imageData, 0, 0);
+                  
+                  // Convert the canvas to a data URL
+                  const dataUrl = canvas.toDataURL('image/png');
+                  extractedImages.push(dataUrl);
+                }
+              }
+            } catch (imgError) {
+              console.warn(`Error extracting image ${imageId}:`, imgError);
+            }
+          }
+        } catch (pageError) {
+          console.warn(`Error extracting images from page ${i}:`, pageError);
+        }
+      }
+      
+      // Create a new file attachment
+      const newAttachment: FileAttachment = {
+        id: `pdf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        name: file.name,
+        type: 'pdf',
+        content: fullText, // Store the extracted text
+        images: extractedImages.length > 0 ? extractedImages : undefined, // Store extracted images
+        size: file.size,
+        timestamp: new Date().toISOString(),
+      };
+      
+      // Add the attachment to the state
+      setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+    } catch (error) {
+      console.error('Error processing PDF:', error);
+      alert(`Error processing PDF: ${file.name}`);
+    }
+  };
+
+  // Handle file selection for all supported file types
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    // Process each selected file
+    Array.from(files).forEach(file => {
+      // Process image files
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        
+        reader.onload = (event) => {
+          if (!event.target || typeof event.target.result !== 'string') return;
+          
+          const dataUrl = event.target.result;
+          
+          // Create a new image attachment
+          const newAttachment: FileAttachment = {
+            id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: file.name,
+            type: 'image',
+            content: dataUrl, // Store the image as a data URL
+            size: file.size,
+            timestamp: new Date().toISOString(),
+          };
+          
+          // Add the attachment to the state
+          setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+        };
+        
+        reader.onerror = () => {
+          alert(`Error reading image: ${file.name}`);
+        };
+        
+        // Read the image as a data URL
+        reader.readAsDataURL(file);
+      }
+      // Process PDF files
+      else if (file.name.endsWith('.pdf')) {
+        handlePdfSelect(file);
+      }
+      // Process text files
+      else if (file.name.endsWith('.txt')) {
+        const reader = new FileReader();
+        
+        reader.onload = (event) => {
+          if (!event.target || typeof event.target.result !== 'string') return;
+          
+          const content = event.target.result;
+          
+          // Create a new file attachment
+          const newAttachment: FileAttachment = {
+            id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: file.name,
+            type: 'text',
+            content: content,
+            size: file.size,
+            timestamp: new Date().toISOString(),
+          };
+          
+          // Add the attachment to the state
+          setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+        };
+        
+        reader.onerror = () => {
+          alert(`Error reading file: ${file.name}`);
+        };
+        
+        // Read the file as text
+        reader.readAsText(file);
+      }
+      // Process Word files
+      else if (file.name.endsWith('.docx')) {
+        const reader = new FileReader();
+        
+        reader.onload = async (event) => {
+          if (!event.target || !event.target.result) return;
+          
+          try {
+            // Import mammoth for Word file processing
+            const mammoth = await import('mammoth');
+            
+            // Convert the ArrayBuffer to a Uint8Array for mammoth
+            const arrayBuffer = event.target.result as ArrayBuffer;
+            
+            // Extract text from the Word document
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            const content = result.value; // The extracted text
+            
+            // Create a new file attachment
+            const newAttachment: FileAttachment = {
+              id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: file.name,
+              type: 'text', // Still treat it as text for the LLM
+              content: content,
+              size: file.size,
+              timestamp: new Date().toISOString(),
+            };
+            
+            // Add the attachment to the state
+            setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+          } catch (error) {
+            console.error('Error extracting text from Word file:', error);
+            alert(`Error processing Word file: ${file.name}`);
+          }
+        };
+        
+        reader.onerror = () => {
+          alert(`Error reading file: ${file.name}`);
+        };
+        
+        // Read the file as an ArrayBuffer for mammoth
+        reader.readAsArrayBuffer(file);
+      }
+      // Skip unsupported files
+      else {
+        alert(`Only .txt, .docx, .pdf, and image files are supported. Skipping ${file.name}`);
+      }
+    });
+    
+    // Reset the file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+  
+  // Handle attachment removal
+  const handleRemoveAttachment = (attachmentId: string) => {
+    // Simply filter out the attachment with the given ID
+    const updatedAttachments = attachments.filter(
+      (attachment) => attachment.id !== attachmentId
+    );
+    
+    setAttachments(updatedAttachments);
+  };
+  
+  // Format file size for display
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   // Custom renderers for ReactMarkdown
   const markdownComponents = {
     // Override the default table renderer
     table: ({ node, children, ...props }: any) => (
       <TableContainer 
         component={Paper} 
-        sx={{ 
-          my: 3,
-          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-          borderRadius: 2,
-          overflow: 'hidden',
-          boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-          width: '100%',
-          maxWidth: '100%',
-        }}
+        sx={styles.tableContainer}
         className="enhanced-table"
       >
         <Table size="small" {...props}>
@@ -236,9 +523,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Override the default thead renderer
     thead: ({ node, children, ...props }: any) => (
       <TableHead 
-        sx={{ 
-          backgroundColor: 'rgba(144, 202, 249, 0.1)',
-        }} 
+        sx={styles.tableHead} 
         {...props}
       >
         {children}
@@ -251,35 +536,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       </TableBody>
     ),
     // Override the default tr renderer
-    tr: ({ node, children, isHeader, ...props }: any) => (
-      <TableRow 
-        sx={{ 
-          '&:nth-of-type(odd)': { 
-            backgroundColor: 'rgba(255, 255, 255, 0.02)' 
-          },
-          '&:hover': { 
-            backgroundColor: 'rgba(255, 255, 255, 0.05)' 
-          },
-          transition: 'background-color 0.2s',
-        }} 
-        {...props}
-      >
-        {children}
-      </TableRow>
-    ),
+    tr: ({ node, children, isHeader, ...props }: any) => {
+      const isOdd = props.index % 2 === 1;
+      return (
+        <TableRow 
+          sx={isOdd ? styles.tableRowOdd : styles.tableRowEven} 
+          {...props}
+        >
+          {children}
+        </TableRow>
+      );
+    },
     // Override the default th renderer
     th: ({ node, children, ...props }: any) => (
       <TableCell 
         component="th"
         align="left"
-        sx={{ 
-          fontWeight: 'bold', 
-          borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-          color: '#90caf9',
-          py: 2,
-          px: 2,
-          whiteSpace: 'nowrap',
-        }} 
+        sx={styles.tableHeaderCell} 
         {...props}
       >
         {children}
@@ -289,11 +562,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     td: ({ node, children, ...props }: any) => (
       <TableCell 
         align="left"
-        sx={{ 
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-          py: 1.5,
-          px: 2,
-        }} 
+        sx={styles.tableCell} 
         {...props}
       >
         {children}
@@ -305,15 +574,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       return !inline ? (
         <Box
           component="pre"
-          sx={{
-            backgroundColor: 'rgba(0, 0, 0, 0.3)',
-            borderRadius: 2,
-            p: 2,
-            overflowX: 'auto',
-            my: 2,
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-            border: '1px solid rgba(255, 255, 255, 0.1)',
-          }}
+          sx={styles.codeBlock}
           className={className}
           {...props}
         >
@@ -324,13 +585,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       ) : (
         <code
           className={className}
-          sx={{
-            backgroundColor: 'rgba(0, 0, 0, 0.2)',
-            borderRadius: 1,
-            px: 0.5,
-            py: 0.25,
-            fontFamily: 'monospace',
-          }}
+          sx={styles.inlineCode}
           {...props}
         >
           {children}
@@ -436,28 +691,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <TableContainer 
             key={`table-${key++}`}
             component={Paper} 
-            sx={{ 
-              my: 3,
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: 2,
-              overflow: 'hidden',
-              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-              width: '100%',
-            }}
+            sx={styles.tableContainer}
           >
             <Table>
-              <TableHead sx={{ backgroundColor: 'rgba(144, 202, 249, 0.1)' }}>
+              <TableHead sx={styles.tableHead}>
                 <TableRow>
                   {headers.map((header, idx) => (
                     <TableCell 
                       key={idx}
-                      sx={{ 
-                        fontWeight: 'bold', 
-                        borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-                        color: '#90caf9',
-                        py: 2,
-                        px: 2,
-                      }}
+                      sx={styles.tableHeaderCell}
                     >
                       {header}
                     </TableCell>
@@ -468,20 +710,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 {rows.map((row, rowIdx) => (
                   <TableRow 
                     key={rowIdx}
-                    sx={{ 
-                      '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.1)' },
-                      '&:nth-of-type(even)': { backgroundColor: 'rgba(255, 255, 255, 0.02)' },
-                      '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
-                    }}
+                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
                   >
                     {row.map((cell, cellIdx) => (
                       <TableCell 
                         key={cellIdx}
-                        sx={{ 
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                          py: 1.5,
-                          px: 2,
-                        }}
+                        sx={styles.tableCell}
                       >
                         {cell}
                       </TableCell>
@@ -540,28 +774,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <TableContainer 
             key={`table-${key++}`}
             component={Paper} 
-            sx={{ 
-              my: 3,
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: 2,
-              overflow: 'hidden',
-              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-              width: '100%',
-            }}
+            sx={styles.tableContainer}
           >
             <Table>
-              <TableHead sx={{ backgroundColor: 'rgba(144, 202, 249, 0.1)' }}>
+              <TableHead sx={styles.tableHead}>
                 <TableRow>
                   {headers.map((header, idx) => (
                     <TableCell 
                       key={idx}
-                      sx={{ 
-                        fontWeight: 'bold', 
-                        borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-                        color: '#90caf9',
-                        py: 2,
-                        px: 2,
-                      }}
+                      sx={styles.tableHeaderCell}
                     >
                       {header.replace(/^\*\*(.*)\*\*$/, '$1')} {/* Remove markdown bold formatting */}
                     </TableCell>
@@ -572,20 +793,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 {rows.map((row, rowIdx) => (
                   <TableRow 
                     key={rowIdx}
-                    sx={{ 
-                      '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.1)' },
-                      '&:nth-of-type(even)': { backgroundColor: 'rgba(255, 255, 255, 0.02)' },
-                      '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
-                    }}
+                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
                   >
                     {row.map((cell, cellIdx) => (
                       <TableCell 
                         key={cellIdx}
-                        sx={{ 
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                          py: 1.5,
-                          px: 2,
-                        }}
+                        sx={styles.tableCell}
                       >
                         {cell}
                       </TableCell>
@@ -649,28 +862,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <TableContainer 
             key={`table-${key++}`}
             component={Paper} 
-            sx={{ 
-              my: 3,
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: 2,
-              overflow: 'hidden',
-              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-              width: '100%',
-            }}
+            sx={styles.tableContainer}
           >
             <Table>
-              <TableHead sx={{ backgroundColor: 'rgba(144, 202, 249, 0.1)' }}>
+              <TableHead sx={styles.tableHead}>
                 <TableRow>
                   {headers.map((header, idx) => (
                     <TableCell 
                       key={idx}
-                      sx={{ 
-                        fontWeight: 'bold', 
-                        borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-                        color: '#90caf9',
-                        py: 2,
-                        px: 2,
-                      }}
+                      sx={styles.tableHeaderCell}
                     >
                       {header.replace(/^\*\*(.*)\*\*$/, '$1')} {/* Remove markdown bold formatting */}
                     </TableCell>
@@ -681,20 +881,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 {rows.map((row, rowIdx) => (
                   <TableRow 
                     key={rowIdx}
-                    sx={{ 
-                      '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.1)' },
-                      '&:nth-of-type(even)': { backgroundColor: 'rgba(255, 255, 255, 0.02)' },
-                      '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
-                    }}
+                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
                   >
                     {row.map((cell, cellIdx) => (
                       <TableCell 
                         key={cellIdx}
-                        sx={{ 
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                          py: 1.5,
-                          px: 2,
-                        }}
+                        sx={styles.tableCell}
                       >
                         {cell}
                       </TableCell>
@@ -761,28 +953,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return (
       <TableContainer 
         component={Paper} 
-        sx={{ 
-          my: 3,
-          backgroundColor: 'rgba(255, 255, 255, 0.05)',
-          borderRadius: 2,
-          overflow: 'hidden',
-          boxShadow: '0 4px 8px rgba(0, 0, 0, 0.15)',
-          width: '100%',
-        }}
+        sx={styles.tableContainer}
       >
         <Table>
-          <TableHead sx={{ backgroundColor: 'rgba(144, 202, 249, 0.1)' }}>
+          <TableHead sx={styles.tableHead}>
             <TableRow>
               {headers.map((header, idx) => (
                 <TableCell 
                   key={idx}
-                  sx={{ 
-                    fontWeight: 'bold', 
-                    borderBottom: '2px solid rgba(144, 202, 249, 0.3)',
-                    color: '#90caf9',
-                    py: 2,
-                    px: 2,
-                  }}
+                  sx={styles.tableHeaderCell}
                 >
                   {header}
                 </TableCell>
@@ -793,20 +972,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             {tableData.map((row, rowIdx) => (
               <TableRow 
                 key={rowIdx}
-                sx={{ 
-                  '&:nth-of-type(odd)': { backgroundColor: 'rgba(0, 0, 0, 0.1)' },
-                  '&:nth-of-type(even)': { backgroundColor: 'rgba(255, 255, 255, 0.02)' },
-                  '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
-                }}
+                sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
               >
                 {row.map((cell, cellIdx) => (
                   <TableCell 
                     key={cellIdx}
-                    sx={{ 
-                      borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-                      py: 1.5,
-                      px: 2,
-                    }}
+                    sx={styles.tableCell}
                   >
                     {cell}
                   </TableCell>
@@ -825,30 +996,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return (
       <Box
         key={message.id}
-        sx={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-start',
-          mb: 2,
-          maxWidth: '100%',
-        }}
+        sx={styles.messageBox}
       >
         <Box
-          sx={{
-            display: 'flex',
-            p: 2,
-            borderRadius: 2,
-            backgroundColor: isUser ? 'rgba(144, 202, 249, 0.08)' : 'rgba(255, 255, 255, 0.05)',
-            maxWidth: '100%',
-            width: '100%',
-          }}
+          sx={isUser ? styles.userMessage : styles.assistantMessage}
         >
           <Box sx={{ width: '100%' }}>
+            {/* Render message content */}
             <Typography
               variant="body1"
               component="div"
               className="markdown-content"
-              sx={{ wordBreak: 'break-word' }}
+              sx={styles.messageContent}
             >
               {isUser ? (
                 message.content
@@ -862,6 +1021,149 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 </>
               )}
             </Typography>
+            
+            {/* Render file attachments if present */}
+            {message.attachments && message.attachments.length > 0 && (
+              <Box sx={{ mt: 2, mb: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Attachments:
+                </Typography>
+                {message.attachments.map((attachment) => {
+                  if (attachment.type === 'image') {
+                    return (
+                      <Box key={attachment.id} sx={{ mb: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                          <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                          <Typography variant="body2" sx={styles.attachmentName}>
+                            {attachment.name}
+                          </Typography>
+                          <Typography variant="caption" sx={styles.attachmentSize}>
+                            {formatFileSize(attachment.size)}
+                          </Typography>
+                        </Box>
+                        <Box 
+                          component="img"
+                          src={attachment.content}
+                          alt={attachment.name}
+                          sx={{ 
+                            maxWidth: '100%', 
+                            maxHeight: '300px',
+                            borderRadius: 1,
+                            objectFit: 'contain'
+                          }}
+                        />
+                      </Box>
+                    );
+                  } else if (attachment.type === 'pdf') {
+                    return (
+                      <Box key={attachment.id} sx={{ mb: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                          <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                          <Typography variant="body2" sx={styles.attachmentName}>
+                            {attachment.name} (PDF)
+                          </Typography>
+                          <Typography variant="caption" sx={styles.attachmentSize}>
+                            {formatFileSize(attachment.size)}
+                          </Typography>
+                        </Box>
+                        
+                        {/* Simple PDF preview with extracted content */}
+                        <Box sx={{ 
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: 1,
+                          p: 1,
+                          bgcolor: 'background.paper',
+                        }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                            PDF Content Preview
+                          </Typography>
+                          
+                          {/* Show a small preview of the text */}
+                          {attachment.content && (
+                            <Box 
+                              sx={{ 
+                                maxHeight: '100px', 
+                                overflowY: 'auto',
+                                p: 1,
+                                bgcolor: 'action.hover',
+                                borderRadius: 1,
+                                mb: 1,
+                                fontSize: '0.75rem'
+                              }}
+                            >
+                              <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                                {attachment.content.length > 300 
+                                  ? `${attachment.content.substring(0, 300)}...`
+                                  : attachment.content
+                                }
+                              </pre>
+                            </Box>
+                          )}
+                          
+                          {/* Show thumbnails of extracted images if any */}
+                          {attachment.images && attachment.images.length > 0 && (
+                            <Box>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                {attachment.images.length} image{attachment.images.length !== 1 ? 's' : ''} extracted
+                              </Typography>
+                              <Box sx={{ 
+                                display: 'flex', 
+                                flexWrap: 'wrap', 
+                                gap: 0.5,
+                                maxHeight: '100px',
+                                overflowY: 'auto'
+                              }}>
+                                {attachment.images.slice(0, 4).map((imgSrc, index) => (
+                                  <Box 
+                                    key={index}
+                                    component="img"
+                                    src={imgSrc}
+                                    alt={`Image ${index + 1} from ${attachment.name}`}
+                                    sx={{ 
+                                      width: '40px', 
+                                      height: '40px',
+                                      objectFit: 'cover',
+                                      borderRadius: 0.5,
+                                    }}
+                                  />
+                                ))}
+                                {attachment.images.length > 4 && (
+                                  <Box sx={{ 
+                                    width: '40px', 
+                                    height: '40px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    bgcolor: 'action.hover',
+                                    borderRadius: 0.5,
+                                    fontSize: '0.75rem'
+                                  }}>
+                                    +{attachment.images.length - 4}
+                                  </Box>
+                                )}
+                              </Box>
+                            </Box>
+                          )}
+                        </Box>
+                      </Box>
+                    );
+                  } else {
+                    return (
+                      <Box key={attachment.id} sx={styles.attachmentPreview}>
+                        <DescriptionIcon sx={styles.attachmentIcon} />
+                        <Typography variant="body2" sx={styles.attachmentName}>
+                          {attachment.name}
+                        </Typography>
+                        <Typography variant="caption" sx={styles.attachmentSize}>
+                          {formatFileSize(attachment.size)}
+                        </Typography>
+                      </Box>
+                    );
+                  }
+                })}
+              </Box>
+            )}
           </Box>
         </Box>
       </Box>
@@ -871,19 +1173,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   return (
     <Box
       component="main"
-      sx={{
-        flexGrow: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        overflow: 'hidden',
-      }}
+      sx={styles.container(sidebarOpen)}
     >
       <AppBar
         position="static"
         color="transparent"
         elevation={0}
-        sx={{ borderBottom: '1px solid #333' }}
+        sx={styles.appBar}
       >
         <Toolbar>
           <IconButton
@@ -899,11 +1195,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <Button
             onClick={handleOpenModelMenu}
             endIcon={<KeyboardArrowDownIcon />}
-            sx={{
-              textTransform: 'none',
-              color: 'white',
-              fontWeight: 'normal',
-            }}
+            sx={styles.modelSelector}
           >
             {model?.name || 'Select Model'}
           </Button>
@@ -937,16 +1229,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
       {!chat ? (
         <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexGrow: 1,
-            p: 3,
-          }}
+          sx={styles.welcomeContainer}
         >
-          <Box sx={{ textAlign: 'center', mb: 4 }}>
+          <Box sx={styles.welcomeHeader}>
             <Typography variant="h4" gutterBottom>
               {model?.name || 'Nebulon-GPT'}
             </Typography>
@@ -958,9 +1243,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             </Typography>
           </Box>
 
-          <Typography variant="h6" gutterBottom sx={{ alignSelf: 'flex-start', mb: 2 }}>
+          <Typography variant="h6" gutterBottom sx={styles.suggestedPromptsHeader}>
             <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box component="span" sx={{ opacity: 0.6 }}>✨</Box> Suggested
+              <Box component="span" sx={styles.sparkleIcon}>✨</Box> Suggested
             </Box>
           </Typography>
 
@@ -969,10 +1254,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               <Grid item xs={12} key={index}>
                 <Card 
                   variant="outlined" 
-                  sx={{ 
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                  }}
+                  sx={styles.promptCard}
                 >
                   <CardActionArea onClick={() => handleSuggestedPrompt(prompt.prompt)}>
                     <CardContent>
@@ -990,13 +1272,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       ) : (
         <>
           <Box
-            sx={{
-              flexGrow: 1,
-              p: 3,
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
+            sx={styles.messagesContainer}
           >
             {chat.messages.map(renderMessage)}
             <div ref={messagesEndRef} />
@@ -1005,26 +1281,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <Box
             component={Paper}
             elevation={0}
-            sx={{
-              p: 2,
-              borderTop: '1px solid #333',
-              backgroundColor: 'background.paper',
-            }}
+            sx={styles.inputContainer}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Box sx={styles.inputBox}>
               <Box sx={{ position: 'relative' }}>
                 <IconButton 
                   size="small" 
-                  sx={{ 
-                    mr: 1,
-                    color: isListening ? 'error.main' : (speechError ? 'warning.main' : 'inherit'),
-                    animation: isListening ? 'pulse 1.5s infinite' : 'none',
-                    '@keyframes pulse': {
-                      '0%': { opacity: 1 },
-                      '50%': { opacity: 0.5 },
-                      '100%': { opacity: 1 },
-                    },
-                  }}
+                  sx={isListening ? styles.micButtonActive : (speechError ? styles.micButtonError : styles.micButton)}
                   onClick={toggleListening}
                   disabled={loading || !recognitionRef.current}
                   title={speechError || (isListening ? 'Stop dictation' : 'Start dictation')}
@@ -1035,60 +1298,119 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   <Typography 
                     variant="caption" 
                     color="warning.main" 
-                    sx={{ 
-                      position: 'absolute', 
-                      bottom: -20, 
-                      left: 0, 
-                      whiteSpace: 'nowrap',
-                      fontSize: '0.7rem'
-                    }}
+                    sx={styles.micErrorText}
                   >
                     {speechError}
                   </Typography>
                 )}
               </Box>
-              <TextField
-                fullWidth
-                placeholder="How can I help you today?"
-                multiline
-                maxRows={4}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                disabled={loading}
-                InputProps={{
-                  sx: {
-                    borderRadius: 4,
-                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                    '&:hover': {
-                      backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                    },
-                  },
-                  endAdornment: isListening && interimTranscript ? (
-                    <Box 
-                      sx={{ 
-                        position: 'absolute',
-                        bottom: '100%',
-                        left: 0,
-                        right: 0,
-                        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                        color: 'rgba(255, 255, 255, 0.7)',
-                        padding: '8px 12px',
-                        borderRadius: '4px',
-                        fontSize: '0.85rem',
-                        maxWidth: '100%',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        zIndex: 10,
-                      }}
-                    >
-                      {interimTranscript}
-                    </Box>
-                  ) : null,
-                }}
-                variant="outlined"
+              {/* Hidden unified file input */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                accept=".txt,.docx,.pdf,image/*"
+                multiple
+                onChange={handleFileSelect}
               />
+              
+              {/* Add attachment button - direct file browser */}
+              <Box sx={{ position: 'relative' }}>
+                <IconButton
+                  size="small"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={loading}
+                  title="Add attachment"
+                  sx={styles.fileUploadButton}
+                >
+                  <AddIcon fontSize="small" />
+                </IconButton>
+              </Box>
+              
+              <Box sx={{ width: '100%' }}>
+                {/* File attachment chips displayed above the text field */}
+                {attachments.length > 0 && (
+                  <Box 
+                    sx={{ 
+                      display: 'flex', 
+                      flexWrap: 'wrap', 
+                      gap: 0.5, 
+                      p: 1, 
+                      mb: 1,
+                      borderRadius: 1,
+                      bgcolor: 'rgba(255, 255, 255, 0.05)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      width: '100%'
+                    }}
+                  >
+                    {attachments.map((attachment) => (
+                      <Box 
+                        key={attachment.id} 
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          bgcolor: 'action.hover',
+                          borderRadius: 1,
+                          p: 0.5,
+                          maxWidth: '100%',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        {attachment.type === 'image' ? (
+                          <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                        ) : (
+                          <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                        )}
+                        <Typography 
+                          variant="caption" 
+                          sx={{ 
+                            maxWidth: '150px', 
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {attachment.name}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveAttachment(attachment.id);
+                          }}
+                          sx={{ 
+                            ml: 0.5, 
+                            p: 0.25,
+                            '&:hover': { bgcolor: 'action.selected' }
+                          }}
+                        >
+                          <CloseIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+                
+                <TextField
+                  fullWidth
+                  placeholder="How can I help you today?"
+                  multiline
+                  maxRows={4}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  disabled={loading}
+                  InputProps={{
+                    sx: styles.textField,
+                    endAdornment: isListening && interimTranscript ? (
+                      <Box sx={styles.interimTranscript}>
+                        {interimTranscript}
+                      </Box>
+                    ) : null,
+                  }}
+                  variant="outlined"
+                />
+              </Box>
               {loading ? (
                 <IconButton
                   color="error"
@@ -1101,7 +1423,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 <IconButton
                   color="primary"
                   onClick={handleSendMessage}
-                  disabled={!message.trim()}
+                  disabled={!message.trim() && attachments.length === 0}
                   sx={{ ml: 1 }}
                 >
                   <SendIcon />

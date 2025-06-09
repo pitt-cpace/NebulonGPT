@@ -1,5 +1,5 @@
 # Build stage
-FROM node:18-alpine as build
+FROM node:18-alpine AS build
 
 WORKDIR /app
 
@@ -45,8 +45,9 @@ COPY nginx.conf /etc/nginx/http.d/default.conf
 COPY start-services.sh /app/start-services.sh
 RUN chmod +x /app/start-services.sh
 
-# Expose ports
-EXPOSE 80 3001
+# Expose only the Nginx port
+# Port 3001 is only used internally within the container
+EXPOSE 80
 
 # Start both services
 CMD ["/app/start-services.sh"]
