@@ -17,7 +17,8 @@ fi
 # Try to use docker compose (newer Docker versions)
 if docker compose version &> /dev/null; then
     echo "Starting Nebulon-GPT with docker compose..."
-    docker compose up -d
+    #docker compose up -d
+    docker compose up --build -d
 # Fall back to docker-compose if available
 elif command -v docker-compose &> /dev/null; then
     echo "Starting Nebulon-GPT with docker-compose..."
