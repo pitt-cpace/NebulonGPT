@@ -1,9 +1,9 @@
 [
   {
-    "id": "chat-1742819794578",
+    "id": "chat-1750174181213",
     "title": "New Chat",
-    "modelId": "granite3-dense:8b",
+    "modelId": "gemma3:1b",
     "messages": [],
-    "createdAt": "2025-03-24T12:36:34.578Z"
+    "createdAt": "2025-06-17T15:29:41.213Z"
   }
 ]

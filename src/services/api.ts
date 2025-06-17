@@ -21,69 +21,45 @@ export const fetchModels = async (): Promise<ModelType[]> => {
   try {
     // In development mode, we need to be careful not to duplicate the '/api' path
     const endpoint = isProduction ? '/tags' : '/tags';
-    const response = await api.get(endpoint);
+    console.log('Fetching models from:', `${baseURL}${endpoint}`);
     
-    if (response.data && response.data.models) {
-      return response.data.models.map((model: any) => ({
+    const response = await api.get(endpoint);
+    console.log('Ollama API response:', response.data);
+    
+    if (response.data && response.data.models && response.data.models.length > 0) {
+      const models = response.data.models.map((model: any) => ({
         id: model.name,
         name: model.name,
         size: model.size,
         quantization: model.name.includes('q') ? model.name.split('-').pop() : undefined,
         isDefault: false,
       }));
+      console.log('Parsed models:', models);
+      return models;
     }
     
-    // Fallback for testing when API is not available
-    return [
-      {
-        id: 'llama3.3:70b-instruct-q8_0',
-        name: 'llama3.3:70b-instruct-q8_0',
-        size: '70B',
-        quantization: 'q8_0',
-        isDefault: true,
-      },
-      {
-        id: 'llama3:8b-instruct-q4_0',
-        name: 'llama3:8b-instruct-q4_0',
-        size: '8B',
-        quantization: 'q4_0',
-        isDefault: false,
-      },
-      {
-        id: 'mistral:7b-instruct-q4_0',
-        name: 'mistral:7b-instruct-q4_0',
-        size: '7B',
-        quantization: 'q4_0',
-        isDefault: false,
-      }
-    ];
-  } catch (error) {
-    console.error('Error fetching models:', error);
+    // If no models are available, return empty array
+    console.warn('No models found in Ollama API response');
+    console.warn('Response data:', response.data);
+    return [];
+  } catch (error: any) {
+    console.error('Error fetching models from Ollama API:', error);
+    console.error('Base URL:', baseURL);
+    console.error('Full URL:', `${baseURL}${isProduction ? '/tags' : '/tags'}`);
     
-    // Return mock data for development
-    return [
-      {
-        id: 'llama3.3:70b-instruct-q8_0',
-        name: 'llama3.3:70b-instruct-q8_0',
-        size: '70B',
-        quantization: 'q8_0',
-        isDefault: true,
-      },
-      {
-        id: 'llama3:8b-instruct-q4_0',
-        name: 'llama3:8b-instruct-q4_0',
-        size: '8B',
-        quantization: 'q4_0',
-        isDefault: false,
-      },
-      {
-        id: 'mistral:7b-instruct-q4_0',
-        name: 'mistral:7b-instruct-q4_0',
-        size: '7B',
-        quantization: 'q4_0',
-        isDefault: false,
-      }
-    ];
+    // Check if it's a connection error
+    if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
+      console.error('Cannot connect to Ollama API. Please ensure Ollama is running and accessible.');
+    }
+    
+    // Log more details about the error
+    if (error.response) {
+      console.error('Error response status:', error.response.status);
+      console.error('Error response data:', error.response.data);
+    }
+    
+    // Return empty array instead of mock data
+    return [];
   }
 };
 

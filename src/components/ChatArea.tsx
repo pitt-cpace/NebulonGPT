@@ -40,6 +40,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
 import { getSuggestedPrompts } from '../services/api';
+import { VoskRecognitionService } from '../services/vosk';
 import * as styles from '../styles/components/ChatArea.styles';
 
 // Set the worker source path
@@ -54,7 +55,8 @@ interface ChatAreaProps {
   onStopResponse: () => void;
   onToggleSidebar: () => void;
   onSelectModel: (model: ModelType) => void;
-  sidebarOpen: boolean; // Add sidebarOpen prop
+  sidebarOpen: boolean;
+  voskRecognition: VoskRecognitionService | null;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -66,7 +68,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onStopResponse,
   onToggleSidebar,
   onSelectModel,
-  sidebarOpen, // Destructure sidebarOpen
+  sidebarOpen,
+  voskRecognition,
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
@@ -76,9 +79,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [interimTranscript, setInterimTranscript] = useState('');
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [voskServerAvailable, setVoskServerAvailable] = useState<boolean | null>(null);
   const suggestedPrompts = getSuggestedPrompts();
 
   // Scroll to bottom when messages change
@@ -88,113 +91,113 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [chat?.messages]);
 
-  // Initialize speech recognition - using browser's built-in local speech recognition
+  // Initialize Vosk speech recognition event handlers
   useEffect(() => {
-    // Check if the browser supports the Web Speech API
-    // Note: This uses the browser's built-in speech recognition which is processed locally
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      console.warn('Local speech recognition is not supported in this browser.');
-      setSpeechError('Local speech recognition not supported in this browser');
+    if (!voskRecognition) {
+      setVoskServerAvailable(false);
+      setSpeechError('Vosk speech recognition not available');
       return;
     }
 
-    try {
-      // Create a speech recognition instance
-      const recognition = new SpeechRecognition();
+    // Check server availability
+    const checkAvailability = async () => {
+      const isAvailable = voskRecognition.isConnected();
+      setVoskServerAvailable(isAvailable);
       
-      // Configure speech recognition to use local processing
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-      
-      // Set up event handlers
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
-        
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-        
-        // Update the interim transcript for display
-        setInterimTranscript(interimTranscript);
-        
-        // If we have a final transcript, update the message
-        if (finalTranscript) {
-          finalTranscriptRef.current += finalTranscript;
-          setMessage(finalTranscriptRef.current);
-        }
-      };
-      
-      recognition.onend = () => {
-        setIsListening(false);
-        setInterimTranscript('');
-      };
-      
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error('Speech recognition error', event.error);
-        setSpeechError(`Error: ${event.error}`);
-        setIsListening(false);
-      };
-      
-      // Store the recognition instance in the ref
-      recognitionRef.current = recognition;
-    } catch (error) {
-      console.error('Error initializing speech recognition:', error);
-      setSpeechError('Failed to initialize local speech recognition');
-    }
-    
-    // Clean up on component unmount
-    return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.onresult = null;
-          recognitionRef.current.onend = null;
-          recognitionRef.current.onerror = null;
-          recognitionRef.current.abort();
-        } catch (error) {
-          console.error('Error cleaning up speech recognition:', error);
-        }
+      if (!isAvailable) {
+        setSpeechError('Vosk server not available. Please ensure the server is running.');
+        return;
       }
     };
-  }, []);
 
-  // Toggle speech recognition
-  const toggleListening = useCallback(() => {
-    if (!recognitionRef.current) {
-      setSpeechError('Speech recognition not available');
+    checkAvailability();
+
+    // Set up event handlers for the VoskRecognitionService instance
+    voskRecognition.onResult((result: { text?: string; partial?: string }) => {
+      if (result.partial) {
+        // Update interim transcript for real-time display
+        setInterimTranscript(result.partial);
+      }
+      
+      if (result.text) {
+        // Final transcript received
+        console.log('🟢 Final:', result.text);
+        finalTranscriptRef.current += result.text + ' ';
+        setMessage(finalTranscriptRef.current);
+        setInterimTranscript(''); // Clear interim transcript
+      }
+    });
+    
+    voskRecognition.onError((error: string) => {
+      console.error('Vosk speech recognition error:', error);
+      setSpeechError(error);
+      setIsListening(false);
+    });
+    
+    voskRecognition.onEnd(() => {
+      setIsListening(false);
+      setInterimTranscript('');
+    });
+
+    // Clear any previous errors
+    setSpeechError(null);
+
+    // Note: VoskRecognitionService doesn't need manual cleanup of event handlers
+  }, [voskRecognition]);
+
+  // Toggle Vosk speech recognition
+  const toggleListening = useCallback(async () => {
+    console.log('🎤 MICROPHONE BUTTON CLICKED!');
+    console.log('  - isListening:', isListening);
+    console.log('  - voskRecognition available:', !!voskRecognition);
+    console.log('  - speechError:', speechError);
+    console.log('  - message:', message);
+    
+    if (!voskRecognition) {
+      console.error('❌ Vosk recognition not available');
+      setSpeechError('Vosk speech recognition not available');
       return;
     }
     
     setSpeechError(null); // Clear any previous errors
     
     if (isListening) {
+      console.log('🛑 STOPPING speech recognition...');
+      console.log('  - Current isListening state:', isListening);
       try {
-        recognitionRef.current.stop();
+        voskRecognition.stop();
+        console.log('✅ voskRecognition.stop() called successfully');
       } catch (error) {
-        console.error('Error stopping speech recognition:', error);
+        console.error('❌ Error stopping Vosk speech recognition:', error);
       }
       setIsListening(false);
       setInterimTranscript('');
+      console.log('✅ UI state updated - isListening set to false');
     } else {
+      console.log('🎙️ STARTING speech recognition...');
+      console.log('  - Current isListening state:', isListening);
       try {
         // Reset the final transcript when starting a new recognition session
         finalTranscriptRef.current = message;
-        recognitionRef.current.start();
+        console.log('  - finalTranscriptRef reset to:', finalTranscriptRef.current);
+        
+        // Start recognition
+        console.log('  - Calling voskRecognition.start()...');
+        await voskRecognition.start();
+        console.log('✅ voskRecognition.start() completed successfully');
+        
         setIsListening(true);
+        console.log('✅ UI state updated - isListening set to true');
+        console.log('✅ Speech recognition started successfully');
       } catch (error) {
-        console.error('Error starting speech recognition:', error);
-        setSpeechError('Failed to start speech recognition');
+        console.error('❌ Error starting Vosk speech recognition:', error);
+        setSpeechError('Failed to start Vosk speech recognition');
+        console.log('❌ UI state - speechError set to:', 'Failed to start Vosk speech recognition');
       }
     }
-  }, [isListening, message]);
+    
+    console.log('🏁 toggleListening completed');
+  }, [isListening, message, voskRecognition, speechError]);
 
   const handleSendMessage = () => {
     // Allow sending if there's a message OR attachments
@@ -259,243 +262,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     onSendMessage(prompt);
   };
 
-  // Handle PDF file selection
-  const handlePdfSelect = async (file: File) => {
-    try {
-      // Read the file as ArrayBuffer
-      const arrayBuffer = await file.arrayBuffer();
-      
-      // Load the PDF document
-      const loadingTask = getDocument(arrayBuffer);
-      const pdf = await loadingTask.promise;
-      
-      // Extract text from all pages
-      let fullText = '';
-      const numPages = pdf.numPages;
-      const extractedImages: string[] = [];
-      
-      for (let i = 1; i <= numPages; i++) {
-        const page = await pdf.getPage(i);
-        
-        // Extract text content
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items
-          .filter(item => 'str' in item)
-          .map(item => (item as TextItem).str)
-          .join(' ');
-        
-        fullText += `[Page ${i}]\n${pageText}\n\n`;
-        
-        // Extract images from the page
-        try {
-          // Get the operator list which contains all drawing operations
-          const opList = await page.getOperatorList();
-          
-          // Get all image IDs from the operator list
-          const imageIds = new Set<string>();
-          for (let j = 0; j < opList.fnArray.length; j++) {
-            const fnId = opList.fnArray[j];
-            if (fnId === 83) { // 83 is the ID for the "paintImageXObject" operation
-              const imageId = opList.argsArray[j][0];
-              if (typeof imageId === 'string') {
-                imageIds.add(imageId);
-              }
-            }
-          }
-          
-          // Extract each image
-          for (const imageId of Array.from(imageIds)) {
-            try {
-              // Get the image data
-              const img = await page.objs.get(imageId);
-              if (img && img.src) {
-                // If the image has a src property, it's likely a data URL or URL
-                extractedImages.push(img.src);
-              } else if (img && img.data && img.width && img.height) {
-                // Create a canvas to draw the image
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                
-                if (ctx) {
-                  // Create an ImageData object
-                  const imageData = ctx.createImageData(img.width, img.height);
-                  
-                  // Copy the image data to the ImageData object
-                  for (let i = 0; i < img.data.length; i++) {
-                    imageData.data[i] = img.data[i];
-                  }
-                  
-                  // Put the ImageData on the canvas
-                  ctx.putImageData(imageData, 0, 0);
-                  
-                  // Convert the canvas to a data URL
-                  const dataUrl = canvas.toDataURL('image/png');
-                  extractedImages.push(dataUrl);
-                }
-              }
-            } catch (imgError) {
-              console.warn(`Error extracting image ${imageId}:`, imgError);
-            }
-          }
-        } catch (pageError) {
-          console.warn(`Error extracting images from page ${i}:`, pageError);
-        }
-      }
-      
-      // Create a new file attachment
-      const newAttachment: FileAttachment = {
-        id: `pdf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        name: file.name,
-        type: 'pdf',
-        content: fullText, // Store the extracted text
-        images: extractedImages.length > 0 ? extractedImages : undefined, // Store extracted images
-        size: file.size,
-        timestamp: new Date().toISOString(),
-      };
-      
-      // Add the attachment to the state
-      setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
-    } catch (error) {
-      console.error('Error processing PDF:', error);
-      alert(`Error processing PDF: ${file.name}`);
-    }
-  };
-
-  // Handle file selection for all supported file types
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    
-    // Process each selected file
-    Array.from(files).forEach(file => {
-      // Process image files
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        
-        reader.onload = (event) => {
-          if (!event.target || typeof event.target.result !== 'string') return;
-          
-          const dataUrl = event.target.result;
-          
-          // Create a new image attachment
-          const newAttachment: FileAttachment = {
-            id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            name: file.name,
-            type: 'image',
-            content: dataUrl, // Store the image as a data URL
-            size: file.size,
-            timestamp: new Date().toISOString(),
-          };
-          
-          // Add the attachment to the state
-          setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
-        };
-        
-        reader.onerror = () => {
-          alert(`Error reading image: ${file.name}`);
-        };
-        
-        // Read the image as a data URL
-        reader.readAsDataURL(file);
-      }
-      // Process PDF files
-      else if (file.name.endsWith('.pdf')) {
-        handlePdfSelect(file);
-      }
-      // Process text files
-      else if (file.name.endsWith('.txt')) {
-        const reader = new FileReader();
-        
-        reader.onload = (event) => {
-          if (!event.target || typeof event.target.result !== 'string') return;
-          
-          const content = event.target.result;
-          
-          // Create a new file attachment
-          const newAttachment: FileAttachment = {
-            id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            name: file.name,
-            type: 'text',
-            content: content,
-            size: file.size,
-            timestamp: new Date().toISOString(),
-          };
-          
-          // Add the attachment to the state
-          setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
-        };
-        
-        reader.onerror = () => {
-          alert(`Error reading file: ${file.name}`);
-        };
-        
-        // Read the file as text
-        reader.readAsText(file);
-      }
-      // Process Word files
-      else if (file.name.endsWith('.docx')) {
-        const reader = new FileReader();
-        
-        reader.onload = async (event) => {
-          if (!event.target || !event.target.result) return;
-          
-          try {
-            // Import mammoth for Word file processing
-            const mammoth = await import('mammoth');
-            
-            // Convert the ArrayBuffer to a Uint8Array for mammoth
-            const arrayBuffer = event.target.result as ArrayBuffer;
-            
-            // Extract text from the Word document
-            const result = await mammoth.extractRawText({ arrayBuffer });
-            const content = result.value; // The extracted text
-            
-            // Create a new file attachment
-            const newAttachment: FileAttachment = {
-              id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              name: file.name,
-              type: 'text', // Still treat it as text for the LLM
-              content: content,
-              size: file.size,
-              timestamp: new Date().toISOString(),
-            };
-            
-            // Add the attachment to the state
-            setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
-          } catch (error) {
-            console.error('Error extracting text from Word file:', error);
-            alert(`Error processing Word file: ${file.name}`);
-          }
-        };
-        
-        reader.onerror = () => {
-          alert(`Error reading file: ${file.name}`);
-        };
-        
-        // Read the file as an ArrayBuffer for mammoth
-        reader.readAsArrayBuffer(file);
-      }
-      // Skip unsupported files
-      else {
-        alert(`Only .txt, .docx, .pdf, and image files are supported. Skipping ${file.name}`);
-      }
-    });
-    
-    // Reset the file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-  
   // Handle attachment removal
   const handleRemoveAttachment = (attachmentId: string) => {
-    // Simply filter out the attachment with the given ID
     const updatedAttachments = attachments.filter(
       (attachment) => attachment.id !== attachmentId
     );
-    
     setAttachments(updatedAttachments);
   };
   
@@ -504,490 +275,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  // Custom renderers for ReactMarkdown
-  const markdownComponents = {
-    // Override the default table renderer
-    table: ({ node, children, ...props }: any) => (
-      <TableContainer 
-        component={Paper} 
-        sx={styles.tableContainer}
-        className="enhanced-table"
-      >
-        <Table size="small" {...props}>
-          {children}
-        </Table>
-      </TableContainer>
-    ),
-    // Override the default thead renderer
-    thead: ({ node, children, ...props }: any) => (
-      <TableHead 
-        sx={styles.tableHead} 
-        {...props}
-      >
-        {children}
-      </TableHead>
-    ),
-    // Override the default tbody renderer
-    tbody: ({ node, children, ...props }: any) => (
-      <TableBody {...props}>
-        {children}
-      </TableBody>
-    ),
-    // Override the default tr renderer
-    tr: ({ node, children, isHeader, ...props }: any) => {
-      const isOdd = props.index % 2 === 1;
-      return (
-        <TableRow 
-          sx={isOdd ? styles.tableRowOdd : styles.tableRowEven} 
-          {...props}
-        >
-          {children}
-        </TableRow>
-      );
-    },
-    // Override the default th renderer
-    th: ({ node, children, ...props }: any) => (
-      <TableCell 
-        component="th"
-        align="left"
-        sx={styles.tableHeaderCell} 
-        {...props}
-      >
-        {children}
-      </TableCell>
-    ),
-    // Override the default td renderer
-    td: ({ node, children, ...props }: any) => (
-      <TableCell 
-        align="left"
-        sx={styles.tableCell} 
-        {...props}
-      >
-        {children}
-      </TableCell>
-    ),
-    // Improve code blocks
-    code: ({ node, inline, className, children, ...props }: any) => {
-      const match = /language-(\w+)/.exec(className || '');
-      return !inline ? (
-        <Box
-          component="pre"
-          sx={styles.codeBlock}
-          className={className}
-          {...props}
-        >
-          <code className={className} {...props}>
-            {children}
-          </code>
-        </Box>
-      ) : (
-        <code
-          className={className}
-          sx={styles.inlineCode}
-          {...props}
-        >
-          {children}
-        </code>
-      );
-    },
-  };
-
-  // Function to preprocess content to fix Llama3-3 table format
-  const preprocessLlama3TableFormat = (content: string): string => {
-    // Look for the specific Llama3-3 table pattern
-    const llama3TablePattern = /\| [^|]+ \| [^|]+ \| [^|]+ \| \| --- \| --- \| --- \|/;
-    
-    if (llama3TablePattern.test(content)) {
-      // This is likely a Llama3-3 table format
-      // Fix the format by adding line breaks and removing extra pipes
-      return content.replace(/\| ([^|]+) \| ([^|]+) \| ([^|]+) \| \|/g, '| $1 | $2 | $3 |\n|')
-                   .replace(/\| --- \| --- \| --- \| \|/g, '| --- | --- | --- |\n|');
-    }
-    
-    return content;
-  };
-
-  // Function to detect and render tables from markdown
-  const renderMarkdownWithTables = (content: string) => {
-    // Preprocess content to fix Llama3-3 table format
-    const processedContent = preprocessLlama3TableFormat(content);
-    
-    // Detect if content contains a table in Llama3-3 format
-    const llama3TableRegex = /\|[^\n]*\|[^\n]*\|\n\|[\s-]*\|[\s-]*\|[\s-]*\|\n(\|[^\n]*\|[^\n]*\|[^\n]*\|\n)+/g;
-    
-    // Detect if content contains a table in Phi4 format (tab-separated)
-    const tabTableRegex = /^([^\t\n]+\t[^\t\n]+(\t[^\t\n]+)*\n){2,}/gm;
-    
-    // Detect if content contains a general markdown table
-    // This pattern matches tables with any number of columns
-    const markdownTableRegex = /\|[^\n]*\|\n\|[\s-:]*\|[\s-:]*(\|[\s-:]*)*\n(\|[^\n]*\|\n)+/g;
-    
-    // Check if content contains any table patterns
-    const hasLlama3Table = llama3TableRegex.test(processedContent);
-    const hasTabTable = tabTableRegex.test(processedContent);
-    const hasMarkdownTable = markdownTableRegex.test(processedContent);
-    
-    // Reset regex states
-    llama3TableRegex.lastIndex = 0;
-    tabTableRegex.lastIndex = 0;
-    markdownTableRegex.lastIndex = 0;
-    
-    // If no tables detected, just render with ReactMarkdown
-    if (!hasLlama3Table && !hasTabTable && !hasMarkdownTable) {
-      return (
-        <ReactMarkdown components={markdownComponents}>
-          {processedContent}
-        </ReactMarkdown>
-      );
-    }
-    
-    // Process content with tables
-    const result = [];
-    let lastIndex = 0;
-    let match;
-    let key = 0;
-    
-    // Process Llama3-3 tables
-    if (hasLlama3Table) {
-      while ((match = llama3TableRegex.exec(processedContent)) !== null) {
-        // Add text before the table
-        const beforeTable = processedContent.substring(lastIndex, match.index);
-        if (beforeTable.trim()) {
-          result.push(
-            <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
-              {beforeTable}
-            </ReactMarkdown>
-          );
-        }
-        
-        // Process the table
-        const tableMatch = match[0];
-        
-        // Extract headers and rows
-        const lines = tableMatch.trim().split('\n');
-        const headerLine = lines[0];
-        
-        // Extract headers
-        const headers = headerLine
-          .split('|')
-          .filter(cell => cell.trim() !== '')
-          .map(cell => cell.trim());
-        
-        // Skip the separator line (line with |---|---|)
-        const dataRows = lines.slice(2);
-        
-        // Extract rows
-        const rows = dataRows.map(row => 
-          row
-            .split('|')
-            .filter(cell => cell.trim() !== '')
-            .map(cell => cell.trim())
-        );
-        
-        // Render Material-UI table
-        result.push(
-          <TableContainer 
-            key={`table-${key++}`}
-            component={Paper} 
-            sx={styles.tableContainer}
-          >
-            <Table>
-              <TableHead sx={styles.tableHead}>
-                <TableRow>
-                  {headers.map((header, idx) => (
-                    <TableCell 
-                      key={idx}
-                      sx={styles.tableHeaderCell}
-                    >
-                      {header}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, rowIdx) => (
-                  <TableRow 
-                    key={rowIdx}
-                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                  >
-                    {row.map((cell, cellIdx) => (
-                      <TableCell 
-                        key={cellIdx}
-                        sx={styles.tableCell}
-                      >
-                        {cell}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        );
-        
-        // Update lastIndex to after this table
-        lastIndex = match.index + match[0].length;
-      }
-    }
-    
-    // Process tab-separated tables (Phi4 format)
-    if (hasTabTable) {
-      tabTableRegex.lastIndex = 0; // Reset regex state
-      
-      while ((match = tabTableRegex.exec(processedContent)) !== null) {
-        // Skip if this section was already processed as part of a Llama3 table
-        if (match.index < lastIndex) continue;
-        
-        // Add text before the table
-        const beforeTable = processedContent.substring(lastIndex, match.index);
-        if (beforeTable.trim()) {
-          result.push(
-            <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
-              {beforeTable}
-            </ReactMarkdown>
-          );
-        }
-        
-        // Process the table
-        const tableMatch = match[0];
-        
-        // Extract headers and rows
-        const lines = tableMatch.trim().split('\n');
-        
-        // Extract headers from the first line
-        const headerLine = lines[0];
-        const headers = headerLine.split('\t').map(cell => cell.trim());
-        
-        // Extract data rows (all lines except the first)
-        const dataRows = lines.slice(1);
-        const rows = dataRows.map(row => 
-          row.split('\t').map(cell => {
-            // Remove markdown bold formatting if present (e.g., **text**)
-            return cell.trim().replace(/^\*\*(.*)\*\*$/, '$1');
-          })
-        );
-        
-        // Render Material-UI table
-        result.push(
-          <TableContainer 
-            key={`table-${key++}`}
-            component={Paper} 
-            sx={styles.tableContainer}
-          >
-            <Table>
-              <TableHead sx={styles.tableHead}>
-                <TableRow>
-                  {headers.map((header, idx) => (
-                    <TableCell 
-                      key={idx}
-                      sx={styles.tableHeaderCell}
-                    >
-                      {header.replace(/^\*\*(.*)\*\*$/, '$1')} {/* Remove markdown bold formatting */}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, rowIdx) => (
-                  <TableRow 
-                    key={rowIdx}
-                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                  >
-                    {row.map((cell, cellIdx) => (
-                      <TableCell 
-                        key={cellIdx}
-                        sx={styles.tableCell}
-                      >
-                        {cell}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        );
-        
-        // Update lastIndex to after this table
-        lastIndex = match.index + match[0].length;
-      }
-    }
-    
-    // Process general markdown tables
-    if (hasMarkdownTable) {
-      markdownTableRegex.lastIndex = 0; // Reset regex state
-      
-      while ((match = markdownTableRegex.exec(processedContent)) !== null) {
-        // Skip if this section was already processed as part of another table
-        if (match.index < lastIndex) continue;
-        
-        // Add text before the table
-        const beforeTable = processedContent.substring(lastIndex, match.index);
-        if (beforeTable.trim()) {
-          result.push(
-            <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
-              {beforeTable}
-            </ReactMarkdown>
-          );
-        }
-        
-        // Process the table
-        const tableMatch = match[0];
-        
-        // Extract headers and rows
-        const lines = tableMatch.trim().split('\n');
-        const headerLine = lines[0];
-        
-        // Extract headers
-        const headers = headerLine
-          .split('|')
-          .filter(cell => cell.trim() !== '')
-          .map(cell => cell.trim());
-        
-        // Skip the separator line (line with |---|---|)
-        const dataRows = lines.slice(2);
-        
-        // Extract rows
-        const rows = dataRows.map(row => 
-          row
-            .split('|')
-            .filter(cell => cell.trim() !== '')
-            .map(cell => cell.trim().replace(/^\*\*(.*)\*\*$/, '$1')) // Remove markdown bold formatting
-        );
-        
-        // Render Material-UI table
-        result.push(
-          <TableContainer 
-            key={`table-${key++}`}
-            component={Paper} 
-            sx={styles.tableContainer}
-          >
-            <Table>
-              <TableHead sx={styles.tableHead}>
-                <TableRow>
-                  {headers.map((header, idx) => (
-                    <TableCell 
-                      key={idx}
-                      sx={styles.tableHeaderCell}
-                    >
-                      {header.replace(/^\*\*(.*)\*\*$/, '$1')} {/* Remove markdown bold formatting */}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, rowIdx) => (
-                  <TableRow 
-                    key={rowIdx}
-                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                  >
-                    {row.map((cell, cellIdx) => (
-                      <TableCell 
-                        key={cellIdx}
-                        sx={styles.tableCell}
-                      >
-                        {cell}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        );
-        
-        // Update lastIndex to after this table
-        lastIndex = match.index + match[0].length;
-      }
-    }
-    
-    // Add any remaining content after the last table
-    const afterLastTable = processedContent.substring(lastIndex);
-    if (afterLastTable.trim()) {
-      result.push(
-        <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
-          {afterLastTable}
-        </ReactMarkdown>
-      );
-    }
-    
-    return <>{result}</>;
-  };
-
-  // Direct table detection and rendering for Llama3-3 format
-  const detectAndRenderLlama3Table = (content: string) => {
-    // This regex specifically targets the Llama3-3 table format with joined lines
-    const llama3TableRegex = /\| ([^|]+) \| ([^|]+) \| ([^|]+) \| \| --- \| --- \| --- \| \| ([^|]+) \| ([^|]+) \| ([^|]+) \|/g;
-    
-    if (!llama3TableRegex.test(content)) {
-      return null; // Not a Llama3-3 table
-    }
-    
-    // Reset regex state
-    llama3TableRegex.lastIndex = 0;
-    
-    // Extract table data
-    const tableData: string[][] = [];
-    let headers: string[] = [];
-    let match: RegExpExecArray | null;
-    
-    while ((match = llama3TableRegex.exec(content)) !== null) {
-      if (headers.length === 0) {
-        // First match contains headers
-        headers = [match[1].trim(), match[2].trim(), match[3].trim()];
-        // Add first row
-        tableData.push([match[4].trim(), match[5].trim(), match[6].trim()]);
-      } else {
-        // Subsequent matches are rows
-        tableData.push([match[1].trim(), match[2].trim(), match[3].trim()]);
-      }
-    }
-    
-    if (headers.length === 0 || tableData.length === 0) {
-      return null; // No valid table data extracted
-    }
-    
-    // Render Material-UI table
-    return (
-      <TableContainer 
-        component={Paper} 
-        sx={styles.tableContainer}
-      >
-        <Table>
-          <TableHead sx={styles.tableHead}>
-            <TableRow>
-              {headers.map((header, idx) => (
-                <TableCell 
-                  key={idx}
-                  sx={styles.tableHeaderCell}
-                >
-                  {header}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {tableData.map((row, rowIdx) => (
-              <TableRow 
-                key={rowIdx}
-                sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-              >
-                {row.map((cell, cellIdx) => (
-                  <TableCell 
-                    key={cellIdx}
-                    sx={styles.tableCell}
-                  >
-                    {cell}
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    );
   };
 
   const renderMessage = (message: MessageType) => {
@@ -1002,7 +289,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           sx={isUser ? styles.userMessage : styles.assistantMessage}
         >
           <Box sx={{ width: '100%' }}>
-            {/* Render message content */}
             <Typography
               variant="body1"
               component="div"
@@ -1013,157 +299,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 message.content
               ) : (
                 <>
-                  {/* Try direct Llama3-3 table detection first */}
-                  {detectAndRenderLlama3Table(message.content) || renderMarkdownWithTables(message.content)}
+                  <ReactMarkdown>
+                    {message.content}
+                  </ReactMarkdown>
                   {loading && message.id === chat?.messages[chat.messages.length - 1]?.id && (
                     <span className="streaming-cursor"></span>
                   )}
                 </>
               )}
             </Typography>
-            
-            {/* Render file attachments if present */}
-            {message.attachments && message.attachments.length > 0 && (
-              <Box sx={{ mt: 2, mb: 1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                  Attachments:
-                </Typography>
-                {message.attachments.map((attachment) => {
-                  if (attachment.type === 'image') {
-                    return (
-                      <Box key={attachment.id} sx={{ mb: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-                          <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
-                          <Typography variant="body2" sx={styles.attachmentName}>
-                            {attachment.name}
-                          </Typography>
-                          <Typography variant="caption" sx={styles.attachmentSize}>
-                            {formatFileSize(attachment.size)}
-                          </Typography>
-                        </Box>
-                        <Box 
-                          component="img"
-                          src={attachment.content}
-                          alt={attachment.name}
-                          sx={{ 
-                            maxWidth: '100%', 
-                            maxHeight: '300px',
-                            borderRadius: 1,
-                            objectFit: 'contain'
-                          }}
-                        />
-                      </Box>
-                    );
-                  } else if (attachment.type === 'pdf') {
-                    return (
-                      <Box key={attachment.id} sx={{ mb: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-                          <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
-                          <Typography variant="body2" sx={styles.attachmentName}>
-                            {attachment.name} (PDF)
-                          </Typography>
-                          <Typography variant="caption" sx={styles.attachmentSize}>
-                            {formatFileSize(attachment.size)}
-                          </Typography>
-                        </Box>
-                        
-                        {/* Simple PDF preview with extracted content */}
-                        <Box sx={{ 
-                          border: '1px solid',
-                          borderColor: 'divider',
-                          borderRadius: 1,
-                          p: 1,
-                          bgcolor: 'background.paper',
-                        }}>
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                            PDF Content Preview
-                          </Typography>
-                          
-                          {/* Show a small preview of the text */}
-                          {attachment.content && (
-                            <Box 
-                              sx={{ 
-                                maxHeight: '100px', 
-                                overflowY: 'auto',
-                                p: 1,
-                                bgcolor: 'action.hover',
-                                borderRadius: 1,
-                                mb: 1,
-                                fontSize: '0.75rem'
-                              }}
-                            >
-                              <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-                                {attachment.content.length > 300 
-                                  ? `${attachment.content.substring(0, 300)}...`
-                                  : attachment.content
-                                }
-                              </pre>
-                            </Box>
-                          )}
-                          
-                          {/* Show thumbnails of extracted images if any */}
-                          {attachment.images && attachment.images.length > 0 && (
-                            <Box>
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                                {attachment.images.length} image{attachment.images.length !== 1 ? 's' : ''} extracted
-                              </Typography>
-                              <Box sx={{ 
-                                display: 'flex', 
-                                flexWrap: 'wrap', 
-                                gap: 0.5,
-                                maxHeight: '100px',
-                                overflowY: 'auto'
-                              }}>
-                                {attachment.images.slice(0, 4).map((imgSrc, index) => (
-                                  <Box 
-                                    key={index}
-                                    component="img"
-                                    src={imgSrc}
-                                    alt={`Image ${index + 1} from ${attachment.name}`}
-                                    sx={{ 
-                                      width: '40px', 
-                                      height: '40px',
-                                      objectFit: 'cover',
-                                      borderRadius: 0.5,
-                                    }}
-                                  />
-                                ))}
-                                {attachment.images.length > 4 && (
-                                  <Box sx={{ 
-                                    width: '40px', 
-                                    height: '40px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    bgcolor: 'action.hover',
-                                    borderRadius: 0.5,
-                                    fontSize: '0.75rem'
-                                  }}>
-                                    +{attachment.images.length - 4}
-                                  </Box>
-                                )}
-                              </Box>
-                            </Box>
-                          )}
-                        </Box>
-                      </Box>
-                    );
-                  } else {
-                    return (
-                      <Box key={attachment.id} sx={styles.attachmentPreview}>
-                        <DescriptionIcon sx={styles.attachmentIcon} />
-                        <Typography variant="body2" sx={styles.attachmentName}>
-                          {attachment.name}
-                        </Typography>
-                        <Typography variant="caption" sx={styles.attachmentSize}>
-                          {formatFileSize(attachment.size)}
-                        </Typography>
-                      </Box>
-                    );
-                  }
-                })}
-              </Box>
-            )}
           </Box>
         </Box>
       </Box>
@@ -1196,23 +340,30 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             onClick={handleOpenModelMenu}
             endIcon={<KeyboardArrowDownIcon />}
             sx={styles.modelSelector}
+            disabled={models.length === 0}
           >
-            {model?.name || 'Select Model'}
+            {models.length === 0 ? 'No Models Available' : (model?.name || 'Select Model')}
           </Button>
           <Menu
             anchorEl={modelMenuAnchor}
             open={Boolean(modelMenuAnchor)}
             onClose={handleCloseModelMenu}
           >
-            {models.map((m) => (
-              <MenuItem
-                key={m.id}
-                selected={m.id === model?.id}
-                onClick={() => handleSelectModel(m)}
-              >
-                {m.name}
+            {models.length === 0 ? (
+              <MenuItem disabled>
+                No models found. Please ensure Ollama is running and has models installed.
               </MenuItem>
-            ))}
+            ) : (
+              models.map((m) => (
+                <MenuItem
+                  key={m.id}
+                  selected={m.id === model?.id}
+                  onClick={() => handleSelectModel(m)}
+                >
+                  {m.name}
+                </MenuItem>
+              ))
+            )}
           </Menu>
 
           <Typography
@@ -1289,8 +440,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   size="small" 
                   sx={isListening ? styles.micButtonActive : (speechError ? styles.micButtonError : styles.micButton)}
                   onClick={toggleListening}
-                  disabled={loading || !recognitionRef.current}
-                  title={speechError || (isListening ? 'Stop dictation' : 'Start dictation')}
+                  disabled={loading || !voskRecognition}
+                  title={speechError || (isListening ? 'Stop dictation (Vosk)' : 'Start dictation (Vosk)')}
                 >
                   <MicIcon />
                 </IconButton>
@@ -1304,90 +455,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   </Typography>
                 )}
               </Box>
-              {/* Hidden unified file input */}
-              <input
-                type="file"
-                ref={fileInputRef}
-                style={{ display: 'none' }}
-                accept=".txt,.docx,.pdf,image/*"
-                multiple
-                onChange={handleFileSelect}
-              />
               
-              {/* Add attachment button - direct file browser */}
-              <Box sx={{ position: 'relative' }}>
-                <IconButton
-                  size="small"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={loading}
-                  title="Add attachment"
-                  sx={styles.fileUploadButton}
-                >
-                  <AddIcon fontSize="small" />
-                </IconButton>
-              </Box>
-              
-              <Box sx={{ width: '100%' }}>
-                {/* File attachment chips displayed above the text field */}
-                {attachments.length > 0 && (
-                  <Box 
-                    sx={{ 
-                      display: 'flex', 
-                      flexWrap: 'wrap', 
-                      gap: 0.5, 
-                      p: 1, 
-                      mb: 1,
-                      borderRadius: 1,
-                      bgcolor: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      width: '100%'
-                    }}
-                  >
-                    {attachments.map((attachment) => (
-                      <Box 
-                        key={attachment.id} 
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          bgcolor: 'action.hover',
-                          borderRadius: 1,
-                          p: 0.5,
-                          maxWidth: '100%',
-                          overflow: 'hidden'
-                        }}
-                      >
-                        {attachment.type === 'image' ? (
-                          <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
-                        ) : (
-                          <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
-                        )}
-                        <Typography 
-                          variant="caption" 
-                          sx={{ 
-                            maxWidth: '150px', 
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {attachment.name}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveAttachment(attachment.id);
-                          }}
-                          sx={{ 
-                            ml: 0.5, 
-                            p: 0.25,
-                            '&:hover': { bgcolor: 'action.selected' }
-                          }}
-                        >
-                          <CloseIcon sx={{ fontSize: 14 }} />
-                        </IconButton>
-                      </Box>
-                    ))}
+              <Box sx={{ width: '100%', position: 'relative' }}>
+                {/* Real-time speech recognition overlay */}
+                {isListening && interimTranscript && (
+                  <Box sx={styles.interimTranscript}>
+                    🎤 {interimTranscript}
                   </Box>
                 )}
                 
@@ -1402,11 +475,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   disabled={loading}
                   InputProps={{
                     sx: styles.textField,
-                    endAdornment: isListening && interimTranscript ? (
-                      <Box sx={styles.interimTranscript}>
-                        {interimTranscript}
-                      </Box>
-                    ) : null,
                   }}
                   variant="outlined"
                 />

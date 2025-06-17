@@ -6,6 +6,7 @@ import ChatArea from './components/ChatArea';
 import SettingsDialog from './components/SettingsDialog';
 import { ModelType, ChatType, MessageType, FileAttachment } from './types';
 import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
+import { voskRecognition } from './services/vosk';
 
 const App: React.FC = () => {
   const [models, setModels] = useState<ModelType[]>([]);
@@ -18,7 +19,7 @@ const App: React.FC = () => {
   // Model settings
   const [contextLength, setContextLength] = useState(4096); // Default context length
   const [temperature, setTemperature] = useState(0.8); // Default temperature
-  const [maxContextLength, setMaxContextLength] = useState(2048); // Default max context length
+  const [maxContextLength, setMaxContextLength] = useState(48000); // Default max context length
 
   // Function to determine the chat API URL based on environment
   const getChatApiUrl = useCallback(() => {
@@ -84,6 +85,8 @@ const App: React.FC = () => {
     }
   }, [chats, saveChatsToServer]);
 
+  // Note: Using singleton voskRecognition instance
+
   useEffect(() => {
     const loadModels = async () => {
       try {
@@ -120,6 +123,16 @@ const App: React.FC = () => {
             
             setChats([newChat]);
             setCurrentChat(newChat);
+          }
+        } else {
+          // No models available
+          console.warn('No models available from Ollama API');
+          setSelectedModel(null);
+          
+          // Don't create a chat if no models are available
+          if (chats.length === 0) {
+            setChats([]);
+            setCurrentChat(null);
           }
         }
       } catch (error) {
@@ -384,6 +397,7 @@ const App: React.FC = () => {
         temperature={temperature}
         maxContextLength={maxContextLength}
         onSaveSettings={handleSaveSettings}
+        voskRecognition={voskRecognition}
       />
       
       {/* Chat interface */}
@@ -406,6 +420,7 @@ const App: React.FC = () => {
         models={models}
         onSelectModel={handleSelectModel}
         sidebarOpen={sidebarOpen}
+        voskRecognition={voskRecognition}
       />
     </Box>
   );
