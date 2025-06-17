@@ -33,7 +33,9 @@ export class VoskRecognitionService {
   private async initializeWebSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        this.socket = new WebSocket('ws://localhost:2700');
+        // Use localhost for development, but can be configured for production
+        const voskServerUrl = process.env.REACT_APP_VOSK_SERVER_URL || 'ws://localhost:2700';
+        this.socket = new WebSocket(voskServerUrl);
         
         this.socket.onopen = () => {
           console.log('✅ WebSocket connected to Vosk server');

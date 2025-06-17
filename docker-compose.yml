@@ -18,6 +18,30 @@ services:
       - NODE_ENV=production
       # This is used during the build process
       - REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434
+    depends_on:
+      - vosk-server
+
+  vosk-server:
+    build:
+      context: ./Vosk-Server/websocket
+      dockerfile: Dockerfile
+    container_name: vosk-server
+    ports:
+      - "2700:2700"
+    restart: unless-stopped
+    networks:
+      - ollama-network
+    volumes:
+      - ./Vosk-Server/websocket/models:/app/models
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python asr_server_with_models.py models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 2700)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 networks:
   ollama-network:

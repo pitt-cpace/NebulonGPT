@@ -41,9 +41,10 @@ RUN apk add --no-cache nginx
 # Copy nginx config
 COPY nginx.conf /etc/nginx/http.d/default.conf
 
-# Copy the start services script
-COPY start-services.sh /app/start-services.sh
-RUN chmod +x /app/start-services.sh
+# Copy the start services script and ensure proper permissions
+COPY start-services.sh /app/
+RUN chmod +x /app/start-services.sh && \
+    sed -i 's/\r$//' /app/start-services.sh
 
 # Expose only the Nginx port
 # Port 3001 is only used internally within the container
