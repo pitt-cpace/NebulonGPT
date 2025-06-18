@@ -1,7 +1,7 @@
 =======
 # Nebulon-GPT
 
-Your Fully Private Ollama-based Web User Interface - A modern, elegant interface for interacting with your local Ollama models with integrated speech recognition.
+Your Fully Private Ollama-based Web User Interface - A modern, elegant interface for interacting with your local Ollama models.
 
 ![Nebulon-GPT Screenshot](screenshot.png)
 
@@ -10,8 +10,6 @@ Your Fully Private Ollama-based Web User Interface - A modern, elegant interface
 - Clean, modern interface with a sleek dark theme
 - Support for all your local Ollama models
 - Real-time streaming responses as the model generates text
-- **🎤 Integrated Speech Recognition** with Vosk models
-- **🔄 Selectable Speech Models** for different languages
 - Beautiful table formatting for structured data
 - Chat history and conversation management
 - Suggested prompts to help you get started
@@ -23,24 +21,20 @@ Your Fully Private Ollama-based Web User Interface - A modern, elegant interface
 - [Docker](https://www.docker.com/products/docker-desktop/) installed on your machine
 - [Ollama](https://ollama.ai/) running locally with models installed
 - **Python 3.8+** for Vosk speech recognition server
-- **Vosk Models** downloaded for speech recognition (see setup below)
 
-## Vosk Speech Recognition Setup
-
-### 1. Download Vosk Models
+## Download Vosk Models
 
 Before using speech recognition, you must download the desired Vosk models from:
 
-```
 https://alphacephei.com/vosk/models
-```
 
 **Recommended models:**
-- **English (Small)**: `vosk-model-small-en-us-0.15` (~40MB) - Fast, good for real-time
-- **English (Large)**: `vosk-model-en-us-0.22` (~1.8GB) - High accuracy
+
+- **English (Small)**: vosk-model-small-en-us-0.15 (~40MB) - Fast, good for real-time
+- **English (Large)**: vosk-model-en-us-0.22 (~1.8GB) - High accuracy
 - **Other Languages**: Choose models for your preferred languages
 
-### 2. Extract Models
+### Extract Models
 
 After downloading, extract the models into the following directory:
 
@@ -56,62 +50,27 @@ Vosk-Server/websocket/models/
 └── vosk-model-fa-0.5/
 ```
 
-### 3. Install Python Dependencies
-
-Navigate to the Vosk-Server directory and install requirements:
-
-```bash
-cd Vosk-Server/websocket
-pip install -r requirements.txt
-```
-
-**For virtual environment (recommended):**
-```bash
-cd Vosk-Server/websocket
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 4. Start Vosk Server
-
-Run the ASR server with models directory:
-
-```bash
-cd Vosk-Server/websocket
-python asr_server_with_models.py models
-```
-
-The server will start on `ws://localhost:2700` and automatically detect available models.
-
 ## Quick Start
 
-1. **Setup Vosk Speech Recognition** (see above section)
-
-2. Make sure Ollama is running on your machine:
+1. Make sure Ollama is running on your machine:
    ```bash
    ollama serve
    ```
 
-3. Clone this repository:
+2. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/ollama-ui.git
-   cd ollama-ui
+   git clone --branch New-Features --recurse-submodules https://github.com/pitt-cpace/NebulonGPT.git
+   cd NebulonGPT
    ```
 
-4. Initialize submodules:
-   ```bash
-   git submodule update --init --recursive
-   ```
-
-5. Start the application using the provided script:
+3. Start the application using the provided script:
    ```bash
    ./start.sh
    ```
    
    This script will automatically detect if you have Docker Compose or just Docker and run the appropriate commands.
 
-6. Open your browser and navigate to:
+4. Open your browser and navigate to:
    ```
    http://localhost:3000
    ```
@@ -179,65 +138,6 @@ If you encounter issues:
 - Check Docker logs: `docker logs ollama-ui`
 - Verify that port 3000 is not already in use
 - Ensure your Docker installation has permissions to create containers
-
-### Vosk Speech Recognition Issues
-
-If speech recognition is not working:
-
-1. **Check Vosk Server Status**:
-   ```bash
-   # Check if Vosk server is running
-   curl -s ws://localhost:2700 || echo "Vosk server not responding"
-   
-   # Check Python process
-   ps aux | grep asr_server
-   ```
-
-2. **Verify Models Installation**:
-   ```bash
-   # Check if models directory exists and has models
-   ls -la Vosk-Server/websocket/models/
-   
-   # Should show directories like:
-   # vosk-model-small-en-us-0.15/
-   # vosk-model-en-us-0.22/
-   ```
-
-3. **Python Environment Issues**:
-   ```bash
-   # Check Python version
-   python --version  # Should be 3.8+
-   
-   # Check if virtual environment is working
-   cd Vosk-Server/websocket
-   source venv/bin/activate  # Linux/Mac
-   # OR
-   venv\Scripts\activate     # Windows
-   
-   # Test Vosk installation
-   python -c "import vosk; print('Vosk installed successfully')"
-   ```
-
-4. **Manual Vosk Server Start**:
-   ```bash
-   cd Vosk-Server/websocket
-   python asr_server_with_models.py models
-   ```
-
-5. **Docker Environment Setup**:
-   If running in Docker, ensure the Vosk server is accessible from the container:
-   ```bash
-   # Add to docker-compose.yml or docker run command:
-   --network="host"  # Linux
-   # OR
-   -p 2700:2700      # Map Vosk port
-   ```
-
-6. **Common Error Solutions**:
-   - **"No models found"**: Download models from https://alphacephei.com/vosk/models
-   - **"Python not found"**: Install Python 3.8+ and ensure it's in PATH
-   - **"Permission denied"**: Run `chmod +x start.sh` to make script executable
-   - **"Port 2700 in use"**: Kill existing Vosk processes: `pkill -f asr_server`
 
 ### Connection Issues
 
