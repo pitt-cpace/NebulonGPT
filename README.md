@@ -20,7 +20,6 @@ Your Fully Private Ollama-based Web User Interface - A modern, elegant interface
 
 - [Docker](https://www.docker.com/products/docker-desktop/) installed on your machine
 - [Ollama](https://ollama.ai/) running locally with models installed
-- **Python 3.8+** for Vosk speech recognition server
 
 ## Download Vosk Models
 
@@ -91,20 +90,34 @@ docker-compose up -d
 
 ### Using Plain Docker
 
-If you don't have Docker Compose:
+If you don't have Docker Compose, you'll need to build and run both containers manually:
 
 ```bash
-# Build the image
-docker build -t ollama-ui .
+# Build the Vosk Server image
+docker build -t vosk-server ./Vosk-Server/websocket
 
-# Run the container
-docker run -d --name ollama-ui \
+# Build the main application image
+docker build -t nebulon-gpt .
+
+# Create a network
+docker network create ollama-network
+
+# Run Vosk Server
+docker run -d --name vosk-server \
+  --network ollama-network \
+  -p 2700:2700 \
+  -v "$(pwd)/Vosk-Server/websocket/models:/app/models" \
+  vosk-server
+
+# Run the main application
+docker run -d --name nebulon-gpt \
+  --network ollama-network \
   -p 3000:80 \
   --add-host=host.docker.internal:host-gateway \
-  -v "$(pwd)/nginx.conf:/etc/nginx/conf.d/default.conf" \
+  -v "$(pwd)/nginx.conf:/etc/nginx/http.d/default.conf" \
   -e NODE_ENV=production \
   -e REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434 \
-  ollama-ui
+  nebulon-gpt
 ```
 
 ## Configuration
@@ -135,8 +148,8 @@ If you want to run the application in development mode:
 If you encounter issues:
 
 - Make sure Ollama is running (`ollama serve`)
-- Check Docker logs: `docker logs ollama-ui`
-- Verify that port 3000 is not already in use
+- Check Docker logs: `docker logs nebulon-gpt` or `docker logs vosk-server`
+- Verify that ports 3000 and 2700 are not already in use
 - Ensure your Docker installation has permissions to create containers
 
 ### Connection Issues
@@ -166,7 +179,7 @@ If the UI is running but can't connect to Ollama:
 
 4. **Check Logs**: View the Nginx logs from the container:
    ```bash
-   docker logs ollama-ui
+   docker logs nebulon-gpt
    ```
 
 5. **Firewall Settings**: Make sure your firewall allows connections to port 11434 (Ollama API)
