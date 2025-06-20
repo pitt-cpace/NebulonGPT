@@ -158,6 +158,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       setSpeechError('Vosk speech recognition not available');
       return;
     }
+
+    // Check if models are available using centralized method
+    const modelCheck = await voskRecognition.checkModelAvailability();
+    if (!modelCheck.hasModels) {
+      console.error('❌ No Vosk models available');
+      setSpeechError(modelCheck.errorMessage || 'No speech recognition models available');
+      return;
+    }
     
     setSpeechError(null); // Clear any previous errors
     
@@ -451,7 +459,22 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     color="warning.main" 
                     sx={styles.micErrorText}
                   >
-                    {speechError}
+                    {speechError.includes('https://alphacephei.com/vosk/models') ? (
+                      <Box component="span">
+                        No speech recognition models found. Please download models from{' '}
+                        <a 
+                          href="https://alphacephei.com/vosk/models" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          style={{ color: 'inherit', textDecoration: 'underline' }}
+                        >
+                          https://alphacephei.com/vosk/models
+                        </a>
+                        {' '}and unzip them into the "Vosk-Server/websocket/models" folder.
+                      </Box>
+                    ) : (
+                      speechError
+                    )}
                   </Typography>
                 )}
               </Box>

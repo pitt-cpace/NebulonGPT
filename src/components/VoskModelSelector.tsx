@@ -162,6 +162,22 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
     setLoading(true);
     setError(null);
 
+    // Use centralized method to check model availability
+    const modelCheck = await voskRecognition.checkModelAvailability();
+    
+    if (!modelCheck.hasModels) {
+      // Server not available or no models found
+      setError(modelCheck.errorMessage || 'No speech recognition models available');
+      setAvailableModels([]);
+      setSelectedModel('');
+      if (onError) {
+        onError(modelCheck.errorMessage || 'No speech recognition models available');
+      }
+      setLoading(false);
+      return;
+    }
+
+    // If we get here, server is available and has models
     try {
       const models = await voskRecognition.getAvailableModels();
       setAvailableModels(models);
@@ -278,7 +294,22 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
 
       {error && (
         <Alert severity="error" sx={{ mb: 1 }}>
-          {error}
+          {error.includes('https://alphacephei.com/vosk/models') ? (
+            <Box>
+              No speech recognition models found. Please download models from{' '}
+              <a 
+                href="https://alphacephei.com/vosk/models" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ color: 'inherit', textDecoration: 'underline' }}
+              >
+                https://alphacephei.com/vosk/models
+              </a>
+              {' '}and unzip them into the "Vosk-Server/websocket/models" folder.
+            </Box>
+          ) : (
+            error
+          )}
         </Alert>
       )}
 

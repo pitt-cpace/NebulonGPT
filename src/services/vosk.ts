@@ -506,6 +506,27 @@ export class VoskRecognitionService {
   isCurrentlyRecording(): boolean {
     return this.isRecording;
   }
+
+  // Centralized method to check model availability and get error message
+  async checkModelAvailability(): Promise<{ hasModels: boolean; errorMessage?: string }> {
+    try {
+      // Try to get available models (this will establish connection if needed)
+      const models = await this.getAvailableModels();
+      if (models.length === 0) {
+        return {
+          hasModels: false,
+          errorMessage: 'No speech recognition models found. Please download models from https://alphacephei.com/vosk/models and unzip them into the "Vosk-Server/websocket/models" folder.'
+        };
+      }
+      return { hasModels: true };
+    } catch (error) {
+      // If we get here, it's likely a connection issue
+      return {
+        hasModels: false,
+        errorMessage: 'Vosk server not available. Please ensure the server is running on localhost:2700.'
+      };
+    }
+  }
 }
 
 // Export singleton instance
