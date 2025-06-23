@@ -80,6 +80,16 @@ Vosk-Server/websocket/models/
    http://localhost:3000
    ```
 
+## Chat Persistence
+
+Your chat history is automatically saved and will persist between browser sessions and container restarts. Chat data is stored in the `data/` directory in your project folder, so your conversations are preserved even when you:
+
+- Close and reopen your browser
+- Restart the Docker containers
+- Update the application
+
+The chat data is stored locally on your machine and never sent to external servers, maintaining your privacy.
+
 ## Manual Installation
 
 ### Using Docker Compose (Recommended)
@@ -121,6 +131,7 @@ docker run -d --name nebulon-gpt \
   -p 3000:80 \
   --add-host=host.docker.internal:host-gateway \
   -v "$(pwd)/nginx.conf:/etc/nginx/http.d/default.conf" \
+  -v "$(pwd)/data:/app/data" \
   -e NODE_ENV=production \
   -e REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434 \
   nebulon-gpt
