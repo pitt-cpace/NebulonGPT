@@ -56,20 +56,26 @@ Vosk-Server/websocket/models/
    ollama serve
    ```
 
-2. Clone this repository:
+2. Clone with submodules:
    ```bash
    git clone --branch New-Features --recurse-submodules https://github.com/pitt-cpace/NebulonGPT.git
+   ```
+
+3. Enter the project directory:
+   ```bash
    cd NebulonGPT
    ```
 
-3. Start the application using the provided script:
+4. Start with Docker (you have multiple options):
    ```bash
+   docker compose up -d
+   # OR use the provided script
    ./start.sh
    ```
    
-   This script will automatically detect if you have Docker Compose or just Docker and run the appropriate commands.
+   The script will automatically detect if you have Docker Compose or just Docker and run the appropriate commands.
 
-4. Open your browser and navigate to:
+5. Open your browser and navigate to:
    ```
    http://localhost:3000
    ```
