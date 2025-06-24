@@ -57,27 +57,6 @@ const App: React.FC = () => {
     }
   }, [getChatApiUrl]);
 
-  // Load chats from server when the app starts
-  useEffect(() => {
-    const fetchChats = async () => {
-      const savedChats = await loadChatsFromServer();
-      if (savedChats.length > 0) {
-        setChats(savedChats);
-        setCurrentChat(savedChats[0]);
-        
-        // If models are already loaded, set the selected model based on the first chat's model ID
-        if (models.length > 0 && savedChats[0].modelId) {
-          const chatModel = models.find(m => m.id === savedChats[0].modelId);
-          if (chatModel) {
-            setSelectedModel(chatModel);
-          }
-        }
-      }
-    };
-    
-    fetchChats();
-  }, [loadChatsFromServer, models]);
-
   // Save chats to server whenever they change
   useEffect(() => {
     if (chats.length > 0) {
@@ -85,18 +64,33 @@ const App: React.FC = () => {
     }
   }, [chats, saveChatsToServer]);
 
-  // Note: Using singleton voskRecognition instance
-
+  // Initialize app: load models and chats
   useEffect(() => {
-    const loadModels = async () => {
+    const initializeApp = async () => {
       try {
         setLoading(true);
+        
+        // Load models first
         const modelList = await fetchModels();
         setModels(modelList);
         
+        // Load chats from server
+        const savedChats = await loadChatsFromServer();
+        
         // Set default model if available
+        let defaultModel: ModelType | null = null;
         if (modelList.length > 0) {
-          const defaultModel = modelList[0];
+          // Check if there's a saved default model
+          const savedDefaultModelId = localStorage.getItem('defaultModel');
+          defaultModel = modelList[0]; // fallback to first model
+          
+          if (savedDefaultModelId) {
+            const savedModel = modelList.find(m => m.id === savedDefaultModelId);
+            if (savedModel) {
+              defaultModel = savedModel;
+            }
+          }
+          
           setSelectedModel(defaultModel);
           
           // Fetch context length for the default model
@@ -110,40 +104,49 @@ const App: React.FC = () => {
           } catch (error) {
             console.error('Failed to fetch model details for default model:', error);
           }
+        }
+        
+        // Handle chats
+        if (savedChats.length > 0) {
+          // Use saved chats
+          setChats(savedChats);
+          setCurrentChat(savedChats[0]);
           
-          // Only create a new chat if no chats were loaded from the server
-          if (chats.length === 0) {
-            const newChat: ChatType = {
-              id: `chat-${Date.now()}`,
-              title: 'New Chat',
-              modelId: defaultModel.id,
-              messages: [],
-              createdAt: new Date().toISOString(),
-            };
-            
-            setChats([newChat]);
-            setCurrentChat(newChat);
+          // Set the selected model based on the first chat's model ID if models are loaded
+          if (modelList.length > 0 && savedChats[0].modelId) {
+            const chatModel = modelList.find(m => m.id === savedChats[0].modelId);
+            if (chatModel) {
+              setSelectedModel(chatModel);
+            }
           }
+        } else if (defaultModel) {
+          // Create a new chat only if no saved chats and we have a default model
+          const newChat: ChatType = {
+            id: `chat-${Date.now()}`,
+            title: 'New Chat',
+            modelId: defaultModel.id,
+            messages: [],
+            createdAt: new Date().toISOString(),
+          };
+          
+          setChats([newChat]);
+          setCurrentChat(newChat);
         } else {
           // No models available
           console.warn('No models available from Ollama API');
           setSelectedModel(null);
-          
-          // Don't create a chat if no models are available
-          if (chats.length === 0) {
-            setChats([]);
-            setCurrentChat(null);
-          }
+          setChats([]);
+          setCurrentChat(null);
         }
       } catch (error) {
-        console.error('Failed to load models:', error);
+        console.error('Failed to initialize app:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    loadModels();
-  }, [chats.length]);
+    initializeApp();
+  }, [loadChatsFromServer]); // Include loadChatsFromServer dependency
 
   const handleCreateNewChat = () => {
     if (!selectedModel) return;

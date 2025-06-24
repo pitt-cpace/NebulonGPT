@@ -82,7 +82,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [voskServerAvailable, setVoskServerAvailable] = useState<boolean | null>(null);
+  const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const suggestedPrompts = getSuggestedPrompts();
+
+  // Load default model from localStorage on component mount
+  useEffect(() => {
+    const savedDefaultModel = localStorage.getItem('defaultModel');
+    setDefaultModel(savedDefaultModel);
+  }, []);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -266,6 +273,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     handleCloseModelMenu();
   };
 
+  const handleSetAsDefault = () => {
+    if (model) {
+      localStorage.setItem('defaultModel', model.id);
+      setDefaultModel(model.id);
+    }
+  };
+
   const handleSuggestedPrompt = (prompt: string) => {
     onSendMessage(prompt);
   };
@@ -376,10 +390,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
           <Typography
             variant="body2"
-            color="text.secondary"
-            sx={{ ml: 1, cursor: 'pointer' }}
+            color={model?.id === defaultModel ? "primary.main" : "text.secondary"}
+            sx={{ 
+              ml: 1, 
+              cursor: 'pointer',
+              fontWeight: model?.id === defaultModel ? 'bold' : 'normal'
+            }}
+            onClick={handleSetAsDefault}
           >
-            Set as default
+            {model?.id === defaultModel ? 'Default model' : 'Set as default'}
           </Typography>
 
           <Box sx={{ flexGrow: 1 }} />
