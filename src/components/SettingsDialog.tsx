@@ -25,6 +25,7 @@ interface SettingsDialogProps {
   maxContextLength?: number; // Maximum context length supported by the model
   onSaveSettings: (contextLength: number, temperature: number) => void;
   voskRecognition?: VoskRecognitionService | null;
+  onMicStopped?: () => void;
 }
 
 const SettingsDialog: React.FC<SettingsDialogProps> = ({
@@ -34,6 +35,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   maxContextLength = 48000, // Default to 48000 if not provided
   onSaveSettings,
   voskRecognition,
+  onMicStopped,
 }) => {
   const [open, setOpen] = useState(false);
   const [localContextLength, setLocalContextLength] = useState(contextLength);
@@ -130,6 +132,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             onError={(error) => {
               console.error('Vosk model selector error:', error);
             }}
+            onMicStopped={onMicStopped}
           />
           <Divider sx={{ my: 2 }} />
 

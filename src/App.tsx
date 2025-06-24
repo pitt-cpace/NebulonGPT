@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, CssBaseline } from '@mui/material';
 import * as styles from './styles/components/App.styles';
 import Sidebar from './components/Sidebar';
@@ -20,6 +20,17 @@ const App: React.FC = () => {
   const [contextLength, setContextLength] = useState(4096); // Default context length
   const [temperature, setTemperature] = useState(0.8); // Default temperature
   const [maxContextLength, setMaxContextLength] = useState(48000); // Default max context length
+
+  // State to trigger ChatArea UI update when mic is stopped from settings
+  const [micStoppedTrigger, setMicStoppedTrigger] = useState(0);
+
+  // Function to handle mic stopped from settings
+  const handleMicStopped = useCallback(() => {
+    // This will be called when VoskModelSelector stops the mic
+    // Increment the trigger to force ChatArea to update its UI state
+    console.log('🔄 Mic stopped from settings, triggering ChatArea UI update...');
+    setMicStoppedTrigger(prev => prev + 1);
+  }, []);
 
   // Function to determine the chat API URL based on environment
   const getChatApiUrl = useCallback(() => {
@@ -405,6 +416,7 @@ const App: React.FC = () => {
         maxContextLength={maxContextLength}
         onSaveSettings={handleSaveSettings}
         voskRecognition={voskRecognition}
+        onMicStopped={handleMicStopped}
       />
       
       {/* Chat interface */}
@@ -428,6 +440,7 @@ const App: React.FC = () => {
         onSelectModel={handleSelectModel}
         sidebarOpen={sidebarOpen}
         voskRecognition={voskRecognition}
+        micStoppedTrigger={micStoppedTrigger}
       />
     </Box>
   );

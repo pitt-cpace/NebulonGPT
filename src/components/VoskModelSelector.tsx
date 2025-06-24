@@ -24,6 +24,7 @@ interface VoskModelSelectorProps {
   disabled?: boolean;
   onModelSelected?: (modelName: string) => void;
   onError?: (error: string) => void;
+  onMicStopped?: () => void;
 }
 
 const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
@@ -31,6 +32,7 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
   disabled = false,
   onModelSelected,
   onError,
+  onMicStopped,
 }) => {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
@@ -234,6 +236,18 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
     setError(null);
 
     try {
+      // Check if mic is currently listening and stop it first
+      if (voskRecognition.isCurrentlyRecording()) {
+        console.log('🛑 Stopping mic recording before changing voice model...');
+        await voskRecognition.stop();
+        console.log('✅ Mic recording stopped, proceeding with model change');
+        
+        // Notify parent component that mic was stopped so UI can be updated
+        if (onMicStopped) {
+          onMicStopped();
+        }
+      }
+
       await voskRecognition.selectModel(modelName);
       setSelectedModel(modelName);
       

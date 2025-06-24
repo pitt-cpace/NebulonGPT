@@ -57,6 +57,7 @@ interface ChatAreaProps {
   onSelectModel: (model: ModelType) => void;
   sidebarOpen: boolean;
   voskRecognition: VoskRecognitionService | null;
+  micStoppedTrigger: number;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -70,6 +71,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onSelectModel,
   sidebarOpen,
   voskRecognition,
+  micStoppedTrigger,
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
@@ -152,6 +154,40 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Note: VoskRecognitionService doesn't need manual cleanup of event handlers
   }, [voskRecognition]);
 
+  // Handle mic stopped from settings - listen for the trigger
+  useEffect(() => {
+    // This effect will run when the micStoppedTrigger changes
+    // which happens when VoskModelSelector stops the mic
+    if (micStoppedTrigger > 0 && voskRecognition && !voskRecognition.isCurrentlyRecording() && isListening) {
+      console.log('🔄 Mic stopped from settings, updating ChatArea UI state...');
+      setIsListening(false);
+      setInterimTranscript('');
+    }
+  }, [micStoppedTrigger, voskRecognition, isListening]);
+
+  // Centralized function to stop mic listening with all UI updates
+  const stopMicListening = useCallback(async () => {
+    console.log('🛑 STOPPING speech recognition...');
+    console.log('  - Current isListening state:', isListening);
+    
+    if (!voskRecognition || !isListening) {
+      console.log('⚠️ Nothing to stop - mic not listening or voskRecognition not available');
+      return;
+    }
+    
+    try {
+      await voskRecognition.stop();
+      console.log('✅ voskRecognition.stop() called successfully');
+    } catch (error) {
+      console.error('❌ Error stopping Vosk speech recognition:', error);
+    }
+    
+    // Update all UI states
+    setIsListening(false);
+    setInterimTranscript('');
+    console.log('✅ UI state updated - isListening set to false, interimTranscript cleared');
+  }, [voskRecognition, isListening]);
+
   // Toggle Vosk speech recognition
   const toggleListening = useCallback(async () => {
     console.log('🎤 MICROPHONE BUTTON CLICKED!');
@@ -177,17 +213,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     setSpeechError(null); // Clear any previous errors
     
     if (isListening) {
-      console.log('🛑 STOPPING speech recognition...');
-      console.log('  - Current isListening state:', isListening);
-      try {
-        voskRecognition.stop();
-        console.log('✅ voskRecognition.stop() called successfully');
-      } catch (error) {
-        console.error('❌ Error stopping Vosk speech recognition:', error);
-      }
-      setIsListening(false);
-      setInterimTranscript('');
-      console.log('✅ UI state updated - isListening set to false');
+      // Use centralized stop function
+      await stopMicListening();
     } else {
       console.log('🎙️ STARTING speech recognition...');
       console.log('  - Current isListening state:', isListening);
@@ -212,7 +239,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
     
     console.log('🏁 toggleListening completed');
-  }, [isListening, message, voskRecognition, speechError]);
+  }, [isListening, message, voskRecognition, speechError, stopMicListening]);
 
   const handleSendMessage = () => {
     // Allow sending if there's a message OR attachments
