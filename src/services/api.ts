@@ -21,10 +21,7 @@ export const fetchModels = async (): Promise<ModelType[]> => {
   try {
     // In development mode, we need to be careful not to duplicate the '/api' path
     const endpoint = isProduction ? '/tags' : '/tags';
-    console.log('Fetching models from:', `${baseURL}${endpoint}`);
-    
     const response = await api.get(endpoint);
-    console.log('Ollama API response:', response.data);
     
     if (response.data && response.data.models && response.data.models.length > 0) {
       const models = response.data.models.map((model: any) => ({
@@ -34,7 +31,6 @@ export const fetchModels = async (): Promise<ModelType[]> => {
         quantization: model.name.includes('q') ? model.name.split('-').pop() : undefined,
         isDefault: false,
       }));
-      console.log('Parsed models:', models);
       return models;
     }
     
@@ -133,17 +129,8 @@ export const sendMessage = async (
       };
     });
     
-    console.log('Sending message to Ollama API:', {
-      model: modelId,
-      messages: formattedMessages,
-      options,
-    });
-    
 // In development mode, we need to be careful not to duplicate the '/api' path
 const endpoint = isProduction ? '/chat' : '/chat';
-    
-    // Log the full URL being used
-    console.log('API endpoint:', isProduction ? baseURL + endpoint : baseURL + endpoint);
     
     // If streaming is enabled and callback is provided
     if (onStreamUpdate) {
@@ -158,13 +145,6 @@ const endpoint = isProduction ? '/chat' : '/chat';
         },
       };
       
-      // Log the number of images being sent (now included in the messages)
-      if (imageAttachments.length > 0) {
-        console.log(`Request includes ${imageAttachments.length} images in the messages`);
-      }
-      
-      // Log the complete payload with messages containing images
-      console.log('Complete Ollama API request payload:', JSON.stringify(payload, null, 2));
       
       // Use fetch for streaming
       const response = await fetch(`${baseURL}${endpoint}`, {
@@ -243,17 +223,7 @@ const endpoint = isProduction ? '/chat' : '/chat';
         },
       };
       
-      // Log the number of images being sent (now included in the messages)
-      if (imageAttachments.length > 0) {
-        console.log(`Request includes ${imageAttachments.length} images in the messages`);
-      }
-      
-      // Log the complete payload with messages containing images
-      // console.log('Complete Ollama API request payload (non-streaming):', JSON.stringify(payload, null, 2));
-      
       const response = await api.post(endpoint, payload);
-      
-      console.log('Ollama API response:', response.data);
       
       if (response.data && response.data.message) {
         return response.data.message.content;
