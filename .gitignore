@@ -5,6 +5,9 @@ logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Chat data files (ignore user data)
+data/chats.json
 lerna-debug.log*
 .pnpm-debug.log*
 
@@ -157,4 +160,3 @@ dist
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-

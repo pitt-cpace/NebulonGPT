@@ -29,12 +29,13 @@
     "@types/dom-speech-recognition": "^0.0.4"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "concurrently \"node server.js\" \"react-scripts start\"",
+    "start:frontend": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "server": "node server.js",
-    "start:both": "concurrently \"npm run server\" \"npm start\""
+    "start:both": "concurrently \"npm run server\" \"npm run start:frontend\""
   },
   "eslintConfig": {
     "extends": [

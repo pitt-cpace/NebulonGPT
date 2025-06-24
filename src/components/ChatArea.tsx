@@ -284,6 +284,97 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     onSendMessage(prompt);
   };
 
+  // Attachment menu handlers
+  const handleOpenAttachMenu = (event: React.MouseEvent<HTMLElement>) => {
+    setAttachMenuAnchor(event.currentTarget);
+  };
+
+  const handleCloseAttachMenu = () => {
+    setAttachMenuAnchor(null);
+  };
+
+  // File selection handlers
+  const handleFileSelect = () => {
+    fileInputRef.current?.click();
+    handleCloseAttachMenu();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const fileAttachment: FileAttachment = {
+        id: `file-${Date.now()}-${i}`,
+        name: file.name,
+        size: file.size,
+        type: file.type.startsWith('image/') ? 'image' : 
+              file.type === 'application/pdf' ? 'pdf' : 'document',
+        timestamp: new Date().toISOString(),
+      };
+
+      // Handle different file types
+      if (file.type.startsWith('image/')) {
+        // Handle image files
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          fileAttachment.content = e.target?.result as string;
+          setAttachments(prev => [...prev, fileAttachment]);
+        };
+        reader.readAsDataURL(file);
+      } else if (file.type === 'application/pdf') {
+        // Handle PDF files
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdf = await getDocument({ data: arrayBuffer }).promise;
+          
+          let fullText = '';
+          const images: string[] = [];
+          
+          // Extract text and images from all pages
+          for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            
+            // Extract text
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items
+              .filter((item): item is TextItem => 'str' in item)
+              .map(item => item.str)
+              .join(' ');
+            fullText += pageText + '\n';
+            
+            // Extract images (simplified - would need more complex logic for actual image extraction)
+            // For now, we'll just note that the PDF may contain images
+          }
+          
+          fileAttachment.content = fullText.trim();
+          if (images.length > 0) {
+            fileAttachment.images = images;
+          }
+          
+          setAttachments(prev => [...prev, fileAttachment]);
+        } catch (error) {
+          console.error('Error processing PDF:', error);
+          // Add as a basic file attachment if PDF processing fails
+          fileAttachment.content = `PDF file: ${file.name}`;
+          setAttachments(prev => [...prev, fileAttachment]);
+        }
+      } else {
+        // Handle other file types as text if possible
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          fileAttachment.content = e.target?.result as string;
+          setAttachments(prev => [...prev, fileAttachment]);
+        };
+        reader.readAsText(file);
+      }
+    }
+
+    // Clear the input
+    event.target.value = '';
+  };
+
   // Handle attachment removal
   const handleRemoveAttachment = (attachmentId: string) => {
     const updatedAttachments = attachments.filter(
@@ -461,6 +552,56 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             elevation={0}
             sx={styles.inputContainer}
           >
+            {/* Attachments display */}
+            {attachments.length > 0 && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                  Attachments ({attachments.length})
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {attachments.map((attachment) => (
+                    <Box
+                      key={attachment.id}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        p: 1,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        bgcolor: 'background.paper',
+                        maxWidth: 200,
+                      }}
+                    >
+                      {attachment.type === 'image' ? (
+                        <ImageIcon fontSize="small" color="primary" />
+                      ) : attachment.type === 'pdf' ? (
+                        <DescriptionIcon fontSize="small" color="error" />
+                      ) : (
+                        <InsertDriveFileIcon fontSize="small" color="action" />
+                      )}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="caption" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {attachment.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {formatFileSize(attachment.size)}
+                        </Typography>
+                      </Box>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleRemoveAttachment(attachment.id)}
+                        sx={{ p: 0.5 }}
+                      >
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            )}
+
             <Box sx={styles.inputBox}>
               <Box sx={{ position: 'relative' }}>
                 <IconButton 
@@ -496,6 +637,45 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     )}
                   </Typography>
                 )}
+              </Box>
+
+              {/* Attachment button */}
+              <Box sx={{ position: 'relative' }}>
+                <IconButton
+                  size="small"
+                  onClick={handleOpenAttachMenu}
+                  disabled={loading}
+                  title="Attach files"
+                  sx={{ ml: 1 }}
+                >
+                  <AddIcon />
+                </IconButton>
+                <Menu
+                  anchorEl={attachMenuAnchor}
+                  open={Boolean(attachMenuAnchor)}
+                  onClose={handleCloseAttachMenu}
+                  anchorOrigin={{
+                    vertical: 'top',
+                    horizontal: 'left',
+                  }}
+                  transformOrigin={{
+                    vertical: 'bottom',
+                    horizontal: 'left',
+                  }}
+                >
+                  <MenuItem onClick={handleFileSelect}>
+                    <InsertDriveFileIcon sx={{ mr: 1 }} />
+                    Upload Files
+                  </MenuItem>
+                </Menu>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.txt,.doc,.docx"
+                  style={{ display: 'none' }}
+                  onChange={handleFileChange}
+                />
               </Box>
               
               <Box sx={{ width: '100%', position: 'relative' }}>

@@ -146,7 +146,7 @@ const App: React.FC = () => {
     };
 
     initializeApp();
-  }, [loadChatsFromServer]); // Include loadChatsFromServer dependency
+  }, []); // Run only once on mount
 
   const handleCreateNewChat = () => {
     if (!selectedModel) return;
