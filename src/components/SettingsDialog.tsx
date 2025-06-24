@@ -26,6 +26,8 @@ interface SettingsDialogProps {
   onSaveSettings: (contextLength: number, temperature: number) => void;
   voskRecognition?: VoskRecognitionService | null;
   onMicStopped?: () => void;
+  onMicStart?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 const SettingsDialog: React.FC<SettingsDialogProps> = ({
@@ -36,6 +38,8 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   onSaveSettings,
   voskRecognition,
   onMicStopped,
+  onMicStart,
+  onMicStop,
 }) => {
   const [open, setOpen] = useState(false);
   const [localContextLength, setLocalContextLength] = useState(contextLength);
@@ -133,6 +137,8 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
               console.error('Vosk model selector error:', error);
             }}
             onMicStopped={onMicStopped}
+            onMicStart={onMicStart}
+            onMicStop={onMicStop}
           />
           <Divider sx={{ my: 2 }} />
 

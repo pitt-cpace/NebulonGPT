@@ -25,6 +25,8 @@ interface VoskModelSelectorProps {
   onModelSelected?: (modelName: string) => void;
   onError?: (error: string) => void;
   onMicStopped?: () => void;
+  onMicStart?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
@@ -33,6 +35,8 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
   onModelSelected,
   onError,
   onMicStopped,
+  onMicStart,
+  onMicStop,
 }) => {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
@@ -184,38 +188,64 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
       const models = await voskRecognition.getAvailableModels();
       setAvailableModels(models);
       
-      // Set current model if available
-      const currentModel = voskRecognition.getCurrentModel();
-      if (currentModel && models.includes(currentModel)) {
-        setSelectedModel(currentModel);
-      } else if (models.length > 0) {
-        // Auto-select default model if no model is currently selected
-        let defaultModel = '';
-        
-        // Priority order for default model selection
-        const preferredModels = [
-          'vosk-model-small-en-us-0.15',
-          'vosk-model-en-us-0.22',
-          'vosk-model-small-en-us',
-          'vosk-model-en-us'
-        ];
-        
-        // Try to find a preferred model
-        for (const preferred of preferredModels) {
-          if (models.includes(preferred)) {
-            defaultModel = preferred;
-            break;
+      // Check what model is currently running on the server first
+      let serverCurrentModel: string | null = null;
+      try {
+        serverCurrentModel = await voskRecognition.getServerCurrentModel();
+        console.log(`🔍 VoskModelSelector: Server currently has model loaded: ${serverCurrentModel}`);
+      } catch (error) {
+        console.log('⚠️ VoskModelSelector: Could not get server current model:', error);
+      }
+      
+      // Set current model based on priority:
+      // 1. Server's currently loaded model (highest priority)
+      // 2. Local current model
+      // 3. Auto-select default model
+      
+      if (serverCurrentModel && serverCurrentModel !== 'none' && models.includes(serverCurrentModel)) {
+        console.log(`✅ VoskModelSelector: Using server's currently loaded model: ${serverCurrentModel}`);
+        setSelectedModel(serverCurrentModel);
+        // Note: VoskRecognitionService will update its internal state automatically
+      } else {
+        const localCurrentModel = voskRecognition.getCurrentModel();
+        if (localCurrentModel && models.includes(localCurrentModel)) {
+          console.log(`✅ Using local current model: ${localCurrentModel}`);
+          setSelectedModel(localCurrentModel);
+        } else if (models.length > 0) {
+          // Auto-select default model if no model is currently selected
+          let defaultModel = '';
+          
+          // Priority order for default model selection
+          const preferredModels = [
+            'vosk-model-small-en-us-0.15',
+            'vosk-model-en-us-0.22',
+            'vosk-model-small-en-us',
+            'vosk-model-en-us'
+          ];
+          
+          // Try to find a preferred model
+          for (const preferred of preferredModels) {
+            if (models.includes(preferred)) {
+              defaultModel = preferred;
+              break;
+            }
+          }
+          
+          // If no preferred model found, use the first available model
+          if (!defaultModel) {
+            defaultModel = models[0];
+          }
+          
+          // Only auto-select if server doesn't have a model loaded
+          if (!serverCurrentModel || serverCurrentModel === 'none') {
+            console.log(`🎤 Auto-selecting default Vosk model: ${defaultModel}`);
+            await handleModelChange(defaultModel);
+          } else {
+            console.log(`⚠️ Server has model ${serverCurrentModel} but it's not in available models list`);
+            console.log(`🔧 Setting UI to show default model without loading: ${defaultModel}`);
+            setSelectedModel(defaultModel);
           }
         }
-        
-        // If no preferred model found, use the first available model
-        if (!defaultModel) {
-          defaultModel = models[0];
-        }
-        
-        // Automatically select the default model
-        console.log(`🎤 Auto-selecting default Vosk model: ${defaultModel}`);
-        await handleModelChange(defaultModel);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load models';
@@ -236,16 +266,26 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
     setError(null);
 
     try {
-      // Check if mic is currently listening and stop it first
+      // Check if mic is currently listening and stop it first using the exposed function
       if (voskRecognition.isCurrentlyRecording()) {
         console.log('🛑 Stopping mic recording before changing voice model...');
-        await voskRecognition.stop();
-        console.log('✅ Mic recording stopped, proceeding with model change');
         
-        // Notify parent component that mic was stopped so UI can be updated
-        if (onMicStopped) {
-          onMicStopped();
+        // Use the exposed stop function from ChatArea if available
+        if (onMicStop?.current) {
+          console.log('✅ Using ChatArea stopMicListening function');
+          await onMicStop.current();
+        } else {
+          // Fallback to direct voskRecognition call
+          console.log('⚠️ Fallback to direct voskRecognition.stop()');
+          await voskRecognition.stop();
+          
+          // Notify parent component that mic was stopped so UI can be updated
+          if (onMicStopped) {
+            onMicStopped();
+          }
         }
+        
+        console.log('✅ Mic recording stopped, proceeding with model change');
       }
 
       await voskRecognition.selectModel(modelName);

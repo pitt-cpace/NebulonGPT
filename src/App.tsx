@@ -24,6 +24,10 @@ const App: React.FC = () => {
   // State to trigger ChatArea UI update when mic is stopped from settings
   const [micStoppedTrigger, setMicStoppedTrigger] = useState(0);
 
+  // Refs to access mic functions from ChatArea
+  const micStartRef = useRef<(() => Promise<void>) | null>(null);
+  const micStopRef = useRef<(() => Promise<void>) | null>(null);
+
   // Function to handle mic stopped from settings
   const handleMicStopped = useCallback(() => {
     // This will be called when VoskModelSelector stops the mic
@@ -417,6 +421,8 @@ const App: React.FC = () => {
         onSaveSettings={handleSaveSettings}
         voskRecognition={voskRecognition}
         onMicStopped={handleMicStopped}
+        onMicStart={micStartRef}
+        onMicStop={micStopRef}
       />
       
       {/* Chat interface */}
@@ -441,6 +447,8 @@ const App: React.FC = () => {
         sidebarOpen={sidebarOpen}
         voskRecognition={voskRecognition}
         micStoppedTrigger={micStoppedTrigger}
+        onMicStart={micStartRef}
+        onMicStop={micStopRef}
       />
     </Box>
   );

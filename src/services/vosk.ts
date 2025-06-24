@@ -64,40 +64,23 @@ export class VoskRecognitionService {
               }
             }, 100);
           } else if (!this.currentModel && !this.isSelectingModel) {
-            // No model selected yet, auto-select a default model
-            console.log('🎯 No model selected, auto-selecting default model...');
+            // No model selected yet, check server first before auto-selecting
+            console.log('🔍 No local model, checking server for existing model...');
             setTimeout(async () => {
               try {
-                const models = await this.getAvailableModels();
-                if (models.length > 0) {
-                  // Priority order for default model selection
-                  const preferredModels = [
-                    'vosk-model-small-en-us-0.15',
-                    'vosk-model-en-us-0.22',
-                    'vosk-model-small-en-us',
-                    'vosk-model-en-us'
-                  ];
-                  
-                  let defaultModel = '';
-                  
-                  // Try to find a preferred model
-                  for (const preferred of preferredModels) {
-                    if (models.includes(preferred)) {
-                      defaultModel = preferred;
-                      break;
-                    }
-                  }
-                  
-                  // If no preferred model found, use the first available model
-                  if (!defaultModel) {
-                    defaultModel = models[0];
-                  }
-                  
-                  console.log(`🎤 Auto-selecting default Vosk model: ${defaultModel}`);
-                  await this.selectModel(defaultModel);
+                // First check if server already has a model loaded
+                const serverModel = await this.getServerCurrentModel();
+                if (serverModel && serverModel !== 'none') {
+                  console.log(`✅ Server already has model loaded: ${serverModel}`);
+                  this.currentModel = serverModel;
+                  return; // Don't load a new model
                 }
+                
+                // Server has no model, wait for manual selection
+                console.log('🔍 Server has no model, waiting for manual model selection...');
+                // IMPORTANT: Don't auto-load any model - let VoskModelSelector handle this
               } catch (error) {
-                console.error('❌ Failed to auto-select default model:', error);
+                console.error('❌ Failed to check server model:', error);
               }
             }, 500);
           }
@@ -415,6 +398,71 @@ export class VoskRecognitionService {
 
   onEnd(callback: () => void): void {
     this.onEndCallback = callback;
+  }
+
+  // Check if server has a model currently loaded
+  async getServerCurrentModel(): Promise<string | null> {
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Ensure WebSocket connection before requesting current model
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+          console.log('🔌 WebSocket not connected for getServerCurrentModel, connecting...');
+          await this.initializeWebSocket();
+        }
+
+        // Set up temporary message handler for current model response
+        const originalOnMessage = this.socket!.onmessage;
+        
+        const timeoutId = setTimeout(() => {
+          if (this.socket) {
+            this.socket.onmessage = originalOnMessage; // Restore original handler
+          }
+          resolve(null); // No response means no model loaded
+        }, 3000);
+
+        this.socket!.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            console.log('📨 Received message from server:', msg);
+            
+            if (msg.type === 'current_model') {
+              clearTimeout(timeoutId);
+              this.socket!.onmessage = originalOnMessage; // Restore original handler
+              
+              console.log('✅ Received current_model response:', msg.model);
+              if (msg.model && msg.model !== 'none') {
+                console.log(`🔍 Server reports current model: ${msg.model}`);
+                this.currentModel = msg.model; // Update our local state
+                resolve(msg.model);
+              } else {
+                console.log('🔍 Server reports no model currently loaded');
+                resolve(null);
+              }
+              return;
+            }
+            
+            // For other messages, call the original handler
+            if (originalOnMessage && this.socket) {
+              originalOnMessage.call(this.socket, event);
+            }
+          } catch (error) {
+            console.error('Error parsing server response for current model:', error);
+            console.log('Raw event data:', event.data);
+            // Continue with original handler for non-JSON messages
+            if (originalOnMessage && this.socket) {
+              originalOnMessage.call(this.socket, event);
+            }
+          }
+        };
+
+        // Request current model from server
+        console.log('📤 Requesting current model from server...');
+        this.socket!.send(JSON.stringify({ type: 'get_current_model' }));
+
+      } catch (error) {
+        reject(error);
+      }
+    });
   }
 
   // Model management methods
