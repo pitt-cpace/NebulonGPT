@@ -57,10 +57,14 @@ const App: React.FC = () => {
     }
   }, [getChatApiUrl]);
 
-  // Save chats to server whenever they change
+  // Save chats to server whenever they change (only save chats with messages)
   useEffect(() => {
     if (chats.length > 0) {
-      saveChatsToServer(chats);
+      // Filter out empty chats (chats with no messages)
+      const chatsWithMessages = chats.filter(chat => chat.messages.length > 0);
+      if (chatsWithMessages.length > 0) {
+        saveChatsToServer(chatsWithMessages);
+      }
     }
   }, [chats, saveChatsToServer]);
 
