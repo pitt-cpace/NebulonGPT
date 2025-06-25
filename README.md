@@ -69,10 +69,8 @@ Vosk-Server/websocket/models/
    cd NebulonGPT
    ```
 
-4. Start with Docker (you have multiple options):
+4. Start with Docker:
    ```bash
-   docker compose up -d
-   # OR use the provided script
    ./start.sh
    ```
    
