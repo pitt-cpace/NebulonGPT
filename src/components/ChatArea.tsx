@@ -188,19 +188,22 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       return;
     }
 
-    // Check if server has a model currently loaded
+    // Use centralized error detection for consistent messaging
     try {
-      const currentModel = await voskRecognition.getServerCurrentModel();
-      if (!currentModel || currentModel === 'none') {
-        console.error('❌ No model currently loaded on server');
-        setSpeechError('No speech recognition model is currently loaded. Please select a model in Settings first.');
-        throw new Error('No model currently loaded on server');
+      const modelCheck = await voskRecognition.checkModelAvailability();
+      if (!modelCheck.hasModels) {
+        console.error('❌ Model availability check failed:', modelCheck.errorMessage);
+        setSpeechError(modelCheck.errorMessage || 'Speech recognition not available');
+        throw new Error(modelCheck.errorMessage || 'Speech recognition not available');
       }
+      
+      // If models are available, get the current model
+      const currentModel = await voskRecognition.getServerCurrentModel();
       console.log(`✅ Using currently running model for speech recognition: ${currentModel}`);
     } catch (error) {
-      console.error('❌ Failed to check server model:', error);
-      setSpeechError('Vosk server not available. Please ensure the server is running on localhost:2700.');
-      throw new Error('Failed to check server model');
+      console.error('❌ Failed to check model availability:', error);
+      // Error message already set by checkModelAvailability
+      throw error;
     }
     
     setSpeechError(null); // Clear any previous errors
