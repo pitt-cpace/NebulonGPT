@@ -35,8 +35,8 @@ COPY --from=build /app/build ./build
 # Create data directory
 RUN mkdir -p /app/data
 
-# Install nginx
-RUN apk add --no-cache nginx
+# Install nginx and curl for health checks
+RUN apk add --no-cache nginx curl
 
 # Copy nginx config
 COPY nginx.conf /etc/nginx/http.d/default.conf

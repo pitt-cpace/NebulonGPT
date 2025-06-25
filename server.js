@@ -24,6 +24,11 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' })); // Increase limit for image attachments
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
+// Health check endpoint for Docker
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
+
 // API endpoints
 app.get('/api/chats', (req, res) => {
   try {
