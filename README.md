@@ -14,6 +14,9 @@ Your Fully Private Ollama-based Web User Interface - A modern, elegant interface
 - Chat history and conversation management
 - Suggested prompts to help you get started
 - Enhanced markdown rendering for responses
+- **Advanced voice recognition** with Vosk integration
+- **Multi-user session support** with per-session model tracking
+- **Intelligent model selection** and persistence
 - Fully dockerized for easy deployment
 
 ## Prerequisites
@@ -56,9 +59,9 @@ Vosk-Server/websocket/models/
    ollama serve
    ```
 
-2. Clone with submodules:
+2. Clone the repository:
    ```bash
-   git clone --branch New-Features --recurse-submodules https://github.com/pitt-cpace/NebulonGPT.git
+   git clone --branch New-Features https://github.com/pitt-cpace/NebulonGPT.git
    ```
 
 3. Enter the project directory:
@@ -89,6 +92,32 @@ Your chat history is automatically saved and will persist between browser sessio
 - Update the application
 
 The chat data is stored locally on your machine and never sent to external servers, maintaining your privacy.
+
+## Voice Recognition Features
+
+NebulonGPT includes advanced voice recognition capabilities powered by Vosk:
+
+### Key Features:
+- **Multi-language support** - Works with any Vosk model language
+- **Per-session model tracking** - Each user maintains their own model preferences
+- **Intelligent model selection** - Automatically uses the best available model
+- **Model persistence** - Models stay loaded across page refreshes
+- **Centralized error detection** - Consistent error messages across all components
+- **Real-time transcription** - See your speech converted to text in real-time
+
+### Voice Recognition Setup:
+1. **Download models** from https://alphacephei.com/vosk/models
+2. **Extract models** to `Vosk-Server/websocket/models/`
+3. **Start the application** - Vosk server starts automatically with Docker
+4. **Select your model** in Settings → Voice Recognition
+5. **Click the microphone button** to start dictation
+
+### Supported Languages:
+The system supports any language for which you have downloaded Vosk models, including:
+- English (multiple variants)
+- Spanish, French, German, Russian
+- Arabic, Persian, Chinese, Japanese
+- And many more...
 
 ## Manual Installation
 
@@ -207,7 +236,19 @@ If the UI is running but can't connect to Ollama:
 
 MIT
 
+## Architecture
+
+NebulonGPT is built with a modern, containerized architecture:
+
+- **Frontend**: React with Material-UI for a clean, responsive interface
+- **Backend**: Node.js server for chat data persistence and API management
+- **Voice Recognition**: Integrated Vosk server for speech-to-text capabilities
+- **Containerization**: Docker Compose orchestrates all services automatically
+
+**Note**: The Vosk-Server is now directly integrated into the project (no longer a submodule), making deployment simpler and more reliable.
+
 ## Acknowledgements
 
 - [Ollama](https://ollama.ai/) for making local LLMs accessible
 - [React](https://reactjs.org/) and [Material-UI](https://mui.com/) for the frontend framework
+- [Vosk](https://alphacephei.com/vosk/) for open-source speech recognition
