@@ -14,6 +14,8 @@ from vosk import Model, SpkModel, KaldiRecognizer
 # Global caches for model management
 model_cache = {}  # maps name -> Model()
 model_refcnt = defaultdict(int)  # name -> number of live clients
+default_model_name = None  # Track the default model loaded at startup
+session_models = {}  # Track the last selected model per session: {session_id: model_name}
 spk_model = None
 pool = None
 args = None
@@ -65,13 +67,12 @@ async def load_model_async(name: str, loop, pool) -> Model:
     return model_cache[name]
 
 def release_model(name: str) -> None:
-    """Release a model reference and unload if no longer needed."""
+    """Release a model reference but keep model loaded for reuse."""
     if name in model_refcnt:
         model_refcnt[name] -= 1
-        if model_refcnt[name] <= 0:
-            logging.info(f"[vosk-hub] Unloading model: {name}")
-            model_cache.pop(name, None)  # Allow GC to free memory
-            model_refcnt.pop(name, None)
+        # Don't automatically unload models - keep them for reuse
+        # Models will only be unloaded when explicitly selecting a different model
+        logging.info(f"[vosk-hub] Released reference to model: {name} (ref count: {model_refcnt[name]})")
 
 def get_available_models():
     """Get list of available models in the models directory."""
@@ -118,17 +119,103 @@ def process_chunk(rec, message):
 
 async def recognize_loop(websocket, path=None):
     """Main WebSocket handler for each client connection."""
-    global spk_model, args, pool
+    global spk_model, args, pool, default_model_name, session_models
     
     loop = asyncio.get_running_loop()
     rec = None
-    current_model_name = None
+    current_model_name = default_model_name  # Initialize with the default model
     phrase_list = None
     sample_rate = args.sample_rate
     show_words = args.show_words
     max_alternatives = args.max_alternatives
 
-    logging.info('Connection from %s', websocket.remote_address)
+    # Create unique session ID for this connection
+    session_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}:{id(websocket)}"
+    logging.info(f'Connection from {websocket.remote_address} (session: {session_id})')
+    
+    # Check if there's already a model loaded and use that, otherwise use default
+    if model_cache:
+        available_models = list(model_cache.keys())
+        logging.info(f'Available models in cache: {available_models}')
+        
+        # Prioritize models in this order:
+        # 1. Last selected model by this session (highest priority)
+        # 2. Large models (en-us-0.22, etc.)
+        # 3. Any available model
+        
+        selected_model = None
+        
+        # First priority: Use the last selected model by this session if it's still available
+        session_last_model = session_models.get(session_id)
+        if session_last_model and session_last_model in available_models:
+            selected_model = session_last_model
+            logging.info(f'Using session last selected model: {selected_model} (session: {session_id})')
+        else:
+            # Second priority: Use large models
+            preferred_order = [
+                'vosk-model-en-us-0.22',
+                'vosk-model-large-en-us',
+                'vosk-model-en-us',
+                'vosk-model-small-en-us-0.15',
+                'vosk-model-small-en-us'
+            ]
+            
+            # Find the best available model based on priority
+            for preferred in preferred_order:
+                if preferred in available_models:
+                    selected_model = preferred
+                    break
+            
+            # If no preferred model found, use the first available
+            if not selected_model:
+                selected_model = available_models[0]
+            
+            logging.info(f'Using prioritized model: {selected_model}')
+        
+        current_model_name = selected_model
+        
+        try:
+            logging.info(f'Setting up recognizer with selected model: {selected_model}')
+            model = model_cache[selected_model]
+            model_refcnt[selected_model] += 1  # Increment reference count
+            
+            # Create recognizer with the selected model
+            if phrase_list:
+                rec = KaldiRecognizer(model, sample_rate, json.dumps(phrase_list, ensure_ascii=False))
+            else:
+                rec = KaldiRecognizer(model, sample_rate)
+            
+            rec.SetWords(show_words)
+            rec.SetMaxAlternatives(max_alternatives)
+            if spk_model:
+                rec.SetSpkModel(spk_model)
+                
+            logging.info(f'Client connection ready with selected model: {selected_model}')
+        except Exception as e:
+            logging.error(f'Failed to setup recognizer with selected model: {e}')
+            current_model_name = None
+    elif default_model_name and default_model_name in model_cache:
+        # Fallback to default model only if no models are loaded
+        try:
+            logging.info(f'Setting up recognizer with default model: {default_model_name}')
+            model = model_cache[default_model_name]
+            model_refcnt[default_model_name] += 1  # Increment reference count
+            
+            # Create recognizer with the default model
+            if phrase_list:
+                rec = KaldiRecognizer(model, sample_rate, json.dumps(phrase_list, ensure_ascii=False))
+            else:
+                rec = KaldiRecognizer(model, sample_rate)
+            
+            rec.SetWords(show_words)
+            rec.SetMaxAlternatives(max_alternatives)
+            if spk_model:
+                rec.SetSpkModel(spk_model)
+                
+            logging.info(f'Client connection ready with default model: {default_model_name}')
+        except Exception as e:
+            logging.error(f'Failed to setup recognizer with default model: {e}')
+            current_model_name = None
 
     try:
         async for raw in websocket:
@@ -166,6 +253,28 @@ async def recognize_loop(websocket, path=None):
                         "models": models
                     }))
 
+                # Handle current model query
+                elif msg_type == "get_current_model":
+                    await websocket.send(json.dumps({
+                        "type": "current_model",
+                        "model": current_model_name if current_model_name else "none"
+                    }))
+
+                # Handle server status query (enhanced model detection)
+                elif msg_type == "get_server_status":
+                    # Get detailed server status including all loaded models
+                    loaded_models = list(model_cache.keys())
+                    model_ref_counts = dict(model_refcnt)
+                    
+                    await websocket.send(json.dumps({
+                        "type": "server_status",
+                        "current_model": current_model_name if current_model_name else "none",
+                        "loaded_models": loaded_models,
+                        "model_ref_counts": model_ref_counts,
+                        "available_models": get_available_models(),
+                        "active_connections": len(getattr(websocket.server, 'websockets', [])) if hasattr(websocket, 'server') else 1
+                    }))
+
                 # Handle model selection
                 elif msg_type == "select_model":
                     # Release previous model if any
@@ -186,6 +295,10 @@ async def recognize_loop(websocket, path=None):
                         # Load model asynchronously with timeout
                         model = await load_model_async(model_name, loop, pool)
                         current_model_name = model_name
+                        
+                        # Track this as the last selected model for this session
+                        session_models[session_id] = model_name
+                        logging.info(f"Updated session model preference: {model_name} (session: {session_id})")
                         
                         # Create new recognizer with the selected model
                         if phrase_list:
@@ -286,13 +399,18 @@ async def recognize_loop(websocket, path=None):
                     # Don't break on stop for EOF/reset - keep connection alive
 
     except websockets.exceptions.ConnectionClosed:
-        logging.info("Client disconnected")
+        logging.info(f"Client disconnected (session: {session_id})")
     except Exception as e:
         logging.error(f"Error in recognize_loop: {e}")
     finally:
-        # Clean up: release model reference
+        # Clean up: release model reference and session data
         if current_model_name:
             release_model(current_model_name)
+        
+        # Clean up session data (but keep model preference for potential reconnection)
+        # Note: We keep session_models[session_id] for user convenience
+        # It will be cleaned up by periodic cleanup or server restart
+        logging.info(f"Session cleanup completed (session: {session_id})")
 
 async def start():
     """Start the Vosk WebSocket server with multi-model support."""
@@ -330,6 +448,37 @@ async def start():
     available_models = get_available_models()
     if available_models:
         logging.info(f"Available models: {', '.join(available_models)}")
+        
+        # Auto-load a default model on server startup
+        default_model = None
+        
+        # Priority order for default model selection
+        preferred_models = [
+            'vosk-model-small-en-us-0.15',
+            'vosk-model-en-us-0.22',
+            'vosk-model-small-en-us',
+            'vosk-model-en-us'
+        ]
+        
+        # Try to find a preferred model
+        for preferred in preferred_models:
+            if preferred in available_models:
+                default_model = preferred
+                break
+        
+        # If no preferred model found, use the first available model
+        if not default_model:
+            default_model = available_models[0]
+        
+        # Load the default model
+        try:
+            global default_model_name
+            logging.info(f"Auto-loading default model: {default_model}")
+            load_model(default_model)
+            default_model_name = default_model  # Set the global default model name
+            logging.info(f"Default model loaded successfully: {default_model}")
+        except Exception as e:
+            logging.error(f"Failed to auto-load default model {default_model}: {e}")
     else:
         logging.warning(f"No models found in '{MODEL_DIR}'. Please add Vosk models to this directory.")
 
