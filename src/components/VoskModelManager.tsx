@@ -60,6 +60,9 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [currentUploadFile, setCurrentUploadFile] = useState<string>('');
+  const [extracting, setExtracting] = useState(false);
+  const [extractProgress, setExtractProgress] = useState(0);
+  const [currentExtractFile, setCurrentExtractFile] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [usingVoskServer, setUsingVoskServer] = useState(false);
@@ -194,12 +197,42 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
 
   const handleExtractModel = async (modelName: string) => {
     setError(null);
+    setExtracting(true);
+    setExtractProgress(0);
+    setCurrentExtractFile(modelName);
+    
     try {
+      // Simulate progress for extraction (since the backend doesn't provide real-time progress)
+      const progressInterval = setInterval(() => {
+        setExtractProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90; // Stop at 90% until actual completion
+          }
+          return prev + 10;
+        });
+      }, 200);
+
       await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(modelName)}/extract`);
-      setSuccess('Model extracted successfully');
-      loadModels();
+      
+      // Complete the progress
+      clearInterval(progressInterval);
+      setExtractProgress(100);
+      
+      // Small delay to show 100% completion
+      setTimeout(() => {
+        setExtracting(false);
+        setExtractProgress(0);
+        setCurrentExtractFile('');
+        setSuccess('Model extracted successfully');
+        loadModels();
+      }, 500);
+      
     } catch (error: any) {
       console.error('Error extracting model:', error);
+      setExtracting(false);
+      setExtractProgress(0);
+      setCurrentExtractFile('');
       setError(error.response?.data?.error || 'Error extracting model');
     }
   };
@@ -378,34 +411,75 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
     }
 
     setError(null);
+    setExtracting(true);
+    setExtractProgress(0);
+    setCurrentExtractFile('');
+    
+    const totalFiles = selectedZipFiles.length;
+    let completedFiles = 0;
     const results: string[] = [];
     const errors: string[] = [];
 
-    for (const fileName of selectedZipFiles) {
-      try {
-        await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(fileName)}/extract`);
-        results.push(`✅ ${fileName}: Extracted successfully`);
-      } catch (error: any) {
-        console.error(`Error extracting ${fileName}:`, error);
-        errors.push(`❌ ${fileName}: ${error.response?.data?.error || 'Extract failed'}`);
+    try {
+      // Extract files sequentially to avoid overwhelming the server
+      for (let i = 0; i < selectedZipFiles.length; i++) {
+        const fileName = selectedZipFiles[i];
+        setCurrentExtractFile(fileName);
+        
+        try {
+          // Simulate progress for current file extraction
+          const fileProgressInterval = setInterval(() => {
+            setExtractProgress(prev => {
+              const baseProgress = Math.round((completedFiles / totalFiles) * 100);
+              const currentFileProgress = Math.min(prev - baseProgress, 80); // Don't exceed 80% for current file
+              return baseProgress + currentFileProgress;
+            });
+          }, 100);
+
+          await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(fileName)}/extract`);
+          
+          clearInterval(fileProgressInterval);
+          completedFiles++;
+          
+          // Update progress for completed file
+          setExtractProgress(Math.round((completedFiles / totalFiles) * 100));
+          
+          results.push(`✅ ${fileName}: Extracted successfully`);
+          
+        } catch (error: any) {
+          console.error(`Error extracting ${fileName}:`, error);
+          errors.push(`❌ ${fileName}: ${error.response?.data?.error || 'Extract failed'}`);
+          completedFiles++;
+        }
       }
-    }
 
-    // Show results
-    if (results.length > 0 && errors.length === 0) {
-      setSuccess(`All ${selectedZipFiles.length} ZIP files extracted successfully:\n${results.join('\n')}`);
-    } else if (results.length > 0 && errors.length > 0) {
-      setSuccess(`${results.length}/${selectedZipFiles.length} ZIP files extracted successfully:\n${results.join('\n')}`);
-      setError(`${errors.length} extractions failed:\n${errors.join('\n')}`);
-    } else {
-      setError(`All extractions failed:\n${errors.join('\n')}`);
-    }
+      // Show results
+      if (results.length > 0 && errors.length === 0) {
+        setSuccess(`All ${selectedZipFiles.length} ZIP files extracted successfully:\n${results.join('\n')}`);
+      } else if (results.length > 0 && errors.length > 0) {
+        setSuccess(`${results.length}/${selectedZipFiles.length} ZIP files extracted successfully:\n${results.join('\n')}`);
+        setError(`${errors.length} extractions failed:\n${errors.join('\n')}`);
+      } else {
+        setError(`All extractions failed:\n${errors.join('\n')}`);
+      }
 
-    // Clear selections and reload
-    setSelectedFiles(new Set());
-    setSelectAllZip(false);
-    setSelectAllDir(false);
-    loadModels();
+      // Clear selections and reload
+      setSelectedFiles(new Set());
+      setSelectAllZip(false);
+      setSelectAllDir(false);
+      loadModels();
+      
+    } catch (error: any) {
+      console.error('Error during bulk extraction:', error);
+      setError('Bulk extraction failed');
+    } finally {
+      // Small delay to show 100% completion
+      setTimeout(() => {
+        setExtracting(false);
+        setExtractProgress(0);
+        setCurrentExtractFile('');
+      }, 500);
+    }
   };
 
   const handleClose = () => {
@@ -524,6 +598,20 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
                   </Typography>
                 )}
                 <LinearProgress variant="determinate" value={uploadProgress} sx={{ mt: 1 }} />
+              </Box>
+            )}
+
+            {extracting && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Extracting... {extractProgress}%
+                </Typography>
+                {currentExtractFile && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                    Current file: {currentExtractFile}
+                  </Typography>
+                )}
+                <LinearProgress variant="determinate" value={extractProgress} sx={{ mt: 1 }} />
               </Box>
             )}
           </CardContent>
