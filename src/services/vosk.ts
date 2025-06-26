@@ -418,7 +418,7 @@ export class VoskRecognitionService {
             this.socket.onmessage = originalOnMessage; // Restore original handler
           }
           resolve(null); // No response means no model loaded
-        }, 3000);
+        }, 15000); // Increased from 3s to 15s for concurrent usage
 
         this.socket!.onmessage = (event) => {
           try {
@@ -555,25 +555,89 @@ export class VoskRecognitionService {
     return this.isRecording;
   }
 
-  // Centralized method to check model availability and get error message
+  // Centralized method to check model availability with retry logic for concurrent usage
   async checkModelAvailability(): Promise<{ hasModels: boolean; errorMessage?: string }> {
-    try {
-      // Try to get available models (this will establish connection if needed)
-      const models = await this.getAvailableModels();
-      if (models.length === 0) {
-        return {
-          hasModels: false,
-          errorMessage: 'No speech recognition models found. Please download models from https://alphacephei.com/vosk/models and unzip them into the "Vosk-Server/websocket/models" folder.'
-        };
+    const maxRetries = 3;
+    let lastError: any = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🔍 Checking model availability (attempt ${attempt}/${maxRetries})`);
+        
+        // Try to get available models with retry logic
+        const models = await this.getAvailableModelsWithRetry();
+        
+        if (models.length === 0) {
+          return {
+            hasModels: false,
+            errorMessage: 'No speech recognition models found. Please download models from https://alphacephei.com/vosk/models and unzip them into the "Vosk-Server/websocket/models" folder.'
+          };
+        }
+        
+        console.log(`✅ Model availability check successful: ${models.length} models found`);
+        return { hasModels: true };
+        
+      } catch (error) {
+        lastError = error;
+        console.log(`⚠️ Model availability check failed (attempt ${attempt}/${maxRetries}):`, error);
+        
+        if (attempt < maxRetries) {
+          // Exponential backoff: wait longer between retries when server is busy
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
+          console.log(`⏳ Waiting ${delay}ms before retry (server may be busy with other users)...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       }
-      return { hasModels: true };
-    } catch (error) {
-      // If we get here, it's likely a connection issue
-      return {
-        hasModels: false,
-        errorMessage: 'Vosk server not available. Please ensure the server is running on localhost:2700.'
-      };
     }
+
+    // All retries failed
+    console.error(`❌ Model availability check failed after ${maxRetries} attempts:`, lastError);
+    return {
+      hasModels: false,
+      errorMessage: 'Vosk server is busy or not available. Please wait a moment and try again.'
+    };
+  }
+
+  // Enhanced getAvailableModels with better concurrent usage handling
+  private async getAvailableModelsWithRetry(): Promise<string[]> {
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Ensure WebSocket connection with retry logic
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+          console.log('🔌 WebSocket not connected for getAvailableModelsWithRetry, connecting...');
+          await this.initializeWebSocket();
+        }
+
+        // Set up temporary callback for models response
+        const originalCallback = this.onModelsCallback;
+        let responseReceived = false;
+        
+        this.onModelsCallback = (models: string[]) => {
+          if (!responseReceived) {
+            responseReceived = true;
+            this.onModelsCallback = originalCallback; // Restore original callback
+            console.log(`📋 Received models list: ${models.length} models`);
+            resolve(models);
+          }
+        };
+
+        // Request available models
+        console.log('📤 Requesting available models from server...');
+        this.socket!.send(JSON.stringify({ type: 'get_models' }));
+
+        // Set timeout for the request - longer timeout for concurrent usage
+        setTimeout(() => {
+          if (!responseReceived) {
+            responseReceived = true;
+            this.onModelsCallback = originalCallback; // Restore original callback
+            reject(new Error('Timeout waiting for models list - server may be busy'));
+          }
+        }, 30000); // Increased to 30s for heavy concurrent usage
+        
+      } catch (error) {
+        reject(error);
+      }
+    });
   }
 }
 
