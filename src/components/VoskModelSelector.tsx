@@ -271,6 +271,32 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
     setError(null);
 
     try {
+      // Check if the selected model is already loaded on the server
+      let serverCurrentModel: string | null = null;
+      try {
+        serverCurrentModel = await voskRecognition.getServerCurrentModel();
+        console.log(`🔍 VoskModelSelector: Checking server current model: ${serverCurrentModel}`);
+      } catch (error) {
+        console.log('⚠️ VoskModelSelector: Could not get server current model:', error);
+      }
+
+      // If the selected model is already loaded on the server, just update the UI
+      if (serverCurrentModel === modelName) {
+        console.log(`✅ VoskModelSelector: Model ${modelName} is already loaded on server, skipping load`);
+        setSelectedModel(modelName);
+        
+        // The VoskRecognitionService will automatically update its internal state
+        // when it detects the server already has this model loaded
+        
+        if (onModelSelected) {
+          onModelSelected(modelName);
+        }
+        setLoadingModel(false);
+        return;
+      }
+
+      console.log(`🔄 VoskModelSelector: Loading new model ${modelName} (current: ${serverCurrentModel})`);
+
       // Check if mic is currently listening and stop it first using the exposed function
       if (voskRecognition.isCurrentlyRecording()) {
         console.log('🛑 Stopping mic recording before changing voice model...');
