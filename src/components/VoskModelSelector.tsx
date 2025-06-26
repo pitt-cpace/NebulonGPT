@@ -16,6 +16,7 @@ import {
   Refresh as RefreshIcon,
   Mic as MicIcon,
   Language as LanguageIcon,
+  Storage as StorageIcon,
 } from '@mui/icons-material';
 import { VoskRecognitionService } from '../services/vosk';
 
@@ -27,6 +28,8 @@ interface VoskModelSelectorProps {
   onMicStopped?: () => void;
   onMicStart?: React.MutableRefObject<(() => Promise<void>) | null>;
   onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onManageModels?: () => void;
+  onRefreshReady?: (refreshFn: () => void) => void;
 }
 
 const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
@@ -37,6 +40,8 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
   onMicStopped,
   onMicStart,
   onMicStop,
+  onManageModels,
+  onRefreshReady,
 }) => {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('');
@@ -317,6 +322,13 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
     }
   }, [voskRecognition]);
 
+  // Provide the loadModels function to the parent component
+  useEffect(() => {
+    if (onRefreshReady) {
+      onRefreshReady(loadModels);
+    }
+  }, [onRefreshReady]);
+
   // Note: VoskRecognitionService handles model events internally
 
   if (!voskRecognition) {
@@ -334,12 +346,20 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
         <Typography variant="subtitle2" color="text.secondary">
           Speech Recognition Model
         </Typography>
+        <Tooltip title="Manage models">
+          <IconButton
+            size="small"
+            onClick={onManageModels}
+            disabled={disabled}
+          >
+            <StorageIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Refresh models list">
           <IconButton
             size="small"
             onClick={loadModels}
             disabled={loading || disabled}
-            sx={{ ml: 'auto' }}
           >
             <RefreshIcon sx={{ fontSize: 18 }} />
           </IconButton>

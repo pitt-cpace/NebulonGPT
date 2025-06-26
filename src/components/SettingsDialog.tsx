@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -12,10 +12,11 @@ import {
   IconButton,
   Divider,
 } from '@mui/material';
-import { Settings as SettingsIcon, Close as CloseIcon } from '@mui/icons-material';
+import { Settings as SettingsIcon, Close as CloseIcon, Storage as StorageIcon } from '@mui/icons-material';
 import { ModelType } from '../types';
 import { VoskRecognitionService } from '../services/vosk';
 import VoskModelSelector from './VoskModelSelector';
+import VoskModelManager from './VoskModelManager';
 import * as styles from '../styles/components/SettingsDialog.styles';
 
 interface SettingsDialogProps {
@@ -46,7 +47,8 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   const [localTemperature, setLocalTemperature] = useState(temperature);
   const [contextLengthError, setContextLengthError] = useState('');
   const [temperatureError, setTemperatureError] = useState('');
-
+  const [modelManagerOpen, setModelManagerOpen] = useState(false);
+  const [refreshModels, setRefreshModels] = useState<(() => void) | null>(null);
 
   // Update local state when props change
   useEffect(() => {
@@ -139,6 +141,8 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             onMicStopped={onMicStopped}
             onMicStart={onMicStart}
             onMicStop={onMicStop}
+            onManageModels={() => setModelManagerOpen(true)}
+            onRefreshReady={(refreshFn) => setRefreshModels(() => refreshFn)}
           />
           <Divider sx={{ my: 2 }} />
 
@@ -202,6 +206,14 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Vosk Model Manager Dialog */}
+      <VoskModelManager
+        open={modelManagerOpen}
+        onClose={() => setModelManagerOpen(false)}
+        voskRecognition={voskRecognition}
+        onRefreshModels={refreshModels || undefined}
+      />
     </>
   );
 };

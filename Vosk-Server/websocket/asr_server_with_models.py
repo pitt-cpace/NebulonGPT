@@ -74,6 +74,31 @@ def release_model(name: str) -> None:
         # Models will only be unloaded when explicitly selecting a different model
         logging.info(f"[vosk-hub] Released reference to model: {name} (ref count: {model_refcnt[name]})")
 
+def copy_models_from_backup():
+    """Copy models from backup directory if main models directory is empty."""
+    backup_dir = pathlib.Path('models-backup')
+    if backup_dir.exists() and MODEL_DIR.exists():
+        # Check if models directory is empty or has no valid models
+        current_models = get_available_models()
+        if not current_models:
+            logging.info("Models directory is empty, copying from backup...")
+            try:
+                import shutil
+                for item in backup_dir.iterdir():
+                    if item.is_dir():
+                        dest = MODEL_DIR / item.name
+                        if not dest.exists():
+                            logging.info(f"Copying model: {item.name}")
+                            shutil.copytree(item, dest)
+                    elif item.is_file() and item.suffix == '.zip':
+                        dest = MODEL_DIR / item.name
+                        if not dest.exists():
+                            logging.info(f"Copying model file: {item.name}")
+                            shutil.copy2(item, dest)
+                logging.info("Model backup copy completed")
+            except Exception as e:
+                logging.error(f"Failed to copy models from backup: {e}")
+
 def get_available_models():
     """Get list of available models in the models directory."""
     if not MODEL_DIR.exists():
@@ -443,6 +468,9 @@ async def start():
     if not MODEL_DIR.exists():
         logging.warning(f"Models directory '{MODEL_DIR}' does not exist. Creating it...")
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Copy models from backup if needed
+    copy_models_from_backup()
 
     # List available models
     available_models = get_available_models()
