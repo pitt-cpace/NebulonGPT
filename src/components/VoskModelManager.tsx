@@ -21,7 +21,9 @@ import {
   InputLabel,
   Card,
   CardContent,
-  Grid
+  Grid,
+  Checkbox,
+  ListItemIcon
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -31,17 +33,23 @@ import {
   Storage as StorageIcon,
   CheckCircle as ReadyIcon,
   Archive as ArchiveIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  SelectAll as SelectAllIcon,
+  DeleteSweep as DeleteSweepIcon,
+  Folder as FolderIcon,
+  Archive as ZipIcon,
+  InsertDriveFile as FileIcon,
+  PictureAsPdf as PdfIcon
 } from '@mui/icons-material';
 import axios from 'axios';
 import { VoskRecognitionService } from '../services/vosk';
 
 interface VoskModel {
   name: string;
-  type: 'directory' | 'zip';
+  type: 'directory' | 'zip' | 'file';
   size: number;
   modified: string;
-  status: 'ready' | 'archived';
+  status: 'ready' | 'archived' | 'other';
 }
 
 interface VoskModelManagerProps {
@@ -60,6 +68,11 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [usingVoskServer, setUsingVoskServer] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [selectAllZip, setSelectAllZip] = useState(false);
+  const [selectAllVosk, setSelectAllVosk] = useState(false);
+  const [selectAllDir, setSelectAllDir] = useState(false);
+  const [selectAllOther, setSelectAllOther] = useState(false);
 
   const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 
@@ -73,27 +86,9 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
     setLoading(true);
     setError(null);
     try {
-      // Try to get models from Vosk server first (this is where the models actually are)
-      if (voskRecognition) {
-        try {
-          const voskModels = await voskRecognition.getAvailableModels();
-          const formattedModels: VoskModel[] = voskModels.map(modelName => ({
-            name: modelName,
-            type: 'directory' as const,
-            size: 0, // Size not available from Vosk server
-            modified: new Date().toISOString(), // Use current date as fallback
-            status: 'ready' as const
-          }));
-          setModels(formattedModels);
-          setUsingVoskServer(true);
-          return;
-        } catch (voskError) {
-          console.warn('Failed to get models from Vosk server, trying Node.js API:', voskError);
-        }
-      }
-      
-      // Fallback to Node.js API
-      const response = await axios.get(`${API_BASE}/api/vosk/models`);
+      // Always use the Node.js API endpoint that shows ALL files (not just Vosk models)
+      // This gives us complete visibility into the models directory
+      const response = await axios.get(`${API_BASE}/api/vosk/models/all`);
       setModels(response.data.models);
       setUsingVoskServer(false);
     } catch (error) {
@@ -230,6 +225,192 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  // Helper functions for file selection and bulk operations
+  const zipFiles = models.filter(model => model.type === 'zip');
+  const voskModelFiles = models.filter(model => model.type === 'directory' && model.status === 'ready');
+  const otherDirectories = models.filter(model => model.type === 'directory' && model.status === 'other');
+  const otherFiles = models.filter(model => model.type === 'file');
+
+  // Helper function to get file icon based on extension
+  const getFileIcon = (fileName: string) => {
+    const extension = fileName.toLowerCase().split('.').pop();
+    switch (extension) {
+      case 'pdf':
+        return <PdfIcon color="error" fontSize="small" />;
+      case 'zip':
+        return <ZipIcon color="warning" fontSize="small" />;
+      default:
+        return <FileIcon color="info" fontSize="small" />;
+    }
+  };
+
+  // Helper function to get file type label
+  const getFileTypeLabel = (fileName: string) => {
+    const extension = fileName.toLowerCase().split('.').pop();
+    switch (extension) {
+      case 'pdf':
+        return 'PDF';
+      case 'zip':
+        return 'ZIP';
+      case 'txt':
+        return 'Text';
+      case 'json':
+        return 'JSON';
+      default:
+        return extension?.toUpperCase() || 'File';
+    }
+  };
+
+  const handleFileSelection = (fileName: string, checked: boolean) => {
+    const newSelected = new Set(selectedFiles);
+    if (checked) {
+      newSelected.add(fileName);
+    } else {
+      newSelected.delete(fileName);
+    }
+    setSelectedFiles(newSelected);
+  };
+
+  const handleSelectAllZip = (checked: boolean) => {
+    setSelectAllZip(checked);
+    const newSelected = new Set(selectedFiles);
+    zipFiles.forEach(file => {
+      if (checked) {
+        newSelected.add(file.name);
+      } else {
+        newSelected.delete(file.name);
+      }
+    });
+    setSelectedFiles(newSelected);
+  };
+
+  const handleSelectAllVosk = (checked: boolean) => {
+    setSelectAllVosk(checked);
+    const newSelected = new Set(selectedFiles);
+    voskModelFiles.forEach((file: VoskModel) => {
+      if (checked) {
+        newSelected.add(file.name);
+      } else {
+        newSelected.delete(file.name);
+      }
+    });
+    setSelectedFiles(newSelected);
+  };
+
+  const handleSelectAllDir = (checked: boolean) => {
+    setSelectAllDir(checked);
+    const newSelected = new Set(selectedFiles);
+    otherDirectories.forEach((file: VoskModel) => {
+      if (checked) {
+        newSelected.add(file.name);
+      } else {
+        newSelected.delete(file.name);
+      }
+    });
+    setSelectedFiles(newSelected);
+  };
+
+  const handleSelectAllOther = (checked: boolean) => {
+    setSelectAllOther(checked);
+    const newSelected = new Set(selectedFiles);
+    otherFiles.forEach(file => {
+      if (checked) {
+        newSelected.add(file.name);
+      } else {
+        newSelected.delete(file.name);
+      }
+    });
+    setSelectedFiles(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedFiles.size === 0) {
+      setError('No files selected for deletion');
+      return;
+    }
+
+    const fileList = Array.from(selectedFiles).join(', ');
+    if (!window.confirm(`Are you sure you want to delete ${selectedFiles.size} selected files?\n\nFiles: ${fileList}`)) {
+      return;
+    }
+
+    setError(null);
+    const results: string[] = [];
+    const errors: string[] = [];
+
+    for (const fileName of Array.from(selectedFiles)) {
+      try {
+        await axios.delete(`${API_BASE}/api/vosk/models/${encodeURIComponent(fileName)}`);
+        results.push(`✅ ${fileName}: Deleted successfully`);
+      } catch (error: any) {
+        console.error(`Error deleting ${fileName}:`, error);
+        errors.push(`❌ ${fileName}: ${error.response?.data?.error || 'Delete failed'}`);
+      }
+    }
+
+    // Show results
+    if (results.length > 0 && errors.length === 0) {
+      setSuccess(`All ${selectedFiles.size} files deleted successfully:\n${results.join('\n')}`);
+    } else if (results.length > 0 && errors.length > 0) {
+      setSuccess(`${results.length}/${selectedFiles.size} files deleted successfully:\n${results.join('\n')}`);
+      setError(`${errors.length} deletions failed:\n${errors.join('\n')}`);
+    } else {
+      setError(`All deletions failed:\n${errors.join('\n')}`);
+    }
+
+    // Clear selections and reload
+    setSelectedFiles(new Set());
+    setSelectAllZip(false);
+    setSelectAllDir(false);
+    setSelectAllOther(false);
+    loadModels();
+  };
+
+  const handleBulkExtract = async () => {
+    const selectedZipFiles = Array.from(selectedFiles).filter(fileName => 
+      zipFiles.some(file => file.name === fileName)
+    );
+
+    if (selectedZipFiles.length === 0) {
+      setError('No ZIP files selected for extraction');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to extract ${selectedZipFiles.length} selected ZIP files?\n\nFiles: ${selectedZipFiles.join(', ')}`)) {
+      return;
+    }
+
+    setError(null);
+    const results: string[] = [];
+    const errors: string[] = [];
+
+    for (const fileName of selectedZipFiles) {
+      try {
+        await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(fileName)}/extract`);
+        results.push(`✅ ${fileName}: Extracted successfully`);
+      } catch (error: any) {
+        console.error(`Error extracting ${fileName}:`, error);
+        errors.push(`❌ ${fileName}: ${error.response?.data?.error || 'Extract failed'}`);
+      }
+    }
+
+    // Show results
+    if (results.length > 0 && errors.length === 0) {
+      setSuccess(`All ${selectedZipFiles.length} ZIP files extracted successfully:\n${results.join('\n')}`);
+    } else if (results.length > 0 && errors.length > 0) {
+      setSuccess(`${results.length}/${selectedZipFiles.length} ZIP files extracted successfully:\n${results.join('\n')}`);
+      setError(`${errors.length} extractions failed:\n${errors.join('\n')}`);
+    } else {
+      setError(`All extractions failed:\n${errors.join('\n')}`);
+    }
+
+    // Clear selections and reload
+    setSelectedFiles(new Set());
+    setSelectAllZip(false);
+    setSelectAllDir(false);
+    loadModels();
   };
 
   const handleClose = () => {
@@ -373,61 +554,353 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
             No models found. Please upload Vosk models.
           </Alert>
         ) : (
-          <List>
-            {models.map((model, index) => (
-              <ListItem key={index} divider>
-                <ListItemText
-                  primary={
+          <>
+            {/* Vosk Models Section - Most Important, Show First */}
+            {voskModelFiles.length > 0 && (
+              <Card sx={{ mb: 3 }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
                     <Box display="flex" alignItems="center" gap={1}>
-                      {model.status === 'ready' ? (
-                        <ReadyIcon color="success" fontSize="small" />
-                      ) : (
-                        <ArchiveIcon color="warning" fontSize="small" />
-                      )}
-                      <span style={{ fontSize: '1.1rem', fontWeight: 500 }}>{model.name}</span>
-                      <Chip
-                        label={model.type === 'directory' ? 'Ready' : 'Archived'}
+                      <ReadyIcon color="success" />
+                      <Typography variant="h6">
+                        Vosk Models ({voskModelFiles.length})
+                      </Typography>
+                    </Box>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Checkbox
+                        checked={selectAllVosk}
+                        onChange={(e) => handleSelectAllVosk(e.target.checked)}
                         size="small"
-                        color={model.type === 'directory' ? 'success' : 'warning'}
                       />
+                      <Typography variant="body2" color="text.secondary">
+                        Select All
+                      </Typography>
+                      {selectedFiles.size > 0 && (
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="error"
+                          startIcon={<DeleteSweepIcon />}
+                          onClick={handleBulkDelete}
+                        >
+                          Delete Selected ({selectedFiles.size})
+                        </Button>
+                      )}
                     </Box>
-                  }
-                  secondary={
-                    <Box component="div">
-                      <div style={{ fontSize: '0.875rem', color: 'rgba(255, 255, 255, 0.7)' }}>
-                        Size: {formatFileSize(model.size)}
-                      </div>
-                      <div style={{ fontSize: '0.875rem', color: 'rgba(255, 255, 255, 0.7)' }}>
-                        Modified: {formatDate(model.modified)}
-                      </div>
-                    </Box>
-                  }
-                />
-                <ListItemSecondaryAction>
-                  <Box display="flex" gap={1}>
-                    {model.type === 'zip' && (
-                      <IconButton
-                        edge="end"
-                        onClick={() => handleExtractModel(model.name)}
-                        title="Extract Model"
-                        color="primary"
-                      >
-                        <ExtractIcon />
-                      </IconButton>
-                    )}
-                    <IconButton
-                      edge="end"
-                      onClick={() => handleDeleteModel(model.name)}
-                      title="Delete Model"
-                      color="error"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
                   </Box>
-                </ListItemSecondaryAction>
-              </ListItem>
-            ))}
-          </List>
+                  <List dense>
+                    {voskModelFiles.map((model: VoskModel, index: number) => (
+                      <ListItem key={`vosk-${index}`} divider>
+                        <ListItemIcon>
+                          <Checkbox
+                            checked={selectedFiles.has(model.name)}
+                            onChange={(e) => handleFileSelection(model.name, e.target.checked)}
+                            size="small"
+                          />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={
+                            <Box display="flex" alignItems="center" gap={1}>
+                              <ReadyIcon color="success" fontSize="small" />
+                              <span style={{ fontSize: '1rem', fontWeight: 500 }}>{model.name}</span>
+                              <Chip
+                                label="Ready"
+                                size="small"
+                                color="success"
+                              />
+                            </Box>
+                          }
+                          secondary={
+                            <Box component="div">
+                              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
+                                Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
+                              </div>
+                            </Box>
+                          }
+                        />
+                        <ListItemSecondaryAction>
+                          <IconButton
+                            edge="end"
+                            onClick={() => handleDeleteModel(model.name)}
+                            title="Delete Vosk Model"
+                            color="error"
+                            size="small"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </ListItemSecondaryAction>
+                      </ListItem>
+                    ))}
+                  </List>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Other Directories Section */}
+            {otherDirectories.length > 0 && (
+              <Card sx={{ mb: 3 }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <FolderIcon color="info" />
+                      <Typography variant="h6">
+                        Other Directories ({otherDirectories.length})
+                      </Typography>
+                    </Box>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Checkbox
+                        checked={selectAllDir}
+                        onChange={(e) => handleSelectAllDir(e.target.checked)}
+                        size="small"
+                      />
+                      <Typography variant="body2" color="text.secondary">
+                        Select All
+                      </Typography>
+                      {selectedFiles.size > 0 && (
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="error"
+                          startIcon={<DeleteSweepIcon />}
+                          onClick={handleBulkDelete}
+                        >
+                          Delete Selected ({selectedFiles.size})
+                        </Button>
+                      )}
+                    </Box>
+                  </Box>
+                  <List dense>
+                    {otherDirectories.map((model: VoskModel, index: number) => (
+                      <ListItem key={`dir-${index}`} divider>
+                        <ListItemIcon>
+                          <Checkbox
+                            checked={selectedFiles.has(model.name)}
+                            onChange={(e) => handleFileSelection(model.name, e.target.checked)}
+                            size="small"
+                          />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={
+                            <Box display="flex" alignItems="center" gap={1}>
+                              <FolderIcon color="info" fontSize="small" />
+                              <span style={{ fontSize: '1rem', fontWeight: 500 }}>{model.name}</span>
+                              <Chip
+                                label="Directory"
+                                size="small"
+                                color="info"
+                              />
+                            </Box>
+                          }
+                          secondary={
+                            <Box component="div">
+                              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
+                                Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
+                              </div>
+                            </Box>
+                          }
+                        />
+                        <ListItemSecondaryAction>
+                          <IconButton
+                            edge="end"
+                            onClick={() => handleDeleteModel(model.name)}
+                            title="Delete Directory"
+                            color="error"
+                            size="small"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </ListItemSecondaryAction>
+                      </ListItem>
+                    ))}
+                  </List>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ZIP Files Section - Second Priority */}
+            {zipFiles.length > 0 && (
+              <Card sx={{ mb: 3 }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <ZipIcon color="warning" />
+                      <Typography variant="h6">
+                        ZIP Files ({zipFiles.length})
+                      </Typography>
+                    </Box>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Checkbox
+                        checked={selectAllZip}
+                        onChange={(e) => handleSelectAllZip(e.target.checked)}
+                        size="small"
+                      />
+                      <Typography variant="body2" color="text.secondary">
+                        Select All
+                      </Typography>
+                      {selectedFiles.size > 0 && (
+                        <>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<ExtractIcon />}
+                            onClick={handleBulkExtract}
+                            disabled={Array.from(selectedFiles).filter(f => zipFiles.some(z => z.name === f)).length === 0}
+                          >
+                            Extract Selected
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            color="error"
+                            startIcon={<DeleteSweepIcon />}
+                            onClick={handleBulkDelete}
+                          >
+                            Delete Selected ({selectedFiles.size})
+                          </Button>
+                        </>
+                      )}
+                    </Box>
+                  </Box>
+                  <List dense>
+                    {zipFiles.map((model, index) => (
+                      <ListItem key={`zip-${index}`} divider>
+                        <ListItemIcon>
+                          <Checkbox
+                            checked={selectedFiles.has(model.name)}
+                            onChange={(e) => handleFileSelection(model.name, e.target.checked)}
+                            size="small"
+                          />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={
+                            <Box display="flex" alignItems="center" gap={1}>
+                              <ZipIcon color="warning" fontSize="small" />
+                              <span style={{ fontSize: '1rem', fontWeight: 500 }}>{model.name}</span>
+                              <Chip
+                                label="Archived"
+                                size="small"
+                                color="warning"
+                              />
+                            </Box>
+                          }
+                          secondary={
+                            <Box component="div">
+                              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
+                                Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
+                              </div>
+                            </Box>
+                          }
+                        />
+                        <ListItemSecondaryAction>
+                          <Box display="flex" gap={1}>
+                            <IconButton
+                              edge="end"
+                              onClick={() => handleExtractModel(model.name)}
+                              title="Extract ZIP File"
+                              color="primary"
+                              size="small"
+                            >
+                              <ExtractIcon />
+                            </IconButton>
+                            <IconButton
+                              edge="end"
+                              onClick={() => handleDeleteModel(model.name)}
+                              title="Delete ZIP File"
+                              color="error"
+                              size="small"
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Box>
+                        </ListItemSecondaryAction>
+                      </ListItem>
+                    ))}
+                  </List>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Other Files Section - Last Priority */}
+            {otherFiles.length > 0 && (
+              <Card sx={{ mb: 3 }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <FileIcon color="info" />
+                      <Typography variant="h6">
+                        Other Files ({otherFiles.length})
+                      </Typography>
+                    </Box>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Checkbox
+                        checked={selectAllOther}
+                        onChange={(e) => handleSelectAllOther(e.target.checked)}
+                        size="small"
+                      />
+                      <Typography variant="body2" color="text.secondary">
+                        Select All
+                      </Typography>
+                      {selectedFiles.size > 0 && (
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="error"
+                          startIcon={<DeleteSweepIcon />}
+                          onClick={handleBulkDelete}
+                        >
+                          Delete Selected ({selectedFiles.size})
+                        </Button>
+                      )}
+                    </Box>
+                  </Box>
+                  <List dense>
+                    {otherFiles.map((model, index) => (
+                      <ListItem key={`other-${index}`} divider>
+                        <ListItemIcon>
+                          <Checkbox
+                            checked={selectedFiles.has(model.name)}
+                            onChange={(e) => handleFileSelection(model.name, e.target.checked)}
+                            size="small"
+                          />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={
+                            <Box display="flex" alignItems="center" gap={1}>
+                              {getFileIcon(model.name)}
+                              <span style={{ fontSize: '1rem', fontWeight: 500 }}>{model.name}</span>
+                              <Chip
+                                label={getFileTypeLabel(model.name)}
+                                size="small"
+                                color="info"
+                              />
+                            </Box>
+                          }
+                          secondary={
+                            <Box component="div">
+                              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
+                                Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
+                              </div>
+                            </Box>
+                          }
+                        />
+                        <ListItemSecondaryAction>
+                          <IconButton
+                            edge="end"
+                            onClick={() => handleDeleteModel(model.name)}
+                            title="Delete File"
+                            color="error"
+                            size="small"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </ListItemSecondaryAction>
+                      </ListItem>
+                    ))}
+                  </List>
+                </CardContent>
+              </Card>
+            )}
+          </>
         )}
       </DialogContent>
       

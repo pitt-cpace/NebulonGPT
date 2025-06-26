@@ -130,6 +130,71 @@ app.get('/api/vosk/models', (req, res) => {
   }
 });
 
+// Get ALL files and folders in models directory (not just Vosk models)
+app.get('/api/vosk/models/all', (req, res) => {
+  try {
+    const models = [];
+    const files = fs.readdirSync(MODELS_DIR);
+    
+    files.forEach(file => {
+      // Skip placeholder files and hidden files
+      if (file === '.placeholder' || file.startsWith('.placeholder') || file.startsWith('.git')) {
+        return;
+      }
+      
+      const filePath = path.join(MODELS_DIR, file);
+      const stats = fs.statSync(filePath);
+      
+      if (stats.isDirectory()) {
+        // Check if it's a valid Vosk model directory
+        const amPath = path.join(filePath, 'am', 'final.mdl');
+        const confPath = path.join(filePath, 'conf', 'model.conf');
+        
+        if (fs.existsSync(amPath) || fs.existsSync(confPath)) {
+          models.push({
+            name: file,
+            type: 'directory',
+            size: getDirSize(filePath),
+            modified: stats.mtime,
+            status: 'ready'
+          });
+        } else {
+          // Regular directory (not a Vosk model)
+          models.push({
+            name: file,
+            type: 'directory',
+            size: getDirSize(filePath),
+            modified: stats.mtime,
+            status: 'other'
+          });
+        }
+      } else if (file.endsWith('.zip')) {
+        models.push({
+          name: file,
+          type: 'zip',
+          size: stats.size,
+          modified: stats.mtime,
+          status: 'archived'
+        });
+      } else {
+        // Any other file type
+        models.push({
+          name: file,
+          type: 'file',
+          size: stats.size,
+          modified: stats.mtime,
+          status: 'other'
+        });
+      }
+    });
+    
+    res.json({ models });
+  } catch (error) {
+    console.error('Error reading models directory:', error);
+    res.status(500).json({ error: 'Failed to load models' });
+  }
+});
+
 app.post('/api/vosk/models/upload', upload.single('model'), async (req, res) => {
   try {
     if (!req.file) {
