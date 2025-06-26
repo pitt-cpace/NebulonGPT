@@ -423,7 +423,9 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
         <Box display="flex" alignItems="center" justifyContent="space-between">
           <Box display="flex" alignItems="center" gap={1}>
             <StorageIcon />
-            <span>Vosk Speech Recognition Models Management</span>
+            <Typography component="span" variant="h6">
+              Vosk Speech Recognition Models Management
+            </Typography>
           </Box>
           <IconButton
             onClick={handleClose}
@@ -606,11 +608,9 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
                             </Box>
                           }
                           secondary={
-                            <Box component="div">
-                              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
-                                Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
-                              </div>
-                            </Box>
+                            <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
+                              Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
+                            </span>
                           }
                         />
                         <ListItemSecondaryAction>
@@ -687,11 +687,9 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
                             </Box>
                           }
                           secondary={
-                            <Box component="div">
-                              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
-                                Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
-                              </div>
-                            </Box>
+                            <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
+                              Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
+                            </span>
                           }
                         />
                         <ListItemSecondaryAction>
@@ -779,11 +777,9 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
                             </Box>
                           }
                           secondary={
-                            <Box component="div">
-                              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
-                                Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
-                              </div>
-                            </Box>
+                            <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
+                              Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
+                            </span>
                           }
                         />
                         <ListItemSecondaryAction>
@@ -871,11 +867,9 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
                             </Box>
                           }
                           secondary={
-                            <Box component="div">
-                              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
-                                Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
-                              </div>
-                            </Box>
+                            <span style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.7)' }}>
+                              Size: {formatFileSize(model.size)} | Modified: {formatDate(model.modified)}
+                            </span>
                           }
                         />
                         <ListItemSecondaryAction>

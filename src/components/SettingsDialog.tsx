@@ -116,7 +116,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
 
       <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle sx={styles.dialogTitle}>
-          <Typography variant="h6">Model Settings</Typography>
+          <Typography component="span" variant="h6">Model Settings</Typography>
           <IconButton edge="end" color="inherit" onClick={handleClose} aria-label="close">
             <CloseIcon />
           </IconButton>
