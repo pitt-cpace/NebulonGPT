@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -16,12 +16,9 @@ import {
   Alert,
   Chip,
   Divider,
-  Input,
   FormControl,
-  InputLabel,
   Card,
   CardContent,
-  Grid,
   Checkbox,
   ListItemIcon
 } from '@mui/material';
@@ -32,9 +29,7 @@ import {
   Refresh as RefreshIcon,
   Storage as StorageIcon,
   CheckCircle as ReadyIcon,
-  Archive as ArchiveIcon,
   Close as CloseIcon,
-  SelectAll as SelectAllIcon,
   DeleteSweep as DeleteSweepIcon,
   Folder as FolderIcon,
   Archive as ZipIcon,
@@ -76,13 +71,7 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
 
   const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3001';
 
-  useEffect(() => {
-    if (open) {
-      loadModels();
-    }
-  }, [open]);
-
-  const loadModels = async () => {
+  const loadModels = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -97,7 +86,13 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
     } finally {
       setLoading(false);
     }
-  };
+  }, [API_BASE]);
+
+  useEffect(() => {
+    if (open) {
+      loadModels();
+    }
+  }, [open, loadModels]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -136,13 +131,13 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
             headers: {
               'Content-Type': 'multipart/form-data',
             },
-            onUploadProgress: (progressEvent) => {
+            onUploadProgress: ((currentCompleted) => (progressEvent) => {
               if (progressEvent.total) {
                 const fileProgress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                const overallProgress = Math.round(((completedFiles + (fileProgress / 100)) / totalFiles) * 100);
+                const overallProgress = Math.round(((currentCompleted + (fileProgress / 100)) / totalFiles) * 100);
                 setUploadProgress(overallProgress);
               }
-            },
+            })(completedFiles),
           });
 
           results.push(`✅ ${file.name}: ${response.data.message}`);
