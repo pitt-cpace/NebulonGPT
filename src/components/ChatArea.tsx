@@ -759,7 +759,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         >
                           https://alphacephei.com/vosk/models
                         </a>
-                        {' '}and unzip them into the "Vosk-Server/websocket/models" folder.
+                        {' '}and upload them using the "Manage Models" button in Settings.
                       </Box>
                     ) : (
                       speechError

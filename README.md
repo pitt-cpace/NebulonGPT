@@ -24,33 +24,24 @@ Your Fully Private Ollama-based Web User Interface - A modern, elegant interface
 - [Docker](https://www.docker.com/products/docker-desktop/) installed on your machine
 - [Ollama](https://ollama.ai/) running locally with models installed
 
-## Download Vosk Models
+## Voice Recognition Setup
 
-Before using speech recognition, you must download the desired Vosk models from:
+NebulonGPT includes built-in voice recognition powered by Vosk. To use this feature:
 
-https://alphacephei.com/vosk/models
+1. **Start the application** using `./start.sh` - the Vosk server starts automatically
+2. **Open Settings** → Voice Recognition → Models Management  
+3. **Download models** from https://alphacephei.com/vosk/models
+4. **Upload ZIP files** directly through the web interface
+5. **Extract models** using the "Extract" button in the interface
+6. **Select your model** from the dropdown and start speaking!
 
 **Recommended models:**
 
 - **English (Small)**: vosk-model-small-en-us-0.15 (~40MB) - Fast, good for real-time
-- **English (Large)**: vosk-model-en-us-0.22 (~1.8GB) - High accuracy
+- **English (Large)**: vosk-model-en-us-0.22 (~1.8GB) - High accuracy  
 - **Other Languages**: Choose models for your preferred languages
 
-### Extract Models
-
-After downloading, extract the models into the following directory:
-
-```
-Vosk-Server/websocket/models/
-```
-
-**Example structure:**
-```
-Vosk-Server/websocket/models/
-├── vosk-model-small-en-us-0.15/
-├── vosk-model-en-us-0.22/
-└── vosk-model-fa-0.5/
-```
+**No manual file management needed!** Everything is handled through the web interface.
 
 ## Quick Start
 
