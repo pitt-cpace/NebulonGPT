@@ -14,6 +14,7 @@ services:
       - ./nginx.conf:/etc/nginx/http.d/default.conf
       - ./data:/app/data
       - ./nebulon-gpt-data:/app/nebulon-gpt-data
+      - vosk-models:/app/vosk-models
     environment:
       - NODE_ENV=production
       - REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434

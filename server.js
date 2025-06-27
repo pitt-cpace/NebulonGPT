@@ -10,7 +10,9 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const DATA_DIR = path.join(__dirname, 'data');
 const CHATS_FILE = path.join(DATA_DIR, 'chats.json');
-const MODELS_DIR = path.join(__dirname, 'Vosk-Server', 'websocket', 'models');
+const MODELS_DIR = process.env.NODE_ENV === 'production' 
+  ? '/app/vosk-models'  // Use Docker volume path in production
+  : path.join(__dirname, 'Vosk-Server', 'websocket', 'models');  // Use local path in development
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {

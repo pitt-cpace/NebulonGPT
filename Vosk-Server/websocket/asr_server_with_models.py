@@ -118,6 +118,13 @@ def get_available_models():
             if (path / 'am' / 'final.mdl').exists() or (path / 'conf' / 'model.conf').exists():
                 models.append(path.name)
     
+    # Debug: Log what we found
+    logging.info(f"Found {len(models)} Vosk models in {MODEL_DIR}: {models}")
+    
+    # Also log all directories for debugging
+    all_dirs = [p.name for p in MODEL_DIR.iterdir() if p.is_dir()]
+    logging.info(f"All directories in {MODEL_DIR}: {all_dirs}")
+    
     return sorted(models)
 
 def process_chunk(rec, message):
