@@ -16,6 +16,7 @@ model_cache = {}  # maps name -> Model()
 model_refcnt = defaultdict(int)  # name -> number of live clients
 default_model_name = None  # Track the default model loaded at startup
 session_models = {}  # Track the last selected model per session: {session_id: model_name}
+active_sessions = {}  # Track active sessions with their last activity time
 spk_model = None
 pool = None
 args = None
@@ -158,6 +159,28 @@ async def recognize_loop(websocket, path=None):
     session_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}:{id(websocket)}"
     logging.info(f'Connection from {websocket.remote_address} (session: {session_id})')
     
+    # Track connection start time for debugging
+    import time
+    connection_start_time = time.time()
+    last_activity_time = connection_start_time
+    message_count = 0
+    audio_chunks_received = 0
+    
+    logging.info(f'Connection established at {time.ctime(connection_start_time)} (session: {session_id})')
+    
+    # Add session to active sessions tracking
+    active_sessions[session_id] = {
+        'start_time': connection_start_time,
+        'last_activity': last_activity_time,
+        'websocket': websocket,
+        'model': current_model_name
+    }
+    
+    # Update session activity tracking function
+    def update_session_activity():
+        if session_id in active_sessions:
+            active_sessions[session_id]['last_activity'] = time.time()
+    
     # Check if there's already a model loaded and use that, otherwise use default
     if model_cache:
         available_models = list(model_cache.keys())
@@ -243,26 +266,56 @@ async def recognize_loop(websocket, path=None):
             current_model_name = None
 
     try:
+        logging.info(f'Starting message loop for session: {session_id}')
         async for raw in websocket:
+            message_count += 1
+            last_activity_time = time.time()
+            update_session_activity()
+            
+            # Log periodic activity to track connection health
+            if message_count % 100 == 0:
+                connection_duration = last_activity_time - connection_start_time
+                logging.info(f'Session {session_id}: {message_count} messages processed, active for {connection_duration:.1f}s')
+            
+            # Log first few messages for debugging
+            if message_count <= 10:
+                msg_type = "binary" if isinstance(raw, bytes) else "text"
+                msg_size = len(raw) if raw else 0
+                logging.debug(f'Session {session_id}: Message #{message_count} - Type: {msg_type}, Size: {msg_size} bytes')
+            
             # Handle binary audio data
             if isinstance(raw, bytes):
+                audio_chunks_received += 1
+                
+                # Log first few audio chunks and then periodically
+                if audio_chunks_received <= 5 or audio_chunks_received % 50 == 0:
+                    logging.debug(f'Session {session_id}: Received audio chunk #{audio_chunks_received}, size: {len(raw)} bytes')
+                
                 if rec:
-                    if rec.AcceptWaveform(raw):
-                        # Final result
-                        result = json.loads(rec.Result())
-                        if result.get("text"):
-                            await websocket.send(json.dumps({
-                                "type": "result",
-                                "text": result["text"]
-                            }))
-                    else:
-                        # Partial result
-                        partial_result = json.loads(rec.PartialResult())
-                        if partial_result.get("partial"):
-                            await websocket.send(json.dumps({
-                                "type": "partial",
-                                "partial": partial_result["partial"]
-                            }))
+                    try:
+                        if rec.AcceptWaveform(raw):
+                            # Final result
+                            result = json.loads(rec.Result())
+                            if result.get("text"):
+                                logging.debug(f'Session {session_id}: Final result: "{result["text"]}"')
+                                await websocket.send(json.dumps({
+                                    "type": "result",
+                                    "text": result["text"]
+                                }))
+                        else:
+                            # Partial result
+                            partial_result = json.loads(rec.PartialResult())
+                            if partial_result.get("partial"):
+                                logging.debug(f'Session {session_id}: Partial result: "{partial_result["partial"]}"')
+                                await websocket.send(json.dumps({
+                                    "type": "partial",
+                                    "partial": partial_result["partial"]
+                                }))
+                    except Exception as e:
+                        logging.error(f'Session {session_id}: Error processing audio chunk: {e}')
+                        # Don't break connection on audio processing errors
+                else:
+                    logging.warning(f'Session {session_id}: Received audio data but no recognizer available')
                 continue
 
             # Handle text messages (JSON commands)
@@ -416,21 +469,61 @@ async def recognize_loop(websocket, path=None):
                         await websocket.send(response)
                         # Don't break on stop for EOF/reset - keep connection alive
 
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                logging.warning(f'Session {session_id}: Failed to parse JSON message: {e}, raw message: {raw[:100]}...')
                 # Handle legacy binary messages
                 if rec:
-                    response, stop = await loop.run_in_executor(pool, process_chunk, rec, raw)
-                    await websocket.send(response)
-                    # Don't break on stop for EOF/reset - keep connection alive
+                    try:
+                        response, stop = await loop.run_in_executor(pool, process_chunk, rec, raw)
+                        await websocket.send(response)
+                        # Don't break on stop for EOF/reset - keep connection alive
+                    except Exception as proc_error:
+                        logging.error(f'Session {session_id}: Error processing legacy message: {proc_error}')
 
-    except websockets.exceptions.ConnectionClosed:
-        logging.info(f"Client disconnected (session: {session_id})")
+    except websockets.exceptions.ConnectionClosed as e:
+        connection_duration = time.time() - connection_start_time
+        logging.warning(f"Session {session_id}: WebSocket connection closed after {connection_duration:.1f}s - Code: {e.code if hasattr(e, 'code') else 'N/A'}, Reason: {e.reason if hasattr(e, 'reason') else 'N/A'}")
+        logging.info(f"Session {session_id}: Connection stats - Messages: {message_count}, Audio chunks: {audio_chunks_received}")
+    except websockets.exceptions.ConnectionClosedError as e:
+        connection_duration = time.time() - connection_start_time
+        logging.warning(f"Session {session_id}: WebSocket connection closed with error after {connection_duration:.1f}s - Code: {e.code}, Reason: {e.reason}")
+        logging.info(f"Session {session_id}: Connection stats - Messages: {message_count}, Audio chunks: {audio_chunks_received}")
+    except websockets.exceptions.ConnectionClosedOK as e:
+        connection_duration = time.time() - connection_start_time
+        logging.info(f"Session {session_id}: WebSocket connection closed normally after {connection_duration:.1f}s - Code: {e.code}, Reason: {e.reason}")
+        logging.info(f"Session {session_id}: Connection stats - Messages: {message_count}, Audio chunks: {audio_chunks_received}")
+    except asyncio.TimeoutError:
+        connection_duration = time.time() - connection_start_time
+        logging.error(f"Session {session_id}: Connection timed out after {connection_duration:.1f}s")
+        logging.info(f"Session {session_id}: Connection stats - Messages: {message_count}, Audio chunks: {audio_chunks_received}")
+    except asyncio.CancelledError:
+        connection_duration = time.time() - connection_start_time
+        logging.warning(f"Session {session_id}: Connection cancelled after {connection_duration:.1f}s")
+        logging.info(f"Session {session_id}: Connection stats - Messages: {message_count}, Audio chunks: {audio_chunks_received}")
+    except OSError as e:
+        connection_duration = time.time() - connection_start_time
+        logging.error(f"Session {session_id}: OS error after {connection_duration:.1f}s - {e}")
+        logging.info(f"Session {session_id}: Connection stats - Messages: {message_count}, Audio chunks: {audio_chunks_received}")
     except Exception as e:
-        logging.error(f"Error in recognize_loop: {e}")
+        connection_duration = time.time() - connection_start_time
+        logging.error(f"Session {session_id}: Unexpected error after {connection_duration:.1f}s - {type(e).__name__}: {e}")
+        logging.info(f"Session {session_id}: Connection stats - Messages: {message_count}, Audio chunks: {audio_chunks_received}")
+        import traceback
+        logging.error(f"Session {session_id}: Full traceback:\n{traceback.format_exc()}")
     finally:
+        connection_duration = time.time() - connection_start_time
+        logging.info(f"Session {session_id}: Connection ended after {connection_duration:.1f}s")
+        logging.info(f"Session {session_id}: Final stats - Messages: {message_count}, Audio chunks: {audio_chunks_received}")
+        
         # Clean up: release model reference and session data
         if current_model_name:
+            logging.info(f"Session {session_id}: Releasing model reference: {current_model_name}")
             release_model(current_model_name)
+        
+        # Remove from active sessions
+        if session_id in active_sessions:
+            del active_sessions[session_id]
+            logging.info(f"Session {session_id}: Removed from active sessions tracking")
         
         # Clean up session data (but keep model preference for potential reconnection)
         # Note: We keep session_models[session_id] for user convenience
@@ -513,14 +606,62 @@ async def start():
     logging.info(f"Starting Vosk WebSocket server on {args.interface}:{args.port}")
     logging.info(f"Models directory: {MODEL_DIR}")
 
-    # Start the WebSocket server
-    async with websockets.serve(
-        recognize_loop, 
-        args.interface, 
-        args.port,
-        max_size=2**23  # ~8 MB per frame
-    ):
-        await asyncio.Future()
+    # Connection monitoring task
+    async def monitor_connections():
+        """Monitor active connections and log statistics."""
+        while True:
+            try:
+                await asyncio.sleep(60)  # Check every minute
+                current_time = time.time()
+                active_count = len(active_sessions)
+                
+                if active_count > 0:
+                    logging.info(f"Connection Monitor: {active_count} active sessions")
+                    
+                    # Check for stale connections (no activity for more than 5 minutes)
+                    stale_sessions = []
+                    for sid, session_info in active_sessions.items():
+                        inactive_time = current_time - session_info['last_activity']
+                        if inactive_time > 300:  # 5 minutes
+                            stale_sessions.append((sid, inactive_time))
+                    
+                    if stale_sessions:
+                        logging.warning(f"Found {len(stale_sessions)} potentially stale sessions:")
+                        for sid, inactive_time in stale_sessions:
+                            logging.warning(f"  Session {sid}: inactive for {inactive_time:.1f}s")
+                else:
+                    logging.debug("Connection Monitor: No active sessions")
+                    
+            except Exception as e:
+                logging.error(f"Connection monitor error: {e}")
+
+    # Start the WebSocket server with connection monitoring
+    async def run_server():
+        # Start connection monitoring task
+        monitor_task = asyncio.create_task(monitor_connections())
+        
+        try:
+            async with websockets.serve(
+                recognize_loop, 
+                args.interface, 
+                args.port,
+                max_size=2**23,  # ~8 MB per frame
+                ping_interval=30,  # Send ping every 30 seconds
+                ping_timeout=10,   # Wait 10 seconds for pong
+                close_timeout=10   # Wait 10 seconds for close
+            ):
+                await asyncio.Future()
+        finally:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
+
+    # Import time module for monitoring
+    import time
+    
+    await run_server()
 
 if __name__ == '__main__':
     asyncio.run(start())

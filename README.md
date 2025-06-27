@@ -93,7 +93,7 @@ The chat data is stored locally on your machine and never sent to external serve
 
 ## Voice Recognition Features
 
-NebulonGPT includes advanced voice recognition capabilities powered by Vosk:
+NebulonGPT includes advanced voice recognition capabilities powered by Vosk with enhanced stability:
 
 ### Key Features:
 - **Multi-language support** - Works with any Vosk model language
@@ -102,6 +102,20 @@ NebulonGPT includes advanced voice recognition capabilities powered by Vosk:
 - **Model persistence** - Models stay loaded across page refreshes
 - **Centralized error detection** - Consistent error messages across all components
 - **Real-time transcription** - See your speech converted to text in real-time
+- **Enhanced stability** - Robust connection handling and automatic recovery
+- **Concurrent user support** - Multiple users can use voice recognition simultaneously
+- **Automatic reconnection** - Seamless recovery from connection interruptions
+- **Smart timeout handling** - Optimized timeouts for heavy concurrent usage
+- **Resource optimization** - Efficient memory and CPU usage for multiple sessions
+
+### Stability Improvements:
+- **WebSocket Auto-Recovery**: Automatically reconnects on connection loss (codes 1006, 1001, 1011, 1000)
+- **Exponential Backoff**: Smart retry logic with delays from 500ms to 5 seconds
+- **Session State Preservation**: Maintains recording state during reconnections
+- **Concurrent Session Management**: Handles multiple tabs and users without conflicts
+- **Enhanced Error Handling**: Graceful degradation and user-friendly error messages
+- **Connection Health Monitoring**: Real-time connection status tracking
+- **Resource Cleanup**: Proper cleanup of audio resources to prevent memory leaks
 
 ### Voice Recognition Setup:
 1. **Download models** from https://alphacephei.com/vosk/models

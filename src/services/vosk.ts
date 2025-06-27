@@ -18,6 +18,13 @@ export class VoskRecognitionService {
   private currentModel: string | null = null;
   private availableModels: string[] = [];
   private isSelectingModel = false; // Flag to prevent race conditions
+  private isReconnecting = false;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10;
+  private reconnectDelay = 500; // Start with 500ms
+  private maxReconnectDelay = 5000; // Max 5 seconds
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private wasRecordingBeforeDisconnect = false;
   
   // Event callbacks
   private onResultCallback: ((result: VoskResult) => void) | null = null;
@@ -93,9 +100,26 @@ export class VoskRecognitionService {
           reject(new Error('WebSocket connection failed'));
         };
 
-        this.socket.onclose = () => {
-          console.log('WebSocket connection closed');
-          this.socket = null;
+        this.socket.onclose = (event) => {
+          console.log(`🔌 WebSocket connection closed - Code: ${event.code}, Reason: ${event.reason}`);
+          
+          // Check if this was an abnormal closure or connection issue that needs reconnection
+          // 1006: Abnormal closure, 1001: Going away, 1011: Server error/timeout, 1000: Normal closure but we want to reconnect
+          if (event.code === 1006 || event.code === 1001 || event.code === 1011 || event.code === 1000) {
+            console.log('🔄 Connection lost, attempting automatic reconnection...');
+            
+            // Remember if we were recording before disconnect
+            this.wasRecordingBeforeDisconnect = this.isRecording;
+            
+            // Clean up current socket
+            this.socket = null;
+            
+            // Start reconnection process
+            this.attemptReconnection();
+          } else {
+            console.log('🛑 WebSocket closed normally, no reconnection needed');
+            this.socket = null;
+          }
         };
 
         this.socket.onmessage = (event) => {
@@ -288,6 +312,7 @@ export class VoskRecognitionService {
     console.log('  - mediaStream:', this.mediaStream ? `${this.mediaStream.getTracks().length} tracks` : 'null');
 
     this.isRecording = false;
+    this.wasRecordingBeforeDisconnect = false; // Clear the flag since this is manual stop
     console.log('🛑 Vosk speech recognition stopped - isRecording set to false');
 
     try {
@@ -305,6 +330,37 @@ export class VoskRecognitionService {
 
     } catch (error) {
       console.error('❌ Error during stop:', error);
+      throw error;
+    }
+  }
+
+  // Method to completely disconnect and stop all reconnection attempts
+  async disconnect(): Promise<void> {
+    console.log('🔌 DISCONNECT METHOD CALLED - stopping all connections and reconnection attempts');
+    
+    // Stop any ongoing reconnection attempts
+    this.stopReconnection();
+    
+    // Clear recording state
+    this.isRecording = false;
+    this.wasRecordingBeforeDisconnect = false;
+    
+    try {
+      // Clean up audio resources
+      await this.cleanupAudioOnly();
+      
+      // Close WebSocket connection
+      if (this.socket) {
+        if (this.socket.readyState === WebSocket.OPEN) {
+          console.log('📤 Sending close signal to server...');
+          this.socket.close(1000, 'Manual disconnect');
+        }
+        this.socket = null;
+      }
+      
+      console.log('✅ Complete disconnection successful');
+    } catch (error) {
+      console.error('❌ Error during disconnect:', error);
       throw error;
     }
   }
@@ -385,6 +441,89 @@ export class VoskRecognitionService {
     } catch (error) {
       console.error('❌ Error during cleanup:', error);
     }
+  }
+
+  // Automatic reconnection logic
+  private attemptReconnection(): void {
+    if (this.isReconnecting) {
+      console.log('🔄 Reconnection already in progress, skipping...');
+      return;
+    }
+
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.log('❌ Max reconnection attempts reached, giving up');
+      this.isReconnecting = false;
+      this.reconnectAttempts = 0;
+      if (this.onErrorCallback) {
+        this.onErrorCallback('Connection lost and max reconnection attempts reached');
+      }
+      return;
+    }
+
+    this.isReconnecting = true;
+    this.reconnectAttempts++;
+
+    // Calculate delay with exponential backoff
+    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
+    
+    console.log(`🔄 Attempting reconnection ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms...`);
+
+    this.reconnectTimer = setTimeout(async () => {
+      try {
+        console.log(`🔌 Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+        
+        // Try to reconnect
+        await this.initializeWebSocket();
+        
+        console.log('✅ Reconnection successful!');
+        this.isReconnecting = false;
+        this.reconnectAttempts = 0;
+        
+        // If we were recording before disconnect, try to resume
+        if (this.wasRecordingBeforeDisconnect && this.currentModel) {
+          console.log('🎙️ Attempting to resume recording after reconnection...');
+          try {
+            // Wait a bit for model to be reloaded
+            setTimeout(async () => {
+              try {
+                await this.start();
+                console.log('✅ Recording resumed successfully after reconnection');
+              } catch (error) {
+                console.error('❌ Failed to resume recording after reconnection:', error);
+              }
+            }, 2000);
+          } catch (error) {
+            console.error('❌ Failed to resume recording after reconnection:', error);
+          }
+        }
+        
+      } catch (error) {
+        console.error(`❌ Reconnection attempt ${this.reconnectAttempts} failed:`, error);
+        
+        // Try again if we haven't reached max attempts
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.isReconnecting = false; // Reset flag so we can try again
+          this.attemptReconnection();
+        } else {
+          console.log('❌ All reconnection attempts failed');
+          this.isReconnecting = false;
+          this.reconnectAttempts = 0;
+          if (this.onErrorCallback) {
+            this.onErrorCallback('Connection lost and all reconnection attempts failed');
+          }
+        }
+      }
+    }, delay);
+  }
+
+  // Stop reconnection attempts
+  private stopReconnection(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.isReconnecting = false;
+    this.reconnectAttempts = 0;
   }
 
   // Event handlers
@@ -485,11 +624,11 @@ export class VoskRecognitionService {
         // Request available models
         this.socket!.send(JSON.stringify({ type: 'get_models' }));
 
-        // Set timeout for the request
+        // Set timeout for the request - increased for concurrent usage
         setTimeout(() => {
           this.onModelsCallback = originalCallback; // Restore original callback
           reject(new Error('Timeout waiting for models list'));
-        }, 5000);
+        }, 15000); // Increased to 15s for heavy concurrent usage
       } catch (error) {
         reject(error);
       }
@@ -555,6 +694,23 @@ export class VoskRecognitionService {
     return this.isRecording;
   }
 
+  isReconnectingNow(): boolean {
+    return this.isReconnecting;
+  }
+
+  getConnectionStatus(): string {
+    if (this.isReconnecting) return 'reconnecting';
+    if (!this.socket) return 'disconnected';
+    
+    switch (this.socket.readyState) {
+      case WebSocket.CONNECTING: return 'connecting';
+      case WebSocket.OPEN: return 'connected';
+      case WebSocket.CLOSING: return 'closing';
+      case WebSocket.CLOSED: return 'disconnected';
+      default: return 'unknown';
+    }
+  }
+
   // Centralized method to check model availability with retry logic for concurrent usage
   async checkModelAvailability(): Promise<{ hasModels: boolean; errorMessage?: string }> {
     const maxRetries = 3;
@@ -562,7 +718,7 @@ export class VoskRecognitionService {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`🔍 Checking model availability (attempt ${attempt}/${maxRetries})`);
+        console.log(`� Checking model availability (attempt ${attempt}/${maxRetries})`);
         
         // Try to get available models with retry logic
         const models = await this.getAvailableModelsWithRetry();

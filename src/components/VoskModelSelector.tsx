@@ -241,15 +241,10 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
             defaultModel = models[0];
           }
           
-          // Only auto-select if server doesn't have a model loaded
-          if (!serverCurrentModel || serverCurrentModel === 'none') {
-            console.log(`🎤 Auto-selecting default Vosk model: ${defaultModel}`);
-            await handleModelChange(defaultModel);
-          } else {
-            console.log(`⚠️ Server has model ${serverCurrentModel} but it's not in available models list`);
-            console.log(`🔧 Setting UI to show default model without loading: ${defaultModel}`);
-            setSelectedModel(defaultModel);
-          }
+          // Show default model in UI without loading it
+          // This helps user know which model is the default
+          console.log(`🔧 Setting UI to show default model without loading: ${defaultModel}`);
+          setSelectedModel(defaultModel); // Show default model in dropdown but don't load it
         }
       }
     } catch (err) {
@@ -295,7 +290,8 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
         return;
       }
 
-      console.log(`🔄 VoskModelSelector: Loading new model ${modelName} (current: ${serverCurrentModel})`);
+      // If no model is loaded on server (or different model), load the selected model
+      console.log(`🔄 VoskModelSelector: Loading new model ${modelName} (current: ${serverCurrentModel || 'none'})`);
 
       // Check if mic is currently listening and stop it first using the exposed function
       if (voskRecognition.isCurrentlyRecording()) {

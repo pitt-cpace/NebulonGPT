@@ -197,12 +197,51 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         throw new Error(modelCheck.errorMessage || 'Speech recognition not available');
       }
       
-      // If models are available, get the current model
+      // Check if a model is currently loaded on the server
       const currentModel = await voskRecognition.getServerCurrentModel();
-      console.log(`✅ Using currently running model for speech recognition: ${currentModel}`);
+      
+      if (!currentModel || currentModel === 'none') {
+        // No model loaded, auto-load default model when user clicks microphone
+        console.log('🎤 No model loaded, auto-selecting default model for microphone usage...');
+        
+        const availableModels = await voskRecognition.getAvailableModels();
+        if (availableModels.length === 0) {
+          throw new Error('No speech recognition models available');
+        }
+        
+        // Priority order for default model selection
+        const preferredModels = [
+          'vosk-model-small-en-us-0.15',
+          'vosk-model-en-us-0.22',
+          'vosk-model-small-en-us',
+          'vosk-model-en-us'
+        ];
+        
+        let defaultModel = '';
+        
+        // Try to find a preferred model
+        for (const preferred of preferredModels) {
+          if (availableModels.includes(preferred)) {
+            defaultModel = preferred;
+            break;
+          }
+        }
+        
+        // If no preferred model found, use the first available model
+        if (!defaultModel) {
+          defaultModel = availableModels[0];
+        }
+        
+        console.log(`🎤 Auto-loading default model for microphone: ${defaultModel}`);
+        await voskRecognition.selectModel(defaultModel);
+        console.log(`✅ Default model loaded successfully: ${defaultModel}`);
+      } else {
+        console.log(`✅ Using currently running model for speech recognition: ${currentModel}`);
+      }
     } catch (error) {
-      console.error('❌ Failed to check model availability:', error);
-      // Error message already set by checkModelAvailability
+      console.error('❌ Failed to check/load model for speech recognition:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to prepare speech recognition';
+      setSpeechError(errorMessage);
       throw error;
     }
     
