@@ -12,8 +12,7 @@ services:
       - ollama-network
     volumes:
       - ./nginx.conf:/etc/nginx/http.d/default.conf
-      - ./data:/app/data
-      - ./nebulon-gpt-data:/app/nebulon-gpt-data
+      - chat-data:/app/nebulon-gpt-data
       - vosk-models:/app/vosk-models
     environment:
       - NODE_ENV=production
@@ -60,4 +59,6 @@ networks:
 
 volumes:
   vosk-models:
+    driver: local
+  chat-data:
     driver: local
