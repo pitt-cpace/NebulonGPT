@@ -78,6 +78,12 @@ def release_model(name: str) -> None:
 def copy_models_from_backup():
     """Copy models from backup directory if main models directory is empty."""
     backup_dir = pathlib.Path('models-backup')
+    
+    # Skip backup copy if backup and models are the same directory (unified volume)
+    if backup_dir.resolve() == MODEL_DIR.resolve():
+        logging.info("Models and backup directories are the same, skipping backup copy")
+        return
+        
     if backup_dir.exists() and MODEL_DIR.exists():
         # Check if models directory is empty or has no valid models
         current_models = get_available_models()

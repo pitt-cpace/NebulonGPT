@@ -210,6 +210,20 @@ If you encounter issues:
 - Verify that ports 3000 and 2700 are not already in use
 - Ensure your Docker installation has permissions to create containers
 
+### Voice Recognition Issues
+
+If you encounter voice recognition issues:
+
+1. **Verify models are extracted** (not just ZIP files):
+   - Use the "Vosk Speech Recognition Models Management" interface
+   - Extract any ZIP files you see listed
+   - Refresh the model selector
+
+2. **Check Vosk server logs**:
+   ```bash
+   docker logs vosk-server --tail 50
+   ```
+
 ### Connection Issues
 
 If the UI is running but can't connect to Ollama:
