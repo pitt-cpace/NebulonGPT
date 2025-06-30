@@ -12,7 +12,7 @@ export class VoskRecognitionService {
   private socket: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
-  private processor: ScriptProcessorNode | null = null;
+  private processor: AudioWorkletNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private isRecording = false;
   private currentModel: string | null = null;
@@ -217,31 +217,59 @@ export class VoskRecognitionService {
       console.log('🎤 Creating audio source...');
       this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
 
-      console.log('⚙️ Creating script processor...');
-      this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+      console.log('⚙️ Loading AudioWorklet processor...');
+      try {
+        // Load the AudioWorklet processor
+        await this.audioContext.audioWorklet.addModule('/vosk-audio-processor.js');
+        
+        console.log('⚙️ Creating AudioWorklet node...');
+        this.processor = new AudioWorkletNode(this.audioContext, 'vosk-audio-processor');
 
-      this.processor.onaudioprocess = (event) => {
-        if (this.socket && this.socket.readyState === WebSocket.OPEN && this.isRecording) {
-          const inputBuffer = event.inputBuffer;
-          const inputData = inputBuffer.getChannelData(0);
-          
-          // Convert float32 to int16
-          const int16Array = new Int16Array(inputData.length);
-          for (let i = 0; i < inputData.length; i++) {
-            const sample = Math.max(-1, Math.min(1, inputData[i]));
-            int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+        // Handle messages from the AudioWorklet processor
+        this.processor.port.onmessage = (event) => {
+          if (event.data.type === 'audioData' && this.socket && this.socket.readyState === WebSocket.OPEN && this.isRecording) {
+            // Send binary data to Vosk server
+            this.socket.send(event.data.data);
           }
-          
-          // Send binary data to Vosk server
-          this.socket.send(int16Array.buffer);
-        }
-      };
+        };
 
-      console.log('🔗 Connecting audio nodes...');
-      this.source.connect(this.processor);
-      this.processor.connect(this.audioContext.destination);
+        console.log('🔗 Connecting audio nodes...');
+        this.source.connect(this.processor);
+        this.processor.connect(this.audioContext.destination);
 
-      console.log('✅ Audio initialization complete');
+        console.log('✅ Audio initialization complete');
+      } catch (workletError) {
+        console.warn('⚠️ AudioWorklet not supported, falling back to ScriptProcessorNode...');
+        
+        // Fallback to ScriptProcessorNode for older browsers
+        const scriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
+        
+        scriptProcessor.onaudioprocess = (event) => {
+          if (this.socket && this.socket.readyState === WebSocket.OPEN && this.isRecording) {
+            const inputBuffer = event.inputBuffer;
+            const inputData = inputBuffer.getChannelData(0);
+            
+            // Convert float32 to int16
+            const int16Array = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+              const sample = Math.max(-1, Math.min(1, inputData[i]));
+              int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+            }
+            
+            // Send binary data to Vosk server
+            this.socket.send(int16Array.buffer);
+          }
+        };
+
+        // Store as any to avoid type conflicts
+        this.processor = scriptProcessor as any;
+        
+        console.log('🔗 Connecting audio nodes (fallback)...');
+        this.source.connect(scriptProcessor);
+        scriptProcessor.connect(this.audioContext.destination);
+
+        console.log('✅ Audio initialization complete (using fallback)');
+      }
     } catch (error) {
       console.error('❌ Audio initialization failed:', error);
       throw error;
@@ -279,6 +307,16 @@ export class VoskRecognitionService {
       console.log('🎧 Starting audio initialization...');
       await this.initializeAudio();
       console.log('✅ Audio initialization completed successfully');
+
+      // Send start message to AudioWorklet processor if it exists
+      if (this.processor && 'port' in this.processor) {
+        try {
+          this.processor.port.postMessage({ type: 'start' });
+          console.log('📤 Sent start message to AudioWorklet processor');
+        } catch (error) {
+          console.warn('⚠️ Could not send start message to AudioWorklet processor:', error);
+        }
+      }
 
       this.isRecording = true;
       console.log('🎙️ Vosk speech recognition started - isRecording set to true');
@@ -369,9 +407,23 @@ export class VoskRecognitionService {
     console.log('🧹 Cleaning up audio resources only (keeping WebSocket)...');
     
     try {
+      // Send stop message to AudioWorklet processor if it exists
+      if (this.processor && 'port' in this.processor) {
+        try {
+          this.processor.port.postMessage({ type: 'stop' });
+        } catch (error) {
+          console.warn('⚠️ Could not send stop message to AudioWorklet processor:', error);
+        }
+      }
+
       // Disconnect and clean up audio nodes
       if (this.processor) {
-        this.processor.onaudioprocess = null;
+        // Handle both AudioWorkletNode and ScriptProcessorNode
+        if ('onaudioprocess' in this.processor) {
+          // This is a ScriptProcessorNode (fallback)
+          (this.processor as any).onaudioprocess = null;
+        }
+        
         if (this.source) {
           this.source.disconnect(this.processor);
         }
@@ -408,9 +460,23 @@ export class VoskRecognitionService {
     console.log('🧹 Completely destroying all audio resources...');
     
     try {
+      // Send stop message to AudioWorklet processor if it exists
+      if (this.processor && 'port' in this.processor) {
+        try {
+          this.processor.port.postMessage({ type: 'stop' });
+        } catch (error) {
+          console.warn('⚠️ Could not send stop message to AudioWorklet processor:', error);
+        }
+      }
+
       // Disconnect and clean up audio nodes
       if (this.processor) {
-        this.processor.onaudioprocess = null;
+        // Handle both AudioWorkletNode and ScriptProcessorNode
+        if ('onaudioprocess' in this.processor) {
+          // This is a ScriptProcessorNode (fallback)
+          (this.processor as any).onaudioprocess = null;
+        }
+        
         if (this.source) {
           this.source.disconnect(this.processor);
         }
