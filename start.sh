@@ -15,15 +15,12 @@ if ! curl -s http://localhost:11434/api/tags &> /dev/null; then
 fi
 
 # Auto-extract Vosk model if it exists and hasn't been extracted yet
-VOSK_ZIP_FILE="models/vosk-model-small-en-us-0.15.zip"
+VOSK_ZIP_FILE="Vosk-Server/websocket/models/vosk-model-small-en-us-0.15.zip"
 VOSK_MODELS_DIR="Vosk-Server/websocket/models"
 VOSK_EXTRACTED_DIR="$VOSK_MODELS_DIR/vosk-model-small-en-us-0.15"
 
 if [ -f "$VOSK_ZIP_FILE" ] && [ ! -d "$VOSK_EXTRACTED_DIR" ]; then
     echo "Found Vosk model zip file. Extracting to docker volume path..."
-    
-    # Create models directory if it doesn't exist
-    mkdir -p "$VOSK_MODELS_DIR"
     
     # Extract the zip file
     if command -v unzip &> /dev/null; then

@@ -7,6 +7,7 @@ __pycache__
 websocket/models/**
 websocket/venv/**
 !websocket/models/.placeholder
+!websocket/models/*.zip
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -342,5 +343,3 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
-
-
