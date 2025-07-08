@@ -40,7 +40,7 @@ services:
       - ollama-network
     volumes:
       - vosk-models:/app/models
-      - vosk-models:/app/models-backup
+      - ./Vosk-Server/websocket/models:/app/models-backup
     environment:
       - PYTHONUNBUFFERED=1
       - VOSK_SERVER_INTERFACE=0.0.0.0

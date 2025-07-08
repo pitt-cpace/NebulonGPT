@@ -14,6 +14,37 @@ if ! curl -s http://localhost:11434/api/tags &> /dev/null; then
     exit 1
 fi
 
+# Auto-extract Vosk model if it exists and hasn't been extracted yet
+VOSK_ZIP_FILE="models/vosk-model-small-en-us-0.15.zip"
+VOSK_MODELS_DIR="Vosk-Server/websocket/models"
+VOSK_EXTRACTED_DIR="$VOSK_MODELS_DIR/vosk-model-small-en-us-0.15"
+
+if [ -f "$VOSK_ZIP_FILE" ] && [ ! -d "$VOSK_EXTRACTED_DIR" ]; then
+    echo "Found Vosk model zip file. Extracting to docker volume path..."
+    
+    # Create models directory if it doesn't exist
+    mkdir -p "$VOSK_MODELS_DIR"
+    
+    # Extract the zip file
+    if command -v unzip &> /dev/null; then
+        echo "Extracting $VOSK_ZIP_FILE to $VOSK_MODELS_DIR..."
+        unzip -q "$VOSK_ZIP_FILE" -d "$VOSK_MODELS_DIR"
+        if [ $? -eq 0 ]; then
+            echo "✓ Vosk model extracted successfully to $VOSK_EXTRACTED_DIR"
+        else
+            echo "✗ Failed to extract Vosk model"
+        fi
+    else
+        echo "Warning: 'unzip' command not found. Please install unzip or extract the model manually."
+        echo "You can extract $VOSK_ZIP_FILE to $VOSK_MODELS_DIR manually."
+    fi
+elif [ -d "$VOSK_EXTRACTED_DIR" ]; then
+    echo "✓ Vosk model already extracted at $VOSK_EXTRACTED_DIR"
+elif [ ! -f "$VOSK_ZIP_FILE" ]; then
+    echo "ℹ Vosk model zip file not found at $VOSK_ZIP_FILE"
+    echo "  You can download models from: https://alphacephei.com/vosk/models"
+fi
+
 # Try to use docker compose (newer Docker versions)
 if docker compose version &> /dev/null; then
     echo "Starting Nebulon-GPT with docker compose..."
