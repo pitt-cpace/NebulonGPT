@@ -352,6 +352,7 @@ export class VoskRecognitionService {
     this.isRecording = false;
     this.wasRecordingBeforeDisconnect = false; // Clear the flag since this is manual stop
     console.log('🛑 Vosk speech recognition stopped - isRecording set to false');
+    console.log('🛑 wasRecordingBeforeDisconnect cleared to prevent auto-resume');
 
     try {
       // Send EOF signal to server but keep connection open
@@ -548,19 +549,28 @@ export class VoskRecognitionService {
         // If we were recording before disconnect, try to resume
         if (this.wasRecordingBeforeDisconnect && this.currentModel) {
           console.log('🎙️ Attempting to resume recording after reconnection...');
+          console.log('🔍 wasRecordingBeforeDisconnect:', this.wasRecordingBeforeDisconnect);
+          console.log('🔍 currentModel:', this.currentModel);
           try {
             // Wait a bit for model to be reloaded
             setTimeout(async () => {
-              try {
-                await this.start();
-                console.log('✅ Recording resumed successfully after reconnection');
-              } catch (error) {
-                console.error('❌ Failed to resume recording after reconnection:', error);
+              // Double-check the flag hasn't been cleared by manual stop
+              if (this.wasRecordingBeforeDisconnect) {
+                try {
+                  await this.start();
+                  console.log('✅ Recording resumed successfully after reconnection');
+                } catch (error) {
+                  console.error('❌ Failed to resume recording after reconnection:', error);
+                }
+              } else {
+                console.log('🛑 wasRecordingBeforeDisconnect was cleared, skipping auto-resume');
               }
             }, 2000);
           } catch (error) {
             console.error('❌ Failed to resume recording after reconnection:', error);
           }
+        } else {
+          console.log('🔍 Not resuming recording - wasRecordingBeforeDisconnect:', this.wasRecordingBeforeDisconnect, 'currentModel:', this.currentModel);
         }
         
       } catch (error) {
