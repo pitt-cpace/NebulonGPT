@@ -343,7 +343,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [startMicListening, stopMicListening, onMicStart, onMicStop]);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     // Allow sending if there's a message OR attachments
     if ((message.trim() || attachments.length > 0) && !loading) {
       let messageText = message.trim();
@@ -370,6 +370,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           messageText = pdfDescription + ".";
         } else {
           messageText = messageText + pdfDescription + ".";
+        }
+      }
+      
+      // Stop listening when user sends message
+      if (isListening && voskRecognition) {
+        console.log('🛑 Stopping speech recognition after send button clicked...');
+        try {
+          await stopMicListening();
+          console.log('✅ Speech recognition stopped after send');
+        } catch (error) {
+          console.error('❌ Error stopping speech recognition after send:', error);
+          // Don't throw error, just log it - the message should still be sent
         }
       }
       
