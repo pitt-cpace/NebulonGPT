@@ -43,8 +43,14 @@ import { getSuggestedPrompts } from '../services/api';
 import { VoskRecognitionService } from '../services/vosk';
 import * as styles from '../styles/components/ChatArea.styles';
 
-// Set the worker source path
-GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
+// Set the worker source path with fallback
+try {
+  GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
+} catch (error) {
+  console.warn('Failed to set PDF.js worker source:', error);
+  // Fallback to CDN worker
+  GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
 
 interface ChatAreaProps {
   chat: ChatType | null;
@@ -85,6 +91,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [fileProcessingError, setFileProcessingError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -391,6 +398,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // Clear message and attachments
       setMessage('');
       setAttachments([]);
+      setFileProcessingError(null);
     }
   };
 
@@ -444,8 +452,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     const files = event.target.files;
     if (!files) return;
 
+    setFileProcessingError(null);
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
+      console.log(`Processing file: ${file.name}, type: ${file.type}, size: ${file.size}`);
+      
       const fileAttachment: FileAttachment = {
         id: `file-${Date.now()}-${i}`,
         name: file.name,
@@ -455,60 +467,94 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         timestamp: new Date().toISOString(),
       };
 
-      // Handle different file types
-      if (file.type.startsWith('image/')) {
-        // Handle image files
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          fileAttachment.content = e.target?.result as string;
-          setAttachments(prev => [...prev, fileAttachment]);
-        };
-        reader.readAsDataURL(file);
-      } else if (file.type === 'application/pdf') {
-        // Handle PDF files
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          const pdf = await getDocument({ data: arrayBuffer }).promise;
-          
-          let fullText = '';
-          const images: string[] = [];
-          
-          // Extract text and images from all pages
-          for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-            const page = await pdf.getPage(pageNum);
+      try {
+        // Handle different file types
+        if (file.type.startsWith('image/')) {
+          // Handle image files
+          console.log(`Processing image: ${file.name}`);
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            fileAttachment.content = e.target?.result as string;
+            setAttachments(prev => [...prev, fileAttachment]);
+            console.log(`✅ Image processed successfully: ${file.name}`);
+          };
+          reader.onerror = (e) => {
+            console.error(`❌ Error reading image ${file.name}:`, e);
+            setFileProcessingError(`Failed to read image: ${file.name}`);
+          };
+          reader.readAsDataURL(file);
+        } else if (file.type === 'application/pdf') {
+          // Handle PDF files with enhanced error handling
+          console.log(`Processing PDF: ${file.name}`);
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            console.log(`PDF arrayBuffer size: ${arrayBuffer.byteLength} bytes`);
             
-            // Extract text
-            const textContent = await page.getTextContent();
-            const pageText = textContent.items
-              .filter((item): item is TextItem => 'str' in item)
-              .map(item => item.str)
-              .join(' ');
-            fullText += pageText + '\n';
+            const pdf = await getDocument({ 
+              data: arrayBuffer,
+              // Add options for better compatibility
+              verbosity: 0, // Reduce console noise
+              isEvalSupported: false, // Disable eval for security
+              disableFontFace: false, // Allow font loading
+            }).promise;
             
-            // Extract images (simplified - would need more complex logic for actual image extraction)
-            // For now, we'll just note that the PDF may contain images
+            console.log(`PDF loaded successfully. Pages: ${pdf.numPages}`);
+            
+            let fullText = '';
+            const images: string[] = [];
+            
+            // Extract text and images from all pages
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+              console.log(`Processing PDF page ${pageNum}/${pdf.numPages}`);
+              const page = await pdf.getPage(pageNum);
+              
+              // Extract text
+              const textContent = await page.getTextContent();
+              const pageText = textContent.items
+                .filter((item): item is TextItem => 'str' in item)
+                .map(item => item.str)
+                .join(' ');
+              
+              if (pageText.trim()) {
+                fullText += `Page ${pageNum}: ${pageText.trim()}\n\n`;
+              }
+              
+              // Note: Image extraction from PDF is complex and would require additional libraries
+              // For now, we'll just extract text content
+            }
+            
+            fileAttachment.content = fullText.trim() || `PDF file: ${file.name} (${pdf.numPages} pages)`;
+            if (images.length > 0) {
+              fileAttachment.images = images;
+            }
+            
+            setAttachments(prev => [...prev, fileAttachment]);
+            console.log(`✅ PDF processed successfully: ${file.name}, text length: ${fullText.length}`);
+          } catch (pdfError) {
+            console.error(`❌ Error processing PDF ${file.name}:`, pdfError);
+            // Add as a basic file attachment if PDF processing fails
+            fileAttachment.content = `PDF file: ${file.name} (processing failed - ${pdfError instanceof Error ? pdfError.message : 'unknown error'})`;
+            setAttachments(prev => [...prev, fileAttachment]);
+            setFileProcessingError(`PDF processing failed for ${file.name}: ${pdfError instanceof Error ? pdfError.message : 'unknown error'}`);
           }
-          
-          fileAttachment.content = fullText.trim();
-          if (images.length > 0) {
-            fileAttachment.images = images;
-          }
-          
-          setAttachments(prev => [...prev, fileAttachment]);
-        } catch (error) {
-          console.error('Error processing PDF:', error);
-          // Add as a basic file attachment if PDF processing fails
-          fileAttachment.content = `PDF file: ${file.name}`;
-          setAttachments(prev => [...prev, fileAttachment]);
+        } else {
+          // Handle other file types as text if possible
+          console.log(`Processing text file: ${file.name}`);
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            fileAttachment.content = e.target?.result as string;
+            setAttachments(prev => [...prev, fileAttachment]);
+            console.log(`✅ Text file processed successfully: ${file.name}`);
+          };
+          reader.onerror = (e) => {
+            console.error(`❌ Error reading text file ${file.name}:`, e);
+            setFileProcessingError(`Failed to read file: ${file.name}`);
+          };
+          reader.readAsText(file);
         }
-      } else {
-        // Handle other file types as text if possible
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          fileAttachment.content = e.target?.result as string;
-          setAttachments(prev => [...prev, fileAttachment]);
-        };
-        reader.readAsText(file);
+      } catch (error) {
+        console.error(`❌ Error processing file ${file.name}:`, error);
+        setFileProcessingError(`Failed to process file: ${file.name}`);
       }
     }
 
@@ -522,6 +568,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       (attachment) => attachment.id !== attachmentId
     );
     setAttachments(updatedAttachments);
+    
+    // Clear error if no attachments left
+    if (updatedAttachments.length === 0) {
+      setFileProcessingError(null);
+    }
   };
   
   // Format file size for display
@@ -693,6 +744,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             elevation={0}
             sx={styles.inputContainer}
           >
+            {/* File processing error display */}
+            {fileProcessingError && (
+              <Box sx={{ mb: 2, p: 1, bgcolor: 'warning.light', borderRadius: 1 }}>
+                <Typography variant="caption" color="warning.dark">
+                  ⚠️ {fileProcessingError}
+                </Typography>
+              </Box>
+            )}
+
             {/* Attachments display */}
             {attachments.length > 0 && (
               <Box sx={{ mb: 2 }}>
