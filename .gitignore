@@ -8,6 +8,7 @@ yarn-error.log*
 
 # Chat data files (ignore user data)
 data/chats.json
+nebulon-gpt-data/chats.json
 lerna-debug.log*
 .pnpm-debug.log*
 
