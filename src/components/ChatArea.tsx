@@ -1,13 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import { TextItem } from 'pdfjs-dist/types/src/display/api';
+import { GlobalWorkerOptions } from 'pdfjs-dist';
+import { pdfProcessor } from '../services/pdfProcessor';
 import {
   Box,
   Typography,
   TextField,
   IconButton,
   Paper,
-  Divider,
   AppBar,
   Toolbar,
   Menu,
@@ -17,19 +16,12 @@ import {
   Card,
   CardContent,
   CardActionArea,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
 } from '@mui/material';
 import {
   Send as SendIcon,
   Stop as StopIcon,
   Menu as MenuIcon,
   Mic as MicIcon,
-  MoreVert as MoreVertIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   Add as AddIcon,
   Description as DescriptionIcon,
@@ -45,11 +37,10 @@ import * as styles from '../styles/components/ChatArea.styles';
 
 // Set the worker source path with fallback
 try {
-  GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
+  // Use CDN worker as primary since local worker has module import issues
+  GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 } catch (error) {
   console.warn('Failed to set PDF.js worker source:', error);
-  // Fallback to CDN worker
-  GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
 interface ChatAreaProps {
@@ -95,7 +86,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [voskServerAvailable, setVoskServerAvailable] = useState<boolean | null>(null);
+  // Remove unused variable - voskServerAvailable is set but never used
+  // const [voskServerAvailable, setVoskServerAvailable] = useState<boolean | null>(null);
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
   const suggestedPrompts = getSuggestedPrompts();
 
@@ -115,7 +107,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   // Initialize Vosk speech recognition event handlers
   useEffect(() => {
     if (!voskRecognition) {
-      setVoskServerAvailable(false);
       setSpeechError('Vosk speech recognition not available');
       return;
     }
@@ -123,7 +114,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Check server availability
     const checkAvailability = async () => {
       const isAvailable = voskRecognition.isConnected();
-      setVoskServerAvailable(isAvailable);
       
       if (!isAvailable) {
         setSpeechError('Vosk server not available. Please ensure the server is running.');
@@ -355,30 +345,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if ((message.trim() || attachments.length > 0) && !loading) {
       let messageText = message.trim();
       
-      // Check if there are PDF attachments and add a special prompt
-      const hasPdfAttachments = attachments.some(attachment => attachment.type === 'pdf');
-      if (hasPdfAttachments) {
-        // Count PDF attachments with text and images
-        const pdfWithTextCount = attachments.filter(att => att.type === 'pdf' && att.content).length;
-        const pdfWithImagesCount = attachments.filter(att => att.type === 'pdf' && att.images && att.images.length > 0).length;
-        
-        // Create a descriptive prefix for the message
-        let pdfDescription = "I've attached PDF file(s)";
-        if (pdfWithTextCount > 0 && pdfWithImagesCount > 0) {
-          pdfDescription += " containing both text and images";
-        } else if (pdfWithTextCount > 0) {
-          pdfDescription += " containing text";
-        } else if (pdfWithImagesCount > 0) {
-          pdfDescription += " containing images";
-        }
-        
-        // Add the PDF description to the message if there's no existing message
-        if (!messageText) {
-          messageText = pdfDescription + ".";
-        } else {
-          messageText = messageText + pdfDescription + ".";
-        }
-      }
+      // Don't automatically add PDF descriptions - let user write their own message
+      // The AI will see the attachments and their content automatically
       
       // Stop listening when user sends message
       if (isListening && voskRecognition) {
@@ -470,87 +438,316 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       try {
         // Handle different file types
         if (file.type.startsWith('image/')) {
-          // Handle image files
+          // Handle image files - upload to server
           console.log(`Processing image: ${file.name}`);
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            fileAttachment.content = e.target?.result as string;
-            setAttachments(prev => [...prev, fileAttachment]);
-            console.log(`✅ Image processed successfully: ${file.name}`);
-          };
-          reader.onerror = (e) => {
-            console.error(`❌ Error reading image ${file.name}:`, e);
-            setFileProcessingError(`Failed to read image: ${file.name}`);
-          };
-          reader.readAsDataURL(file);
+          try {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const response = await fetch('http://localhost:3001/api/files/upload', {
+              method: 'POST',
+              body: formData,
+            });
+            
+            if (!response.ok) {
+              throw new Error(`Upload failed: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              // Store ONLY file reference - no content in JSON
+              fileAttachment.fileId = result.fileId;
+              // No content stored locally - will be fetched from server when needed
+              setAttachments(prev => [...prev, fileAttachment]);
+              console.log(`✅ Image uploaded and stored on server: ${file.name} -> ${result.fileId}`);
+            } else {
+              throw new Error('Upload failed');
+            }
+          } catch (uploadError) {
+            console.error(`❌ Error uploading image ${file.name}:`, uploadError);
+            setFileProcessingError(`Failed to upload image: ${file.name}`);
+          }
         } else if (file.type === 'application/pdf') {
-          // Handle PDF files with enhanced error handling
+          // Handle PDF files with enhanced processing
           console.log(`Processing PDF: ${file.name}`);
           try {
+            // First, upload the original PDF file to server
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const uploadResponse = await fetch('http://localhost:3001/api/files/upload', {
+              method: 'POST',
+              body: formData,
+            });
+            
+            if (!uploadResponse.ok) {
+              throw new Error(`PDF upload failed: ${uploadResponse.status}`);
+            }
+            
+            const uploadResult = await uploadResponse.json();
+            console.log(`✅ Original PDF uploaded: ${file.name} -> ${uploadResult.fileId}`);
+            
+            // Store the original PDF file ID
+            fileAttachment.fileId = uploadResult.fileId;
+            
+            // Now process the PDF for content extraction
             const arrayBuffer = await file.arrayBuffer();
             console.log(`PDF arrayBuffer size: ${arrayBuffer.byteLength} bytes`);
             
-            const pdf = await getDocument({ 
-              data: arrayBuffer,
-              // Add options for better compatibility
-              verbosity: 0, // Reduce console noise
-              isEvalSupported: false, // Disable eval for security
-              disableFontFace: false, // Allow font loading
-            }).promise;
+            // Use the enhanced PDF processor
+            const pdfData = await pdfProcessor.processPDFFile(arrayBuffer, file.name, {
+              extractImages: true,
+              extractTables: true,
+              extractCharts: true,
+              highResolution: true,
+            });
             
-            console.log(`PDF loaded successfully. Pages: ${pdf.numPages}`);
+            console.log(`✅ PDF processed successfully with enhanced processor:`, pdfData.statistics);
             
-            let fullText = '';
-            const images: string[] = [];
+            // Create comprehensive content from all extracted items
+            let fullContent = '';
             
-            // Extract text and images from all pages
-            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-              console.log(`Processing PDF page ${pageNum}/${pdf.numPages}`);
-              const page = await pdf.getPage(pageNum);
+            // Add document metadata
+            if (pdfData.metadata.title) {
+              fullContent += `Title: ${pdfData.metadata.title}\n`;
+            }
+            if (pdfData.metadata.author) {
+              fullContent += `Author: ${pdfData.metadata.author}\n`;
+            }
+            fullContent += `Pages: ${pdfData.metadata.totalPages}\n\n`;
+            
+            // Add text content organized by page
+            const textByPage = new Map<number, string[]>();
+            pdfData.items.text.forEach(textItem => {
+              if (!textByPage.has(textItem.pageNumber)) {
+                textByPage.set(textItem.pageNumber, []);
+              }
+              textByPage.get(textItem.pageNumber)!.push(textItem.content);
+            });
+            
+            // Add text content page by page
+            for (let pageNum = 1; pageNum <= pdfData.metadata.totalPages; pageNum++) {
+              const pageTexts = textByPage.get(pageNum);
+              if (pageTexts && pageTexts.length > 0) {
+                fullContent += `=== Page ${pageNum} ===\n`;
+                fullContent += pageTexts.join(' ') + '\n\n';
+              }
+            }
+            
+            // Add table information
+            if (pdfData.items.tables.length > 0) {
+              fullContent += `=== Tables Found (${pdfData.items.tables.length}) ===\n`;
+              pdfData.items.tables.forEach((table, index) => {
+                fullContent += `Table ${index + 1} (Page ${table.pageNumber}):\n`;
+                table.content.forEach(row => {
+                  fullContent += row.join(' | ') + '\n';
+                });
+                fullContent += '\n';
+              });
+            }
+            
+            // Add chart information
+            if (pdfData.items.charts.length > 0) {
+              fullContent += `=== Charts Found (${pdfData.items.charts.length}) ===\n`;
+              pdfData.items.charts.forEach((chart, index) => {
+                fullContent += `Chart ${index + 1} (Page ${chart.pageNumber}): ${chart.chartData.type}\n`;
+                if (chart.chartData.title) {
+                  fullContent += `Title: ${chart.chartData.title}\n`;
+                }
+                fullContent += '\n';
+              });
+            }
+            
+            // Save PDF content to server instead of storing in JSON
+            try {
+              const contentToSave = fullContent.trim() || `PDF file: ${file.name} (${pdfData.metadata.totalPages} pages)`;
               
-              // Extract text
-              const textContent = await page.getTextContent();
-              const pageText = textContent.items
-                .filter((item): item is TextItem => 'str' in item)
-                .map(item => item.str)
-                .join(' ');
+              const saveResponse = await fetch('http://localhost:3001/api/files/save', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  content: contentToSave,
+                  originalName: `${file.name}_extracted_content.txt`,
+                  mimetype: 'text/plain'
+                }),
+              });
               
-              if (pageText.trim()) {
-                fullText += `Page ${pageNum}: ${pageText.trim()}\n\n`;
+              if (saveResponse.ok) {
+                const saveResult = await saveResponse.json();
+                if (saveResult.success) {
+                  // Store extracted content file ID separately for AI processing
+                  fileAttachment.metadata = {
+                    ...fileAttachment.metadata,
+                    extractedContentFileId: saveResult.fileId
+                  };
+                  console.log(`✅ PDF content saved to server: ${saveResult.fileId}`);
+                }
+              }
+            } catch (saveError) {
+              console.warn(`⚠️ Could not save PDF content to server, storing locally:`, saveError);
+              // Fallback: store content locally if server save fails
+              fileAttachment.content = fullContent.trim() || `PDF file: ${file.name} (${pdfData.metadata.totalPages} pages)`;
+            }
+            
+            // IMPORTANT: Keep the original PDF fileId for downloads
+            // fileAttachment.fileId should remain the original PDF file ID (uploadResult.fileId)
+            // The extracted content is stored separately in metadata.extractedContentFileId
+            
+            // Set image information - save images to server
+            if (pdfData.items.images.length > 0) {
+              fileAttachment.hasImages = true;
+              const savedImageIds: string[] = [];
+              
+              // Save each image to server
+              for (let imgIndex = 0; imgIndex < pdfData.items.images.length; imgIndex++) {
+                const imageData = pdfData.items.images[imgIndex];
+                try {
+                  const imageSaveResponse = await fetch('http://localhost:3001/api/files/save', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      content: imageData.content,
+                      originalName: `${file.name}_page_${imageData.pageNumber}_image_${imgIndex + 1}.jpg`,
+                      mimetype: 'image/jpeg'
+                    }),
+                  });
+                  
+                  if (imageSaveResponse.ok) {
+                    const imageSaveResult = await imageSaveResponse.json();
+                    if (imageSaveResult.success) {
+                      savedImageIds.push(imageSaveResult.fileId);
+                      console.log(`✅ PDF image saved to server: ${imageSaveResult.fileId}`);
+                    }
+                  }
+                } catch (imageSaveError) {
+                  console.warn(`⚠️ Could not save PDF image to server:`, imageSaveError);
+                  // Fallback: store data URL if server save fails
+                  savedImageIds.push(imageData.content);
+                }
               }
               
-              // Note: Image extraction from PDF is complex and would require additional libraries
-              // For now, we'll just extract text content
+              fileAttachment.imageFileIds = savedImageIds;
             }
             
-            fileAttachment.content = fullText.trim() || `PDF file: ${file.name} (${pdf.numPages} pages)`;
-            if (images.length > 0) {
-              fileAttachment.images = images;
+            // Store table information
+            if (pdfData.items.tables.length > 0) {
+              fileAttachment.metadata = {
+                ...fileAttachment.metadata,
+                tables: pdfData.items.tables.map(table => ({
+                  id: table.id,
+                  pageNumber: table.pageNumber,
+                  content: table.content,
+                  structure: table.structure,
+                  position: table.position
+                }))
+              };
             }
+            
+            // Store chart information
+            if (pdfData.items.charts.length > 0) {
+              fileAttachment.metadata = {
+                ...fileAttachment.metadata,
+                charts: pdfData.items.charts.map(chart => ({
+                  id: chart.id,
+                  pageNumber: chart.pageNumber,
+                  chartData: chart.chartData,
+                  position: chart.position,
+                  content: chart.content // This contains the chart image
+                }))
+              };
+            }
+            
+            // Add comprehensive metadata
+            fileAttachment.metadata = {
+              ...fileAttachment.metadata,
+              totalPages: pdfData.metadata.totalPages,
+              hasEmbeddedImages: pdfData.items.images.length > 0,
+              textLength: pdfData.statistics.totalWords,
+              processingMethod: 'enhanced-pdf-processor',
+              extractionMethod: 'comprehensive',
+              // Enhanced statistics
+              totalTextItems: pdfData.statistics.totalTextItems,
+              totalImages: pdfData.statistics.totalImages,
+              totalTables: pdfData.statistics.totalTables,
+              totalCharts: pdfData.statistics.totalCharts,
+              totalWords: pdfData.statistics.totalWords,
+            };
             
             setAttachments(prev => [...prev, fileAttachment]);
-            console.log(`✅ PDF processed successfully: ${file.name}, text length: ${fullText.length}`);
+            console.log(`✅ Enhanced PDF processing completed: ${file.name}`);
+            console.log(`   - Text items: ${pdfData.statistics.totalTextItems}`);
+            console.log(`   - Images: ${pdfData.statistics.totalImages}`);
+            console.log(`   - Tables: ${pdfData.statistics.totalTables}`);
+            console.log(`   - Charts: ${pdfData.statistics.totalCharts}`);
+            console.log(`   - Total words: ${pdfData.statistics.totalWords}`);
+            
+            // Debug: Show extracted content info
+            if (pdfData.items.images.length > 0) {
+              console.log('📸 Extracted images:');
+              pdfData.items.images.forEach((img, idx) => {
+                console.log(`   ${idx + 1}. ${img.id} (${img.metadata.extractionMethod}): ${Math.round(img.metadata.size / 1024)}KB`);
+              });
+            }
+            
+            if (pdfData.items.tables.length > 0) {
+              console.log('📊 Extracted tables:');
+              pdfData.items.tables.forEach((table, idx) => {
+                console.log(`   ${idx + 1}. ${table.id} (Page ${table.pageNumber}): ${table.structure.rows}x${table.structure.columns} table`);
+              });
+            }
+            
+            if (pdfData.items.charts.length > 0) {
+              console.log('📈 Extracted charts:');
+              pdfData.items.charts.forEach((chart, idx) => {
+                console.log(`   ${idx + 1}. ${chart.id} (Page ${chart.pageNumber}): ${chart.chartData.type} chart`);
+              });
+            }
+            
           } catch (pdfError) {
             console.error(`❌ Error processing PDF ${file.name}:`, pdfError);
-            // Add as a basic file attachment if PDF processing fails
-            fileAttachment.content = `PDF file: ${file.name} (processing failed - ${pdfError instanceof Error ? pdfError.message : 'unknown error'})`;
+            // Fallback to basic file attachment
+            fileAttachment.content = `PDF file: ${file.name} (enhanced processing failed - ${pdfError instanceof Error ? pdfError.message : 'unknown error'})`;
             setAttachments(prev => [...prev, fileAttachment]);
-            setFileProcessingError(`PDF processing failed for ${file.name}: ${pdfError instanceof Error ? pdfError.message : 'unknown error'}`);
+            setFileProcessingError(`Enhanced PDF processing failed for ${file.name}: ${pdfError instanceof Error ? pdfError.message : 'unknown error'}`);
           }
         } else {
-          // Handle other file types as text if possible
-          console.log(`Processing text file: ${file.name}`);
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            fileAttachment.content = e.target?.result as string;
-            setAttachments(prev => [...prev, fileAttachment]);
-            console.log(`✅ Text file processed successfully: ${file.name}`);
-          };
-          reader.onerror = (e) => {
-            console.error(`❌ Error reading text file ${file.name}:`, e);
-            setFileProcessingError(`Failed to read file: ${file.name}`);
-          };
-          reader.readAsText(file);
+          // Handle other file types - upload to server
+          console.log(`Processing document file: ${file.name}`);
+          try {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const response = await fetch('http://localhost:3001/api/files/upload', {
+              method: 'POST',
+              body: formData,
+            });
+            
+            if (!response.ok) {
+              throw new Error(`Upload failed: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              // Store file reference instead of content
+              fileAttachment.fileId = result.fileId;
+              
+              // Store ONLY file reference - no content in JSON
+              // Content will be fetched from server when needed for AI processing
+              setAttachments(prev => [...prev, fileAttachment]);
+              console.log(`✅ Document file uploaded and stored on server: ${file.name} -> ${result.fileId}`);
+            } else {
+              throw new Error('Upload failed');
+            }
+          } catch (uploadError) {
+            console.error(`❌ Error uploading document ${file.name}:`, uploadError);
+            setFileProcessingError(`Failed to upload document: ${file.name}`);
+          }
         }
       } catch (error) {
         console.error(`❌ Error processing file ${file.name}:`, error);
@@ -582,6 +779,90 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  // Handle attachment download
+  const handleDownloadAttachment = async (attachment: FileAttachment) => {
+    try {
+      let downloadData: string;
+
+      if (attachment.type === 'image' && attachment.content) {
+        // For images, use the data URL directly
+        downloadData = attachment.content;
+      } else if (attachment.type === 'pdf') {
+        // For PDFs, download the original PDF file from server with original filename
+        if (attachment.fileId) {
+          try {
+            // Add original filename as query parameter for server to use
+            const downloadUrl = `http://localhost:3001/api/files/${attachment.fileId}?filename=${encodeURIComponent(attachment.name)}`;
+            const response = await fetch(downloadUrl);
+            if (response.ok) {
+              const blob = await response.blob();
+              downloadData = URL.createObjectURL(blob);
+              
+              // Create download link with original filename
+              const link = document.createElement('a');
+              link.href = downloadData;
+              link.download = attachment.name; // Use original filename
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              URL.revokeObjectURL(downloadData);
+              console.log(`✅ Downloaded original file: ${attachment.name}`);
+              return;
+            }
+          } catch (fetchError) {
+            console.warn(`⚠️ Could not download original file, falling back to extracted content:`, fetchError);
+          }
+        }
+        
+        // Fallback: create a text file with the extracted content
+        const textContent = attachment.content || `PDF file: ${attachment.name}`;
+        const blob = new Blob([textContent], { type: 'text/plain' });
+        downloadData = URL.createObjectURL(blob);
+        
+        // Create download link
+        const link = document.createElement('a');
+        link.href = downloadData;
+        link.download = `${attachment.name.replace('.pdf', '')}_extracted_content.txt`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(downloadData);
+        return;
+      } else {
+        // For other file types, create a text file with the content
+        const textContent = attachment.content || `File: ${attachment.name}`;
+        const blob = new Blob([textContent], { type: 'text/plain' });
+        downloadData = URL.createObjectURL(blob);
+        
+        // Create download link
+        const link = document.createElement('a');
+        link.href = downloadData;
+        link.download = attachment.name;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(downloadData);
+        return;
+      }
+
+      // For images with data URLs
+      if (attachment.type === 'image' && downloadData.startsWith('data:')) {
+        const link = document.createElement('a');
+        link.href = downloadData;
+        link.download = attachment.name;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      console.log(`✅ Downloaded attachment: ${attachment.name}`);
+    } catch (error) {
+      console.error(`❌ Error downloading attachment ${attachment.name}:`, error);
+      // Show user-friendly error message
+      alert(`Failed to download ${attachment.name}. Please try again.`);
+    }
+  };
+
   const renderMessage = (message: MessageType) => {
     const isUser = message.role === 'user';
     
@@ -594,6 +875,70 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           sx={isUser ? styles.userMessage : styles.assistantMessage}
         >
           <Box sx={{ width: '100%' }}>
+            {/* Show attachments for user messages */}
+            {isUser && message.attachments && message.attachments.length > 0 && (
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                  Attachments ({message.attachments.length})
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {message.attachments.map((attachment, index) => (
+                    <Box
+                      key={index}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        p: 1,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        bgcolor: 'rgba(255, 255, 255, 0.05)',
+                        maxWidth: 200,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                          bgcolor: 'rgba(255, 255, 255, 0.1)',
+                          borderColor: 'primary.main',
+                        }
+                      }}
+                      onClick={() => handleDownloadAttachment(attachment)}
+                      title={`Download ${attachment.name}`}
+                    >
+                      {attachment.type === 'image' ? (
+                        <ImageIcon fontSize="small" color="primary" />
+                      ) : attachment.type === 'pdf' ? (
+                        <DescriptionIcon fontSize="small" color="error" />
+                      ) : (
+                        <InsertDriveFileIcon fontSize="small" color="action" />
+                      )}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="caption" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {attachment.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {formatFileSize(attachment.size)}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        width: 16,
+                        height: 16,
+                        opacity: 0.7,
+                        '&:hover': { opacity: 1 }
+                      }}>
+                        <Typography variant="caption" sx={{ fontSize: '12px' }}>
+                          ⬇️
+                        </Typography>
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            )}
+            
             <Typography
               variant="body1"
               component="div"
@@ -753,7 +1098,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               </Box>
             )}
 
-            {/* Attachments display */}
+            {/* Attachments display - compact style like original */}
             {attachments.length > 0 && (
               <Box sx={{ mb: 2 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>

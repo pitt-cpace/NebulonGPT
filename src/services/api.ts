@@ -1,13 +1,15 @@
 import axios from 'axios';
 import { ModelType, MessageType } from '../types';
 
-// Configure axios with base URL
-// In development, we use the direct URL
-// In production (Docker), we use the relative path which will be proxied by Nginx
-const isProduction = process.env.NODE_ENV === 'production';
-const baseURL = isProduction 
-  ? '/api/ollama' // This will be proxied by Nginx to the Ollama API
-  : (process.env.REACT_APP_OLLAMA_API_URL || 'http://localhost:11434/api');
+// Helper function to format file sizes
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+// Configure axios with base URL for Ollama API
+const baseURL = 'http://localhost:11434/api';
 
 const api = axios.create({
   baseURL,
@@ -19,8 +21,7 @@ const api = axios.create({
 // Fetch available models
 export const fetchModels = async (): Promise<ModelType[]> => {
   try {
-    // In development mode, we need to be careful not to duplicate the '/api' path
-    const endpoint = isProduction ? '/tags' : '/tags';
+    const endpoint = '/tags';
     const response = await api.get(endpoint);
     
     if (response.data && response.data.models && response.data.models.length > 0) {
@@ -41,7 +42,7 @@ export const fetchModels = async (): Promise<ModelType[]> => {
   } catch (error: any) {
     console.error('Error fetching models from Ollama API:', error);
     console.error('Base URL:', baseURL);
-    console.error('Full URL:', `${baseURL}${isProduction ? '/tags' : '/tags'}`);
+    console.error('Full URL:', `${baseURL}/tags`);
     
     // Check if it's a connection error
     if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
@@ -82,55 +83,237 @@ export const sendMessage = async (
   onStreamUpdate?: (chunk: string) => void
 ): Promise<string> => {
   try {
-    // Extract image attachments and text attachments
-    const imageAttachments: string[] = [];
+    // Collect all attachments from the conversation for context
+    const allAttachments = new Map<string, any>();
     
-      // Process messages to include file attachments
-    const formattedMessages = messages.map(msg => {
-      // If the message has attachments, handle them appropriately
+    // First pass: collect all attachments from all messages in the conversation
+    messages.forEach(msg => {
       if (msg.attachments && msg.attachments.length > 0) {
-        // Create a new content string that includes the text file content
-        let enhancedContent = msg.content;
-        // Array to hold image attachments for this specific message
-        const messageImages: string[] = [];
+        msg.attachments.forEach(attachment => {
+          allAttachments.set(attachment.id, {
+            ...attachment,
+            messageId: msg.id,
+            messageRole: msg.role,
+            messageTimestamp: msg.timestamp
+          });
+        });
+      }
+    });
+    
+    // Process messages to include file attachments with full conversation context
+    const formattedMessages = await Promise.all(messages.map(async (msg, index) => {
+      let enhancedContent = msg.content;
+      const messageImages: string[] = [];
+      
+      // If this is the first message in the conversation and there are attachments anywhere,
+      // include a context summary of all available files
+      if (index === 0 && allAttachments.size > 0) {
+        const attachmentSummary = Array.from(allAttachments.values())
+          .map(att => `- ${att.name} (${att.type}, ${formatFileSize(att.size)}, uploaded ${new Date(att.timestamp).toLocaleString()})`)
+          .join('\n');
         
-    // Process each attachment
-    msg.attachments.forEach(attachment => {
-      // Handle text and PDF attachments by including their content in the message
-      if ((attachment.type === 'text' || attachment.type === 'pdf') && attachment.content) {
-        enhancedContent += `\n\n--- File: ${attachment.name} ---\n${attachment.content}\n---\n`;
+        enhancedContent = `[CONTEXT: Files available in this conversation:\n${attachmentSummary}]\n\n${enhancedContent}`;
       }
       
-      // Collect image attachments for this message
-      if (attachment.type === 'image' && attachment.content) {
-        // Extract base64 data from data URL (remove the prefix like "data:image/jpeg;base64,")
-        const base64Data = attachment.content.split(',')[1];
-        if (base64Data) {
-          messageImages.push(base64Data);
-          // Also add to the global array for logging purposes
-          imageAttachments.push(base64Data);
+      // If the current message has attachments, handle them appropriately
+      if (msg.attachments && msg.attachments.length > 0) {
+        // Process each attachment in the current message
+        for (const attachment of msg.attachments) {
+          // Handle text, document, and PDF attachments by including their content in the message
+          if ((attachment.type === 'text' || attachment.type === 'document' || attachment.type === 'pdf') && attachment.content) {
+            enhancedContent += `\n\n--- File: ${attachment.name} (Size: ${formatFileSize(attachment.size)}, Type: ${attachment.type}) ---\n${attachment.content}\n--- End of ${attachment.name} ---\n`;
+          }
+          
+          // Handle file references - fetch content from server if needed
+          if (attachment.type !== 'image') {
+            let contentFileId = attachment.fileId;
+            
+            // For PDFs, use the extracted content file ID if available
+            if (attachment.type === 'pdf' && attachment.metadata?.extractedContentFileId) {
+              contentFileId = attachment.metadata.extractedContentFileId;
+              console.log(`📁 PDF found: ${attachment.name} - using extracted content file: ${contentFileId}`);
+            }
+            
+            if (contentFileId && !attachment.content) {
+              console.log(`📁 File reference found: ${attachment.name} (${contentFileId}) - fetching content from server`);
+              try {
+                const response = await fetch(`http://localhost:3001/api/files/${contentFileId}`);
+                if (response.ok) {
+                  const fileContent = await response.text();
+                  console.log(`✅ File content fetched from server: ${attachment.name} (${fileContent.length} characters)`);
+                  enhancedContent += `\n\n--- File: ${attachment.name} (Size: ${formatFileSize(attachment.size)}, Type: ${attachment.type}) ---\n${fileContent}\n--- End of ${attachment.name} ---\n`;
+                } else {
+                  console.warn(`⚠️ Could not fetch file content from server: ${response.status}`);
+                  enhancedContent += `\n\n--- File Reference: ${attachment.name} (Size: ${formatFileSize(attachment.size)}, Type: ${attachment.type}, ID: ${contentFileId}) ---\n[File content could not be retrieved from server]\n--- End of ${attachment.name} ---\n`;
+                }
+              } catch (fetchError) {
+                console.error(`❌ Error fetching file content:`, fetchError);
+                enhancedContent += `\n\n--- File Reference: ${attachment.name} (Size: ${formatFileSize(attachment.size)}, Type: ${attachment.type}, ID: ${contentFileId}) ---\n[Error retrieving file content from server]\n--- End of ${attachment.name} ---\n`;
+              }
+            }
+          }
+          
+          // Collect image attachments for this message
+          if (attachment.type === 'image' && attachment.content) {
+            // Extract base64 data from data URL (remove the prefix like "data:image/jpeg;base64,")
+            const base64Data = attachment.content.split(',')[1];
+            if (base64Data) {
+              messageImages.push(base64Data);
+            }
+          }
+          
+          // Handle PDF images - extract images from PDF attachments
+          if (attachment.type === 'pdf' && attachment.imageFileIds && attachment.imageFileIds.length > 0) {
+            console.log(`📸 Processing ${attachment.imageFileIds.length} images from PDF: ${attachment.name}`);
+            
+            for (let imgIndex = 0; imgIndex < attachment.imageFileIds.length; imgIndex++) {
+              const imageRef = attachment.imageFileIds[imgIndex];
+              
+              if (imageRef && typeof imageRef === 'string') {
+                if (imageRef.startsWith('data:image/')) {
+                  // Handle data URL (legacy format)
+                  const base64Data = imageRef.split(',')[1];
+                  if (base64Data) {
+                    messageImages.push(base64Data);
+                    console.log(`✅ Added PDF image ${imgIndex + 1} from ${attachment.name} (data URL, ${Math.round(base64Data.length * 3 / 4 / 1024)}KB)`);
+                  }
+                } else {
+                  // Handle file ID - fetch from server
+                  console.log(`📁 Fetching PDF image ${imgIndex + 1} from server: ${imageRef}`);
+                  try {
+                    const response = await fetch(`http://localhost:3001/api/files/${imageRef}`);
+                    if (response.ok) {
+                      const blob = await response.blob();
+                      
+                      // Convert blob to base64
+                      const reader = new FileReader();
+                      const base64Promise = new Promise<string>((resolve, reject) => {
+                        reader.onload = () => {
+                          const result = reader.result as string;
+                          const base64Data = result.split(',')[1];
+                          resolve(base64Data);
+                        };
+                        reader.onerror = reject;
+                      });
+                      
+                      reader.readAsDataURL(blob);
+                      const base64Data = await base64Promise;
+                      
+                      messageImages.push(base64Data);
+                      console.log(`✅ Added PDF image ${imgIndex + 1} from ${attachment.name} (server file, ${Math.round(base64Data.length * 3 / 4 / 1024)}KB)`);
+                    } else {
+                      console.warn(`⚠️ Could not fetch PDF image from server: ${response.status} for ${imageRef}`);
+                    }
+                  } catch (fetchError) {
+                    console.error(`❌ Error fetching PDF image ${imageRef}:`, fetchError);
+                  }
+                }
+              }
+            }
+          }
+          
+          // Handle PDF tables - add table information to content
+          if (attachment.type === 'pdf' && attachment.metadata?.tables && attachment.metadata.tables.length > 0) {
+            console.log(`📊 Processing ${attachment.metadata.tables.length} tables from PDF: ${attachment.name}`);
+            let tableContent = `\n\n=== Tables from ${attachment.name} ===\n`;
+            attachment.metadata.tables.forEach((table: any, tableIndex: number) => {
+              tableContent += `Table ${tableIndex + 1} (Page ${table.pageNumber}):\n`;
+              if (table.structure?.hasHeaders && table.content.length > 0) {
+                // Format with headers
+                const headers = table.content[0];
+                const rows = table.content.slice(1);
+                tableContent += `Headers: ${headers.join(' | ')}\n`;
+                rows.forEach((row: string[], rowIndex: number) => {
+                  tableContent += `Row ${rowIndex + 1}: ${row.join(' | ')}\n`;
+                });
+              } else {
+                // Format without headers
+                table.content.forEach((row: string[], rowIndex: number) => {
+                  tableContent += `Row ${rowIndex + 1}: ${row.join(' | ')}\n`;
+                });
+              }
+              tableContent += `Position: x=${table.position.x}, y=${table.position.y}, w=${table.position.width}, h=${table.position.height}\n\n`;
+            });
+            enhancedContent += tableContent;
+            console.log(`✅ Added ${attachment.metadata.tables.length} tables from ${attachment.name}`);
+          }
+          
+          // Handle PDF charts - add chart information and images
+          if (attachment.type === 'pdf' && attachment.metadata?.charts && attachment.metadata.charts.length > 0) {
+            console.log(`📈 Processing ${attachment.metadata.charts.length} charts from PDF: ${attachment.name}`);
+            let chartContent = `\n\n=== Charts from ${attachment.name} ===\n`;
+            attachment.metadata.charts.forEach((chart: any, chartIndex: number) => {
+              chartContent += `Chart ${chartIndex + 1} (Page ${chart.pageNumber}):\n`;
+              chartContent += `Type: ${chart.chartData.type}\n`;
+              if (chart.chartData.title) {
+                chartContent += `Title: ${chart.chartData.title}\n`;
+              }
+              if (chart.chartData.labels && chart.chartData.labels.length > 0) {
+                chartContent += `Labels: ${chart.chartData.labels.join(', ')}\n`;
+              }
+              if (chart.chartData.values && chart.chartData.values.length > 0) {
+                chartContent += `Values: ${chart.chartData.values.join(', ')}\n`;
+              }
+              chartContent += `Position: x=${chart.position.x}, y=${chart.position.y}, w=${chart.position.width}, h=${chart.position.height}\n`;
+              
+              // Add chart image if available
+              if (chart.content && typeof chart.content === 'string' && chart.content.startsWith('data:image/')) {
+                const base64Data = chart.content.split(',')[1];
+                if (base64Data) {
+                  messageImages.push(base64Data);
+                  console.log(`✅ Added chart image ${chartIndex + 1} from ${attachment.name} (${Math.round(base64Data.length * 3 / 4 / 1024)}KB)`);
+                  chartContent += `[Chart image included in visual analysis]\n`;
+                }
+              }
+              chartContent += '\n';
+            });
+            enhancedContent += chartContent;
+            console.log(`✅ Added ${attachment.metadata.charts.length} charts from ${attachment.name}`);
+          }
         }
       }
-    });
+      
+      // For follow-up messages, if user is asking about files but no attachments in current message,
+      // provide context about available files from previous messages
+      if (msg.role === 'user' && 
+          (!msg.attachments || msg.attachments.length === 0) && 
+          allAttachments.size > 0 && 
+          index > 0) {
         
-        // Return message with images included in the message object per Ollama API docs
-        return {
-          role: msg.role,
-          content: enhancedContent,
-          // Only include images field if there are images
-          ...(messageImages.length > 0 && { images: messageImages })
-        };
+        // Check if the message seems to be asking about files
+        const fileRelatedKeywords = ['file', 'attachment', 'document', 'image', 'pdf', 'upload', 'name', 'size', 'information'];
+        const isFileRelatedQuery = fileRelatedKeywords.some(keyword => 
+          msg.content.toLowerCase().includes(keyword)
+        );
+        
+        if (isFileRelatedQuery) {
+          const fileDetails = Array.from(allAttachments.values())
+            .map(att => `File: "${att.name}" - Type: ${att.type}, Size: ${formatFileSize(att.size)}, Uploaded: ${new Date(att.timestamp).toLocaleString()}`)
+            .join('\n');
+          
+          enhancedContent += `\n\n[REFERENCE: Available files in this conversation:\n${fileDetails}]`;
+        }
       }
       
-      // If no attachments, just return the original message
+      // Debug logging for images being sent to AI
+      if (messageImages.length > 0) {
+        console.log(`🖼️ Sending ${messageImages.length} images to AI model for message ${index + 1}`);
+        messageImages.forEach((img, imgIdx) => {
+          const sizeKB = Math.round(img.length * 3 / 4 / 1024);
+          console.log(`   Image ${imgIdx + 1}: ${sizeKB}KB (base64 length: ${img.length})`);
+        });
+      }
+      
+      // Return message with images included in the message object per Ollama API docs
       return {
         role: msg.role,
-        content: msg.content,
+        content: enhancedContent,
+        // Only include images field if there are images
+        ...(messageImages.length > 0 && { images: messageImages })
       };
-    });
+    }));
     
-// In development mode, we need to be careful not to duplicate the '/api' path
-const endpoint = isProduction ? '/chat' : '/chat';
+    const endpoint = '/chat';
     
     // If streaming is enabled and callback is provided
     if (onStreamUpdate) {
@@ -295,6 +478,35 @@ export const fetchModelDetails = async (modelName: string): Promise<any> => {
   } catch (error) {
     console.error(`Error fetching details for model ${modelName}:`, error);
     return null;
+  }
+};
+
+// Delete a chat and its associated files
+export const deleteChat = async (chatId: string): Promise<{ success: boolean; filesDeleted: number; filesFailed: number }> => {
+  try {
+    const response = await fetch(`http://localhost:3001/api/chats/${chatId}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log(`✅ Chat deleted: ${chatId}`);
+    console.log(`📊 Files deleted: ${result.filesDeleted}, Failed: ${result.filesFailed}`);
+    
+    return {
+      success: result.success,
+      filesDeleted: result.filesDeleted || 0,
+      filesFailed: result.filesFailed || 0
+    };
+  } catch (error) {
+    console.error(`❌ Error deleting chat ${chatId}:`, error);
+    throw error;
   }
 };
 

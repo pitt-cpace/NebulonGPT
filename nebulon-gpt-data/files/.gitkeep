@@ -1,0 +1,3 @@
+# This file ensures the files directory is tracked by git
+# All uploaded files in this directory are ignored by .gitignore
+# but the folder structure is preserved

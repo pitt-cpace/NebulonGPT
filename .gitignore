@@ -1,4 +1,3 @@
-
 # Logs
 logs
 *.log
@@ -11,6 +10,10 @@ data/chats.json
 nebulon-gpt-data/chats.json
 lerna-debug.log*
 .pnpm-debug.log*
+
+# Ignore all files in nebulon-gpt-data/files/ but keep the folder structure
+nebulon-gpt-data/files/*
+!nebulon-gpt-data/files/.gitkeep
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
@@ -139,7 +142,7 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
-=======
+
 # dependencies
 /node_modules
 /.pnp

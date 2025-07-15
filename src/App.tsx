@@ -197,20 +197,74 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDeleteChat = (chatId: string) => {
-    const updatedChats = chats.filter(chat => chat.id !== chatId);
-    setChats(updatedChats);
-    
-    if (currentChat?.id === chatId) {
-      // Set the new current chat
-      const newCurrentChat = updatedChats.length > 0 ? updatedChats[0] : null;
-      setCurrentChat(newCurrentChat);
+  const handleDeleteChat = async (chatId: string) => {
+    try {
+      // Import the deleteChat function from our API service
+      const { deleteChat } = await import('./services/api');
       
-      // Update the selected model to match the new current chat's model
-      if (newCurrentChat && newCurrentChat.modelId) {
-        const chatModel = models.find(m => m.id === newCurrentChat.modelId);
-        if (chatModel) {
-          setSelectedModel(chatModel);
+      // Delete the chat and its associated files from the server
+      const result = await deleteChat(chatId);
+      
+      if (result.success) {
+        console.log(`✅ Chat and files deleted successfully`);
+        console.log(`📊 Files deleted: ${result.filesDeleted}, Failed: ${result.filesFailed}`);
+        
+        // Show user feedback if files were deleted
+        if (result.filesDeleted > 0) {
+          console.log(`🗑️ Cleaned up ${result.filesDeleted} associated file(s)`);
+        }
+        
+        // Update local state after successful server deletion
+        const updatedChats = chats.filter(chat => chat.id !== chatId);
+        setChats(updatedChats);
+        
+        if (currentChat?.id === chatId) {
+          // Set the new current chat
+          const newCurrentChat = updatedChats.length > 0 ? updatedChats[0] : null;
+          setCurrentChat(newCurrentChat);
+          
+          // Update the selected model to match the new current chat's model
+          if (newCurrentChat && newCurrentChat.modelId) {
+            const chatModel = models.find(m => m.id === newCurrentChat.modelId);
+            if (chatModel) {
+              setSelectedModel(chatModel);
+            }
+          }
+        }
+      } else {
+        console.error('❌ Failed to delete chat from server');
+        // Still update local state as fallback
+        const updatedChats = chats.filter(chat => chat.id !== chatId);
+        setChats(updatedChats);
+        
+        if (currentChat?.id === chatId) {
+          const newCurrentChat = updatedChats.length > 0 ? updatedChats[0] : null;
+          setCurrentChat(newCurrentChat);
+          
+          if (newCurrentChat && newCurrentChat.modelId) {
+            const chatModel = models.find(m => m.id === newCurrentChat.modelId);
+            if (chatModel) {
+              setSelectedModel(chatModel);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error deleting chat:', error);
+      
+      // Fallback: still update local state even if server deletion fails
+      const updatedChats = chats.filter(chat => chat.id !== chatId);
+      setChats(updatedChats);
+      
+      if (currentChat?.id === chatId) {
+        const newCurrentChat = updatedChats.length > 0 ? updatedChats[0] : null;
+        setCurrentChat(newCurrentChat);
+        
+        if (newCurrentChat && newCurrentChat.modelId) {
+          const chatModel = models.find(m => m.id === newCurrentChat.modelId);
+          if (chatModel) {
+            setSelectedModel(chatModel);
+          }
         }
       }
     }
