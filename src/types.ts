@@ -11,7 +11,7 @@ export interface ModelType {
 export interface FileAttachment {
   id: string;
   name: string;
-  type: 'text' | 'image' | 'document' | 'pdf' | 'audio' | 'pdf-image' | 'pdf-text' | 'pdf-table' | 'pdf-chart'; // Enhanced types
+  type: 'text' | 'image' | 'document' | 'pdf' | 'audio' | 'pdf-image' | 'pdf-text' | 'pdf-table' | 'pdf-chart' | 'docx' | 'doc' | 'xlsx' | 'xls' | 'office-text' | 'office-table' | 'office-image'; // Enhanced types including Office formats
   content?: string; // For backward compatibility and small text content
   fileId?: string; // Reference to file stored on server
   imageFileIds?: string[]; // Array of file IDs for PDF images stored on server
@@ -29,6 +29,16 @@ export interface FileAttachment {
     hasEmbeddedImages?: boolean;
     description?: string;
     textLength?: number;
+    // Office document metadata
+    sheetName?: string;
+    sheetIndex?: number;
+    cellAddress?: string;
+    paragraphIndex?: number;
+    isHeading?: boolean;
+    headingLevel?: number;
+    sheetCount?: number;
+    sheetNames?: string[];
+    totalSheets?: number;
     // Enhanced PDF processing metadata
     position?: {
       x: number;

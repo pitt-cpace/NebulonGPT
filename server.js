@@ -5,6 +5,8 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const multer = require('multer');
 const StreamZip = require('node-stream-zip');
+const mammoth = require('mammoth');
+const XLSX = require('xlsx');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -417,6 +419,691 @@ app.post('/api/files/save', (req, res) => {
     res.status(500).json({ error: 'Failed to save file' });
   }
 });
+
+// Office Document Processing API
+app.post('/api/files/process-office', (req, res) => {
+  try {
+    const { fileId, fileName, options = {} } = req.body;
+    
+    if (!fileId || !fileName) {
+      return res.status(400).json({ error: 'fileId and fileName are required' });
+    }
+    
+    const filePath = path.join(FILES_DIR, fileId);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    // Determine file type from extension
+    const ext = path.extname(fileName).toLowerCase();
+    let fileType;
+    
+    switch (ext) {
+      case '.docx':
+        fileType = 'docx';
+        break;
+      case '.doc':
+        fileType = 'doc';
+        break;
+      case '.xlsx':
+        fileType = 'xlsx';
+        break;
+      case '.xls':
+        fileType = 'xls';
+        break;
+      default:
+        return res.status(400).json({ error: `Unsupported file type: ${ext}` });
+    }
+    
+    console.log(`🔄 Processing Office document: ${fileName} (${fileType})`);
+    
+    // Process the file based on type
+    processOfficeDocument(filePath, fileName, fileType, options)
+      .then(result => {
+        console.log(`✅ Office document processed successfully: ${fileName}`);
+        res.json({
+          success: true,
+          data: result,
+          fileType: fileType,
+          fileName: fileName
+        });
+      })
+      .catch(error => {
+        console.error(`❌ Error processing Office document ${fileName}:`, error);
+        res.status(500).json({ 
+          error: 'Failed to process Office document',
+          details: error.message 
+        });
+      });
+      
+  } catch (error) {
+    console.error('Error in Office document processing endpoint:', error);
+    res.status(500).json({ error: 'Failed to process Office document' });
+  }
+});
+
+// Office Document Processing Functions
+async function processOfficeDocument(filePath, fileName, fileType, options = {}) {
+  const startTime = Date.now();
+  
+  try {
+    const fileData = fs.readFileSync(filePath);
+    let result;
+    
+    switch (fileType) {
+      case 'docx':
+        result = await processWordDocument(fileData, fileName, options);
+        break;
+      case 'doc':
+        result = await processLegacyWordDocument(fileData, fileName);
+        break;
+      case 'xlsx':
+      case 'xls':
+        result = await processExcelDocument(fileData, fileName, fileType, options);
+        break;
+      default:
+        throw new Error(`Unsupported file type: ${fileType}`);
+    }
+    
+    result.metadata.processingTime = Date.now() - startTime;
+    return result;
+    
+  } catch (error) {
+    console.error(`Error processing ${fileType} document:`, error);
+    throw error;
+  }
+}
+
+async function processWordDocument(fileData, fileName, options = {}) {
+  console.log(`📄 Processing Word document with comprehensive extraction: ${fileName}`);
+  
+  const result = {
+    metadata: {
+      fileName,
+      fileType: 'docx',
+      fileSize: fileData.length,
+      processingTime: 0,
+      extractionTimestamp: new Date(),
+    },
+    items: {
+      text: [],
+      tables: [],
+      images: [],
+    },
+    statistics: {
+      totalTextItems: 0,
+      totalTables: 0,
+      totalImages: 0,
+      totalWords: 0,
+    },
+  };
+  
+  try {
+    // Configure mammoth for comprehensive extraction
+    const mammothOptions = {
+      // Convert images to base64 data URLs
+      convertImage: mammoth.images.imgElement(function(image) {
+        return image.read("base64").then(function(imageBuffer) {
+          // Create image item for our result
+          const imageItem = {
+            id: `image-${result.items.images.length}`,
+            type: 'image',
+            content: `data:${image.contentType || 'image/png'};base64,${imageBuffer}`,
+            metadata: {
+              sourceFile: fileName,
+              contentType: 'docx',
+              processingMethod: 'mammoth-image-extraction',
+              confidence: 0.9,
+              extractionTimestamp: new Date(),
+              format: image.contentType || 'image/png',
+              size: Math.round((imageBuffer.length * 3) / 4), // Approximate size from base64
+              description: 'Image extracted from Word document',
+            },
+          };
+          
+          result.items.images.push(imageItem);
+          console.log(`📸 Extracted image ${result.items.images.length}: ${imageItem.metadata.format} (${Math.round(imageItem.metadata.size / 1024)}KB)`);
+          
+          // Return the image element for HTML conversion
+          return {
+            src: imageItem.content
+          };
+        });
+      }),
+      
+      // Style mapping for better text extraction
+      styleMap: [
+        "p[style-name='Heading 1'] => h1:fresh",
+        "p[style-name='Heading 2'] => h2:fresh",
+        "p[style-name='Heading 3'] => h3:fresh",
+        "p[style-name='Title'] => h1.title:fresh",
+        "r[style-name='Strong'] => strong",
+        "r[style-name='Emphasis'] => em",
+      ]
+    };
+    
+    // Extract HTML content (which includes tables and better structure)
+    console.log(`🔄 Extracting HTML content from ${fileName}...`);
+    const htmlResult = await mammoth.convertToHtml({ buffer: fileData }, mammothOptions);
+    
+    // Also extract raw text for basic text processing
+    console.log(`🔄 Extracting raw text from ${fileName}...`);
+    const textResult = await mammoth.extractRawText({ buffer: fileData });
+    
+    // Process HTML content to extract tables and structured text
+    if (htmlResult.value) {
+      console.log(`📝 Processing HTML content (${htmlResult.value.length} characters)...`);
+      
+      // Extract tables from HTML
+      const tableMatches = htmlResult.value.match(/<table[^>]*>[\s\S]*?<\/table>/gi);
+      if (tableMatches) {
+        console.log(`📊 Found ${tableMatches.length} tables in ${fileName}`);
+        
+        tableMatches.forEach((tableHtml, tableIndex) => {
+          try {
+            // Parse table HTML to extract rows and cells
+            const tableContent = parseHtmlTable(tableHtml);
+            
+            if (tableContent.length > 0) {
+              const tableItem = {
+                id: `table-${tableIndex}`,
+                type: 'table',
+                content: tableContent,
+                metadata: {
+                  sourceFile: fileName,
+                  contentType: 'docx',
+                  processingMethod: 'mammoth-html-table-extraction',
+                  confidence: 0.9,
+                  extractionTimestamp: new Date(),
+                  structure: {
+                    rows: tableContent.length,
+                    columns: Math.max(...tableContent.map(row => row.length)),
+                    hasHeaders: detectTableHeaders(tableContent),
+                    headerRow: detectTableHeaders(tableContent) ? tableContent[0] : undefined,
+                  },
+                  cellCount: tableContent.reduce((sum, row) => sum + row.length, 0),
+                },
+              };
+              
+              result.items.tables.push(tableItem);
+              console.log(`✅ Extracted table ${tableIndex + 1}: ${tableItem.metadata.structure.rows} rows, ${tableItem.metadata.structure.columns} columns`);
+            }
+          } catch (tableError) {
+            console.warn(`⚠️ Error parsing table ${tableIndex + 1}:`, tableError);
+          }
+        });
+      }
+      
+      // Extract hyperlinks from HTML before processing text
+      const linkMatches = htmlResult.value.match(/<a[^>]*href=["']([^"']*)["'][^>]*>(.*?)<\/a>/gi);
+      if (linkMatches) {
+        console.log(`🔗 Found ${linkMatches.length} hyperlinks in ${fileName}`);
+        
+        linkMatches.forEach((linkHtml, linkIndex) => {
+          try {
+            const hrefMatch = linkHtml.match(/href=["']([^"']*)["']/i);
+            const textMatch = linkHtml.match(/>([^<]*)</);
+            
+            if (hrefMatch && textMatch) {
+              const url = hrefMatch[1];
+              const linkText = textMatch[1].trim();
+              
+              const linkItem = {
+                id: `link-${linkIndex}`,
+                type: 'link',
+                content: url,
+                metadata: {
+                  sourceFile: fileName,
+                  contentType: 'docx',
+                  processingMethod: 'mammoth-html-link-extraction',
+                  confidence: 0.95,
+                  extractionTimestamp: new Date(),
+                  linkText: linkText,
+                  url: url,
+                  linkType: url.startsWith('http') ? 'external' : 'internal',
+                },
+              };
+              
+              // Add to a links array (we'll need to add this to the result structure)
+              if (!result.items.links) {
+                result.items.links = [];
+              }
+              result.items.links.push(linkItem);
+              console.log(`✅ Extracted link ${linkIndex + 1}: "${linkText}" -> ${url}`);
+            }
+          } catch (linkError) {
+            console.warn(`⚠️ Error parsing link ${linkIndex + 1}:`, linkError);
+          }
+        });
+      }
+      
+      // Extract structured text from HTML (preserving headings and formatting)
+      const cleanText = htmlResult.value
+        .replace(/<table[^>]*>[\s\S]*?<\/table>/gi, '') // Remove tables (already processed)
+        .replace(/<img[^>]*>/gi, '[IMAGE]') // Replace images with placeholder
+        .replace(/<a[^>]*href=["']([^"']*)["'][^>]*>(.*?)<\/a>/gi, '[$2]($1)') // Convert links to markdown format
+        .replace(/<h([1-6])[^>]*>(.*?)<\/h[1-6]>/gi, (match, level, content) => {
+          return `\n${'#'.repeat(parseInt(level))} ${content.replace(/<[^>]*>/g, '').trim()}\n`;
+        })
+        .replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n')
+        .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
+        .replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
+        .replace(/<[^>]*>/g, '') // Remove remaining HTML tags
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .split('\n')
+        .filter(line => line.trim().length > 0);
+      
+      cleanText.forEach((paragraph, index) => {
+        if (paragraph.trim()) {
+          const isHeading = paragraph.startsWith('#');
+          const headingLevel = isHeading ? (paragraph.match(/^#+/) || [''])[0].length : 0;
+          const content = isHeading ? paragraph.replace(/^#+\s*/, '') : paragraph;
+          
+          const textItem = {
+            id: `text-${index}`,
+            type: 'text',
+            content: content.trim(),
+            metadata: {
+              sourceFile: fileName,
+              contentType: 'docx',
+              processingMethod: 'mammoth-html-extraction',
+              textLength: content.length,
+              wordCount: content.trim().split(/\s+/).length,
+              confidence: 0.95,
+              extractionTimestamp: new Date(),
+              paragraphIndex: index,
+              isHeading: isHeading,
+              headingLevel: headingLevel,
+              isBold: paragraph.includes('**'),
+              isItalic: paragraph.includes('*') && !paragraph.includes('**'),
+            },
+          };
+          result.items.text.push(textItem);
+        }
+      });
+    }
+    
+    // Fallback to raw text if HTML processing fails
+    if (result.items.text.length === 0 && textResult.value) {
+      console.log(`⚠️ HTML processing yielded no text, falling back to raw text extraction`);
+      const paragraphs = textResult.value.split('\n').filter(p => p.trim().length > 0);
+      
+      paragraphs.forEach((paragraph, index) => {
+        const textItem = {
+          id: `text-fallback-${index}`,
+          type: 'text',
+          content: paragraph.trim(),
+          metadata: {
+            sourceFile: fileName,
+            contentType: 'docx',
+            processingMethod: 'mammoth-raw-text-fallback',
+            textLength: paragraph.length,
+            wordCount: paragraph.trim().split(/\s+/).length,
+            confidence: 0.8,
+            extractionTimestamp: new Date(),
+            paragraphIndex: index,
+          },
+        };
+        result.items.text.push(textItem);
+      });
+    }
+    
+    // Process warnings from both extractions
+    const allMessages = [...(htmlResult.messages || []), ...(textResult.messages || [])];
+    if (allMessages.length > 0) {
+      console.warn(`⚠️ Mammoth processing warnings for ${fileName}:`, allMessages);
+    }
+    
+    // Calculate final statistics
+    result.statistics = {
+      totalTextItems: result.items.text.length,
+      totalTables: result.items.tables.length,
+      totalImages: result.items.images.length,
+      totalLinks: result.items.links ? result.items.links.length : 0,
+      totalWords: result.items.text.reduce((sum, item) => sum + item.metadata.wordCount, 0),
+    };
+    
+    console.log(`✅ Word document comprehensively processed: ${fileName}`);
+    console.log(`   📝 Text items: ${result.statistics.totalTextItems}`);
+    console.log(`   📊 Tables: ${result.statistics.totalTables}`);
+    console.log(`   📸 Images: ${result.statistics.totalImages}`);
+    console.log(`   🔗 Links: ${result.statistics.totalLinks}`);
+    console.log(`   📖 Total words: ${result.statistics.totalWords}`);
+    
+    return result;
+    
+  } catch (error) {
+    console.error(`❌ Error processing Word document ${fileName}:`, error);
+    throw error;
+  }
+}
+
+// Helper function to parse HTML table into 2D array
+function parseHtmlTable(tableHtml) {
+  const rows = [];
+  
+  try {
+    // Extract table rows
+    const rowMatches = tableHtml.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi);
+    if (!rowMatches) return rows;
+    
+    rowMatches.forEach(rowHtml => {
+      const cells = [];
+      
+      // Extract table cells (both td and th)
+      const cellMatches = rowHtml.match(/<(td|th)[^>]*>[\s\S]*?<\/(td|th)>/gi);
+      if (cellMatches) {
+        cellMatches.forEach(cellHtml => {
+          // Clean cell content
+          const cellContent = cellHtml
+            .replace(/<(td|th)[^>]*>/i, '')
+            .replace(/<\/(td|th)>/i, '')
+            .replace(/<[^>]*>/g, '') // Remove HTML tags
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .trim();
+          
+          cells.push(cellContent);
+        });
+      }
+      
+      if (cells.length > 0) {
+        rows.push(cells);
+      }
+    });
+  } catch (error) {
+    console.warn('Error parsing HTML table:', error);
+  }
+  
+  return rows;
+}
+
+// Helper function to detect table headers
+function detectTableHeaders(tableData) {
+  if (tableData.length < 2) return false;
+  
+  const firstRow = tableData[0];
+  const secondRow = tableData[1];
+  
+  // Check if first row looks like headers (text) and second row has different content
+  const firstRowHasText = firstRow.some(cell => 
+    cell && isNaN(Number(cell)) && cell.toString().trim().length > 0
+  );
+  
+  const secondRowHasDifferentContent = secondRow.some(cell => 
+    cell && cell.toString().trim() !== firstRow[secondRow.indexOf(cell)]
+  );
+  
+  return firstRowHasText && secondRowHasDifferentContent;
+}
+
+async function processLegacyWordDocument(fileData, fileName) {
+  console.log(`📄 Processing legacy Word document: ${fileName}`);
+  
+  const result = {
+    metadata: {
+      fileName,
+      fileType: 'doc',
+      fileSize: fileData.length,
+      processingTime: 0,
+      extractionTimestamp: new Date(),
+    },
+    items: {
+      text: [],
+      tables: [],
+      images: [],
+    },
+    statistics: {
+      totalTextItems: 0,
+      totalTables: 0,
+      totalImages: 0,
+      totalWords: 0,
+    },
+  };
+  
+  // For legacy .doc files, provide a placeholder
+  const textItem = {
+    id: 'text-0',
+    type: 'text',
+    content: '[Legacy .doc file detected - content extraction requires server-side processing]',
+    metadata: {
+      sourceFile: fileName,
+      contentType: 'doc',
+      processingMethod: 'legacy-placeholder',
+      textLength: 0,
+      wordCount: 0,
+      confidence: 0.1,
+      extractionTimestamp: new Date(),
+    },
+  };
+  
+  result.items.text.push(textItem);
+  result.statistics.totalTextItems = 1;
+  
+  console.log(`⚠️ Legacy Word document processed with limited support: ${fileName}`);
+  return result;
+}
+
+async function processExcelDocument(fileData, fileName, fileType, options = {}) {
+  console.log(`📊 Processing Excel document: ${fileName} (${fileType})`);
+  
+  const result = {
+    metadata: {
+      fileName,
+      fileType,
+      fileSize: fileData.length,
+      processingTime: 0,
+      extractionTimestamp: new Date(),
+    },
+    items: {
+      text: [],
+      tables: [],
+      images: [],
+    },
+    statistics: {
+      totalTextItems: 0,
+      totalTables: 0,
+      totalImages: 0,
+      totalWords: 0,
+      totalSheets: 0,
+    },
+  };
+  
+  try {
+    // Read the Excel file
+    const workbook = XLSX.read(fileData, { type: 'buffer' });
+    
+    // Extract metadata
+    result.metadata.sheetCount = workbook.SheetNames.length;
+    result.metadata.sheetNames = workbook.SheetNames;
+    result.statistics.totalSheets = workbook.SheetNames.length;
+    
+    console.log(`📋 Excel file contains ${workbook.SheetNames.length} sheets: ${workbook.SheetNames.join(', ')}`);
+    
+    // Process each worksheet
+    workbook.SheetNames.forEach((sheetName, sheetIndex) => {
+      console.log(`📄 Processing sheet: ${sheetName} (${sheetIndex + 1}/${workbook.SheetNames.length})`);
+      
+      const worksheet = workbook.Sheets[sheetName];
+      
+      if (!worksheet) {
+        console.warn(`⚠️ Sheet ${sheetName} is empty or could not be read`);
+        return;
+      }
+      
+      // Get the range of the worksheet
+      const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:A1');
+      console.log(`📐 Sheet ${sheetName} range: ${XLSX.utils.encode_range(range)}`);
+      
+      // Convert worksheet to array of arrays (table format)
+      const sheetData = XLSX.utils.sheet_to_json(worksheet, { 
+        header: 1, 
+        defval: '', 
+        raw: false 
+      });
+      
+      if (sheetData.length > 0) {
+        // Filter out completely empty rows
+        const filteredData = sheetData.filter(row => 
+          row.some(cell => cell && cell.toString().trim() !== '')
+        );
+        
+        if (filteredData.length > 0) {
+          // Detect if first row contains headers
+          const hasHeaders = detectExcelHeaders(filteredData);
+          
+          const tableItem = {
+            id: `table-${sheetIndex}`,
+            type: 'table',
+            content: filteredData,
+            metadata: {
+              sourceFile: fileName,
+              contentType: fileType,
+              processingMethod: 'xlsx-extraction',
+              confidence: 0.95,
+              extractionTimestamp: new Date(),
+              sheetName,
+              sheetIndex,
+              range: XLSX.utils.encode_range(range),
+              structure: {
+                rows: filteredData.length,
+                columns: Math.max(...filteredData.map(row => row.length)),
+                hasHeaders,
+                headerRow: hasHeaders ? filteredData[0] : undefined,
+              },
+              cellCount: filteredData.reduce((sum, row) => sum + row.length, 0),
+            },
+          };
+          
+          result.items.tables.push(tableItem);
+          console.log(`✅ Extracted table from sheet ${sheetName}: ${tableItem.metadata.structure.rows} rows, ${tableItem.metadata.structure.columns} columns`);
+        }
+      }
+      
+      // Extract individual cell text and hyperlinks
+      const cellTexts = [];
+      for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+          const cell = worksheet[cellAddress];
+          
+          if (cell && cell.v) {
+            const cellValue = cell.v.toString().trim();
+            if (cellValue) {
+              cellTexts.push(cellValue);
+              
+              // Check if cell contains a hyperlink
+              if (cell.l && cell.l.Target) {
+                // This cell has a hyperlink
+                const linkUrl = cell.l.Target;
+                const linkText = cellValue;
+                
+                const linkItem = {
+                  id: `link-${sheetIndex}-${cellAddress}`,
+                  type: 'link',
+                  content: linkUrl,
+                  metadata: {
+                    sourceFile: fileName,
+                    contentType: fileType,
+                    processingMethod: 'xlsx-hyperlink-extraction',
+                    confidence: 0.95,
+                    extractionTimestamp: new Date(),
+                    linkText: linkText,
+                    url: linkUrl,
+                    linkType: linkUrl.startsWith('http') ? 'external' : 'internal',
+                    sheetName,
+                    sheetIndex,
+                    cellAddress,
+                  },
+                };
+                
+                // Add to links array
+                if (!result.items.links) {
+                  result.items.links = [];
+                }
+                result.items.links.push(linkItem);
+                console.log(`✅ Extracted hyperlink from ${sheetName}!${cellAddress}: "${linkText}" -> ${linkUrl}`);
+              }
+              
+              // Create individual text items for searchable content
+              const textItem = {
+                id: `text-${sheetIndex}-${cellAddress}`,
+                type: 'text',
+                content: cellValue,
+                metadata: {
+                  sourceFile: fileName,
+                  contentType: fileType,
+                  processingMethod: 'xlsx-cell-extraction',
+                  textLength: cellValue.length,
+                  wordCount: cellValue.split(/\s+/).length,
+                  confidence: 0.9,
+                  extractionTimestamp: new Date(),
+                  sheetName,
+                  sheetIndex,
+                  cellAddress,
+                  hasHyperlink: !!(cell.l && cell.l.Target),
+                },
+              };
+              
+              result.items.text.push(textItem);
+            }
+          }
+        }
+      }
+      
+      console.log(`📝 Extracted ${cellTexts.length} text items from sheet ${sheetName}`);
+    });
+    
+    // Calculate final statistics
+    result.statistics = {
+      totalTextItems: result.items.text.length,
+      totalTables: result.items.tables.length,
+      totalImages: result.items.images.length,
+      totalLinks: result.items.links ? result.items.links.length : 0,
+      totalWords: result.items.text.reduce((sum, item) => sum + item.metadata.wordCount, 0),
+      totalSheets: workbook.SheetNames.length,
+    };
+    
+    console.log(`✅ Excel document processed: ${fileName}`);
+    console.log(`   📝 Text items: ${result.statistics.totalTextItems}`);
+    console.log(`   📊 Tables: ${result.statistics.totalTables}`);
+    console.log(`   🔗 Links: ${result.statistics.totalLinks}`);
+    console.log(`   📖 Total words: ${result.statistics.totalWords}`);
+    console.log(`   📄 Total sheets: ${result.statistics.totalSheets}`);
+    return result;
+    
+  } catch (error) {
+    console.error(`❌ Error processing Excel document ${fileName}:`, error);
+    throw error;
+  }
+}
+
+function detectExcelHeaders(data) {
+  if (data.length < 2) return false;
+  
+  const firstRow = data[0];
+  const secondRow = data[1];
+  
+  // Check if first row looks like headers
+  const firstRowHasText = firstRow.some(cell => 
+    cell && isNaN(Number(cell)) && cell.toString().trim().length > 0
+  );
+  
+  const secondRowHasNumbers = secondRow.some(cell => 
+    cell && !isNaN(Number(cell))
+  );
+  
+  // If first row has text and second row has numbers, likely headers
+  return firstRowHasText && secondRowHasNumbers;
+}
 
 // Vosk Models Management API
 app.get('/api/vosk/models', (req, res) => {

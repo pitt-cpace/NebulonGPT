@@ -716,37 +716,296 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             setFileProcessingError(`Enhanced PDF processing failed for ${file.name}: ${pdfError instanceof Error ? pdfError.message : 'unknown error'}`);
           }
         } else {
-          // Handle other file types - upload to server
-          console.log(`Processing document file: ${file.name}`);
-          try {
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            const response = await fetch('http://localhost:3001/api/files/upload', {
-              method: 'POST',
-              body: formData,
-            });
-            
-            if (!response.ok) {
-              throw new Error(`Upload failed: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            
-            if (result.success) {
-              // Store file reference instead of content
-              fileAttachment.fileId = result.fileId;
+          // Handle other file types - check if it's an Office document
+          const fileExtension = file.name.toLowerCase().split('.').pop();
+          const isOfficeDocument = ['docx', 'doc', 'xlsx', 'xls'].includes(fileExtension || '');
+          
+          if (isOfficeDocument) {
+            // Handle Office documents with enhanced processing
+            console.log(`Processing Office document: ${file.name} (${fileExtension})`);
+            try {
+              // First, upload the original Office file to server
+              const formData = new FormData();
+              formData.append('file', file);
               
-              // Store ONLY file reference - no content in JSON
-              // Content will be fetched from server when needed for AI processing
+              const uploadResponse = await fetch('http://localhost:3001/api/files/upload', {
+                method: 'POST',
+                body: formData,
+              });
+              
+              if (!uploadResponse.ok) {
+                throw new Error(`Office document upload failed: ${uploadResponse.status}`);
+              }
+              
+              const uploadResult = await uploadResponse.json();
+              console.log(`✅ Original Office document uploaded: ${file.name} -> ${uploadResult.fileId}`);
+              
+              // Store the original Office file ID
+              fileAttachment.fileId = uploadResult.fileId;
+              
+              // Set the correct file type based on extension
+              if (fileExtension === 'docx') {
+                fileAttachment.type = 'docx';
+              } else if (fileExtension === 'doc') {
+                fileAttachment.type = 'doc';
+              } else if (fileExtension === 'xlsx') {
+                fileAttachment.type = 'xlsx';
+              } else if (fileExtension === 'xls') {
+                fileAttachment.type = 'xls';
+              }
+              
+              // Now process the Office document for content extraction
+              try {
+                const processResponse = await fetch('http://localhost:3001/api/files/process-office', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    fileId: uploadResult.fileId,
+                    fileName: file.name,
+                    options: {
+                      extractImages: true,
+                      extractTables: true,
+                      includeFormatting: true,
+                    }
+                  }),
+                });
+                
+                if (processResponse.ok) {
+                  const processResult = await processResponse.json();
+                  
+                  if (processResult.success) {
+                    const officeData = processResult.data;
+                    console.log(`✅ Office document processed successfully:`, officeData.statistics);
+                    
+                    // Create comprehensive content from all extracted items
+                    let fullContent = '';
+                    
+                    // Add document metadata
+                    if (officeData.metadata.title) {
+                      fullContent += `Title: ${officeData.metadata.title}\n`;
+                    }
+                    if (officeData.metadata.author) {
+                      fullContent += `Author: ${officeData.metadata.author}\n`;
+                    }
+                    if (officeData.metadata.sheetCount) {
+                      fullContent += `Sheets: ${officeData.metadata.sheetCount} (${officeData.metadata.sheetNames?.join(', ')})\n`;
+                    }
+                    fullContent += '\n';
+                    
+                    // Add text content
+                    if (officeData.items.text.length > 0) {
+                      if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+                        // For Excel files, organize by sheet
+                        const textBySheet = new Map<string, string[]>();
+                        officeData.items.text.forEach((textItem: any) => {
+                          const sheetName = textItem.metadata.sheetName || 'Sheet1';
+                          if (!textBySheet.has(sheetName)) {
+                            textBySheet.set(sheetName, []);
+                          }
+                          textBySheet.get(sheetName)!.push(`${textItem.metadata.cellAddress}: ${textItem.content}`);
+                        });
+                        
+                        textBySheet.forEach((texts, sheetName) => {
+                          fullContent += `=== ${sheetName} ===\n`;
+                          fullContent += texts.join('\n') + '\n\n';
+                        });
+                      } else {
+                        // For Word documents, organize by paragraph
+                        fullContent += '=== Document Content ===\n';
+                        officeData.items.text.forEach((textItem: any) => {
+                          fullContent += textItem.content + '\n';
+                        });
+                        fullContent += '\n';
+                      }
+                    }
+                    
+                    // Add table information
+                    if (officeData.items.tables.length > 0) {
+                      fullContent += `=== Tables Found (${officeData.items.tables.length}) ===\n`;
+                      officeData.items.tables.forEach((table: any, index: number) => {
+                        if (table.metadata.sheetName) {
+                          fullContent += `Table ${index + 1} (${table.metadata.sheetName}):\n`;
+                        } else {
+                          fullContent += `Table ${index + 1}:\n`;
+                        }
+                        table.content.forEach((row: string[]) => {
+                          fullContent += row.join(' | ') + '\n';
+                        });
+                        fullContent += '\n';
+                      });
+                    }
+                    
+                    // Handle Office document images - save to server like PDF images
+                    if (officeData.items.images.length > 0) {
+                      fileAttachment.hasImages = true;
+                      const savedImageIds: string[] = [];
+                      
+                      // Save each image to server
+                      for (let imgIndex = 0; imgIndex < officeData.items.images.length; imgIndex++) {
+                        const imageData = officeData.items.images[imgIndex];
+                        try {
+                          const imageSaveResponse = await fetch('http://localhost:3001/api/files/save', {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                              content: imageData.content,
+                              originalName: `${file.name}_image_${imgIndex + 1}.${imageData.metadata.format.replace('image/', '')}`,
+                              mimetype: imageData.metadata.format
+                            }),
+                          });
+                          
+                          if (imageSaveResponse.ok) {
+                            const imageSaveResult = await imageSaveResponse.json();
+                            if (imageSaveResult.success) {
+                              savedImageIds.push(imageSaveResult.fileId);
+                              console.log(`✅ Office image saved to server: ${imageSaveResult.fileId}`);
+                            }
+                          }
+                        } catch (imageSaveError) {
+                          console.warn(`⚠️ Could not save Office image to server:`, imageSaveError);
+                          // Fallback: store data URL if server save fails
+                          savedImageIds.push(imageData.content);
+                        }
+                      }
+                      
+                      fileAttachment.imageFileIds = savedImageIds;
+                      
+                    // Add image information to content
+                    fullContent += `=== Images Found (${officeData.items.images.length}) ===\n`;
+                    officeData.items.images.forEach((image: any, index: number) => {
+                      fullContent += `Image ${index + 1}: ${image.metadata.format} (${Math.round(image.metadata.size / 1024)}KB)\n`;
+                    });
+                    fullContent += '\n';
+                  }
+                  
+                  // Add hyperlinks information
+                  if (officeData.items.links && officeData.items.links.length > 0) {
+                    fullContent += `=== Hyperlinks Found (${officeData.items.links.length}) ===\n`;
+                    officeData.items.links.forEach((link: any, index: number) => {
+                      fullContent += `Link ${index + 1}: "${link.metadata.linkText}" -> ${link.content} (${link.metadata.linkType})\n`;
+                    });
+                    fullContent += '\n';
+                  }
+                    
+                    // Save Office content to server instead of storing in JSON
+                    try {
+                      const contentToSave = fullContent.trim() || `Office document: ${file.name}`;
+                      
+                      const saveResponse = await fetch('http://localhost:3001/api/files/save', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                          content: contentToSave,
+                          originalName: `${file.name}_extracted_content.txt`,
+                          mimetype: 'text/plain'
+                        }),
+                      });
+                      
+                      if (saveResponse.ok) {
+                        const saveResult = await saveResponse.json();
+                        if (saveResult.success) {
+                          // Store extracted content file ID separately for AI processing
+                          fileAttachment.metadata = {
+                            ...fileAttachment.metadata,
+                            extractedContentFileId: saveResult.fileId
+                          };
+                          console.log(`✅ Office content saved to server: ${saveResult.fileId}`);
+                        }
+                      }
+                    } catch (saveError) {
+                      console.warn(`⚠️ Could not save Office content to server, storing locally:`, saveError);
+                      // Fallback: store content locally if server save fails
+                      fileAttachment.content = fullContent.trim() || `Office document: ${file.name}`;
+                    }
+                    
+                    // IMPORTANT: Keep the original Office fileId for downloads
+                    // fileAttachment.fileId should remain the original Office file ID (uploadResult.fileId)
+                    // The extracted content is stored separately in metadata.extractedContentFileId
+                    
+                    // Add comprehensive metadata
+                    fileAttachment.metadata = {
+                      ...fileAttachment.metadata,
+                      textLength: officeData.statistics.totalWords,
+                      processingMethod: 'enhanced-office-processor',
+                      extractionMethod: 'comprehensive',
+                      // Enhanced statistics
+                      totalTextItems: officeData.statistics.totalTextItems,
+                      totalImages: officeData.statistics.totalImages,
+                      totalTables: officeData.statistics.totalTables,
+                      totalWords: officeData.statistics.totalWords,
+                      totalSheets: officeData.statistics.totalSheets,
+                      // Office-specific metadata
+                      sheetCount: officeData.metadata.sheetCount,
+                      sheetNames: officeData.metadata.sheetNames,
+                    };
+                    
+                    console.log(`✅ Enhanced Office processing completed: ${file.name}`);
+                    console.log(`   - Text items: ${officeData.statistics.totalTextItems}`);
+                    console.log(`   - Images: ${officeData.statistics.totalImages}`);
+                    console.log(`   - Tables: ${officeData.statistics.totalTables}`);
+                    console.log(`   - Total words: ${officeData.statistics.totalWords}`);
+                    if (officeData.statistics.totalSheets) {
+                      console.log(`   - Total sheets: ${officeData.statistics.totalSheets}`);
+                    }
+                  } else {
+                    throw new Error('Office document processing failed');
+                  }
+                } else {
+                  throw new Error(`Office processing failed: ${processResponse.status}`);
+                }
+              } catch (processError) {
+                console.warn(`⚠️ Office document processing failed, using basic upload:`, processError);
+                // Fallback: use basic file attachment
+                fileAttachment.content = `Office document: ${file.name} (enhanced processing failed - ${processError instanceof Error ? processError.message : 'unknown error'})`;
+                setFileProcessingError(`Enhanced Office processing failed for ${file.name}: ${processError instanceof Error ? processError.message : 'unknown error'}`);
+              }
+              
               setAttachments(prev => [...prev, fileAttachment]);
-              console.log(`✅ Document file uploaded and stored on server: ${file.name} -> ${result.fileId}`);
-            } else {
-              throw new Error('Upload failed');
+              console.log(`✅ Office document upload completed: ${file.name}`);
+              
+            } catch (officeError) {
+              console.error(`❌ Error processing Office document ${file.name}:`, officeError);
+              setFileProcessingError(`Failed to process Office document: ${file.name}`);
             }
-          } catch (uploadError) {
-            console.error(`❌ Error uploading document ${file.name}:`, uploadError);
-            setFileProcessingError(`Failed to upload document: ${file.name}`);
+          } else {
+            // Handle other document types - upload to server
+            console.log(`Processing document file: ${file.name}`);
+            try {
+              const formData = new FormData();
+              formData.append('file', file);
+              
+              const response = await fetch('http://localhost:3001/api/files/upload', {
+                method: 'POST',
+                body: formData,
+              });
+              
+              if (!response.ok) {
+                throw new Error(`Upload failed: ${response.status}`);
+              }
+              
+              const result = await response.json();
+              
+              if (result.success) {
+                // Store file reference instead of content
+                fileAttachment.fileId = result.fileId;
+                
+                // Store ONLY file reference - no content in JSON
+                // Content will be fetched from server when needed for AI processing
+                setAttachments(prev => [...prev, fileAttachment]);
+                console.log(`✅ Document file uploaded and stored on server: ${file.name} -> ${result.fileId}`);
+              } else {
+                throw new Error('Upload failed');
+              }
+            } catch (uploadError) {
+              console.error(`❌ Error uploading document ${file.name}:`, uploadError);
+              setFileProcessingError(`Failed to upload document: ${file.name}`);
+            }
           }
         }
       } catch (error) {
@@ -760,7 +1019,57 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   };
 
   // Handle attachment removal
-  const handleRemoveAttachment = (attachmentId: string) => {
+  const handleRemoveAttachment = async (attachmentId: string) => {
+    // Find the attachment to be removed
+    const attachmentToRemove = attachments.find(att => att.id === attachmentId);
+    
+    if (attachmentToRemove) {
+      console.log(`🗑️ Removing attachment: ${attachmentToRemove.name}`);
+      
+      // Collect all file IDs that need to be deleted from server
+      const fileIdsToDelete: string[] = [];
+      
+      // Add main file ID if it exists
+      if (attachmentToRemove.fileId) {
+        fileIdsToDelete.push(attachmentToRemove.fileId);
+      }
+      
+      // Add extracted content file ID if it exists (for PDFs and Office docs)
+      if (attachmentToRemove.metadata?.extractedContentFileId) {
+        fileIdsToDelete.push(attachmentToRemove.metadata.extractedContentFileId);
+      }
+      
+      // Add image file IDs if they exist (for PDFs and Office docs with images)
+      if (attachmentToRemove.imageFileIds && attachmentToRemove.imageFileIds.length > 0) {
+        attachmentToRemove.imageFileIds.forEach(imageId => {
+          if (typeof imageId === 'string' && !imageId.startsWith('data:')) {
+            // Only delete server file IDs, not data URLs
+            fileIdsToDelete.push(imageId);
+          }
+        });
+      }
+      
+      // Delete files from server
+      for (const fileId of fileIdsToDelete) {
+        try {
+          const deleteResponse = await fetch(`http://localhost:3001/api/files/${fileId}`, {
+            method: 'DELETE',
+          });
+          
+          if (deleteResponse.ok) {
+            console.log(`✅ Deleted file from server: ${fileId}`);
+          } else {
+            console.warn(`⚠️ Failed to delete file from server: ${fileId} (${deleteResponse.status})`);
+          }
+        } catch (deleteError) {
+          console.error(`❌ Error deleting file ${fileId}:`, deleteError);
+        }
+      }
+      
+      console.log(`🧹 Cleaned up ${fileIdsToDelete.length} files for attachment: ${attachmentToRemove.name}`);
+    }
+    
+    // Update the attachments list
     const updatedAttachments = attachments.filter(
       (attachment) => attachment.id !== attachmentId
     );
@@ -1218,7 +1527,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept="image/*,.pdf,.txt,.doc,.docx"
+                  accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx"
                   style={{ display: 'none' }}
                   onChange={handleFileChange}
                 />

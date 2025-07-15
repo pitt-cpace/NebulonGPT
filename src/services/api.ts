@@ -134,6 +134,12 @@ export const sendMessage = async (
               console.log(`📁 PDF found: ${attachment.name} - using extracted content file: ${contentFileId}`);
             }
             
+            // For Office documents, use the extracted content file ID if available
+            if (['docx', 'doc', 'xlsx', 'xls'].includes(attachment.type) && attachment.metadata?.extractedContentFileId) {
+              contentFileId = attachment.metadata.extractedContentFileId;
+              console.log(`📁 Office document found: ${attachment.name} - using extracted content file: ${contentFileId}`);
+            }
+            
             if (contentFileId && !attachment.content) {
               console.log(`📁 File reference found: ${attachment.name} (${contentFileId}) - fetching content from server`);
               try {
@@ -206,6 +212,56 @@ export const sendMessage = async (
                     }
                   } catch (fetchError) {
                     console.error(`❌ Error fetching PDF image ${imageRef}:`, fetchError);
+                  }
+                }
+              }
+            }
+          }
+          
+          // Handle Office document images - extract images from Office attachments
+          if (['docx', 'doc', 'xlsx', 'xls'].includes(attachment.type) && attachment.imageFileIds && attachment.imageFileIds.length > 0) {
+            console.log(`📸 Processing ${attachment.imageFileIds.length} images from Office document: ${attachment.name}`);
+            
+            for (let imgIndex = 0; imgIndex < attachment.imageFileIds.length; imgIndex++) {
+              const imageRef = attachment.imageFileIds[imgIndex];
+              
+              if (imageRef && typeof imageRef === 'string') {
+                if (imageRef.startsWith('data:image/')) {
+                  // Handle data URL (legacy format)
+                  const base64Data = imageRef.split(',')[1];
+                  if (base64Data) {
+                    messageImages.push(base64Data);
+                    console.log(`✅ Added Office image ${imgIndex + 1} from ${attachment.name} (data URL, ${Math.round(base64Data.length * 3 / 4 / 1024)}KB)`);
+                  }
+                } else {
+                  // Handle file ID - fetch from server
+                  console.log(`📁 Fetching Office image ${imgIndex + 1} from server: ${imageRef}`);
+                  try {
+                    const response = await fetch(`http://localhost:3001/api/files/${imageRef}`);
+                    if (response.ok) {
+                      const blob = await response.blob();
+                      
+                      // Convert blob to base64
+                      const reader = new FileReader();
+                      const base64Promise = new Promise<string>((resolve, reject) => {
+                        reader.onload = () => {
+                          const result = reader.result as string;
+                          const base64Data = result.split(',')[1];
+                          resolve(base64Data);
+                        };
+                        reader.onerror = reject;
+                      });
+                      
+                      reader.readAsDataURL(blob);
+                      const base64Data = await base64Promise;
+                      
+                      messageImages.push(base64Data);
+                      console.log(`✅ Added Office image ${imgIndex + 1} from ${attachment.name} (server file, ${Math.round(base64Data.length * 3 / 4 / 1024)}KB)`);
+                    } else {
+                      console.warn(`⚠️ Could not fetch Office image from server: ${response.status} for ${imageRef}`);
+                    }
+                  } catch (fetchError) {
+                    console.error(`❌ Error fetching Office image ${imageRef}:`, fetchError);
                   }
                 }
               }
