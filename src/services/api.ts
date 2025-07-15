@@ -329,26 +329,157 @@ export const sendMessage = async (
         }
       }
       
-      // For follow-up messages, if user is asking about files but no attachments in current message,
-      // provide context about available files from previous messages
+      // For follow-up messages, make ALL previously uploaded files available with their full content
       if (msg.role === 'user' && 
           (!msg.attachments || msg.attachments.length === 0) && 
           allAttachments.size > 0 && 
           index > 0) {
         
-        // Check if the message seems to be asking about files
-        const fileRelatedKeywords = ['file', 'attachment', 'document', 'image', 'pdf', 'upload', 'name', 'size', 'information'];
-        const isFileRelatedQuery = fileRelatedKeywords.some(keyword => 
-          msg.content.toLowerCase().includes(keyword)
-        );
+        console.log(`📁 Follow-up message detected - including all ${allAttachments.size} files from conversation`);
         
-        if (isFileRelatedQuery) {
-          const fileDetails = Array.from(allAttachments.values())
-            .map(att => `File: "${att.name}" - Type: ${att.type}, Size: ${formatFileSize(att.size)}, Uploaded: ${new Date(att.timestamp).toLocaleString()}`)
-            .join('\n');
+        // Include ALL file contents from the conversation in follow-up messages
+        for (const attachment of Array.from(allAttachments.values())) {
+          // Skip if this attachment was already processed in current message
+          if (msg.attachments?.some(att => att.id === attachment.id)) {
+            continue;
+          }
           
-          enhancedContent += `\n\n[REFERENCE: Available files in this conversation:\n${fileDetails}]`;
+          // Handle file content inclusion
+          if (attachment.type !== 'image') {
+            let contentFileId = attachment.fileId;
+            
+            // For PDFs, use the extracted content file ID if available
+            if (attachment.type === 'pdf' && attachment.metadata?.extractedContentFileId) {
+              contentFileId = attachment.metadata.extractedContentFileId;
+              console.log(`📁 Including PDF content: ${attachment.name} - using extracted content file: ${contentFileId}`);
+            }
+            
+            // For Office documents, use the extracted content file ID if available
+            if (['docx', 'doc', 'xlsx', 'xls'].includes(attachment.type) && attachment.metadata?.extractedContentFileId) {
+              contentFileId = attachment.metadata.extractedContentFileId;
+              console.log(`📁 Including Office document content: ${attachment.name} - using extracted content file: ${contentFileId}`);
+            }
+            
+            // Fetch and include file content
+            if (contentFileId) {
+              try {
+                const response = await fetch(`http://localhost:3001/api/files/${contentFileId}`);
+                if (response.ok) {
+                  const fileContent = await response.text();
+                  console.log(`✅ Included file content in follow-up: ${attachment.name} (${fileContent.length} characters)`);
+                  enhancedContent += `\n\n--- File: ${attachment.name} (Size: ${formatFileSize(attachment.size)}, Type: ${attachment.type}) ---\n${fileContent}\n--- End of ${attachment.name} ---\n`;
+                } else {
+                  console.warn(`⚠️ Could not fetch file content for follow-up: ${response.status}`);
+                  enhancedContent += `\n\n--- File Reference: ${attachment.name} (Size: ${formatFileSize(attachment.size)}, Type: ${attachment.type}) ---\n[File content could not be retrieved]\n--- End of ${attachment.name} ---\n`;
+                }
+              } catch (fetchError) {
+                console.error(`❌ Error fetching file content for follow-up:`, fetchError);
+                enhancedContent += `\n\n--- File Reference: ${attachment.name} (Size: ${formatFileSize(attachment.size)}, Type: ${attachment.type}) ---\n[Error retrieving file content]\n--- End of ${attachment.name} ---\n`;
+              }
+            } else if (attachment.content) {
+              // Use stored content if available
+              console.log(`✅ Using stored content for follow-up: ${attachment.name}`);
+              enhancedContent += `\n\n--- File: ${attachment.name} (Size: ${formatFileSize(attachment.size)}, Type: ${attachment.type}) ---\n${attachment.content}\n--- End of ${attachment.name} ---\n`;
+            }
+          }
+          
+          // Handle images from previous messages
+          if (attachment.type === 'image' && attachment.content) {
+            const base64Data = attachment.content.split(',')[1];
+            if (base64Data) {
+              messageImages.push(base64Data);
+              console.log(`✅ Included image in follow-up: ${attachment.name}`);
+            }
+          }
+          
+          // Handle PDF images from previous messages
+          if (attachment.type === 'pdf' && attachment.imageFileIds && attachment.imageFileIds.length > 0) {
+            console.log(`📸 Including ${attachment.imageFileIds.length} PDF images in follow-up: ${attachment.name}`);
+            
+            for (let imgIndex = 0; imgIndex < attachment.imageFileIds.length; imgIndex++) {
+              const imageRef = attachment.imageFileIds[imgIndex];
+              
+              if (imageRef && typeof imageRef === 'string') {
+                if (imageRef.startsWith('data:image/')) {
+                  const base64Data = imageRef.split(',')[1];
+                  if (base64Data) {
+                    messageImages.push(base64Data);
+                    console.log(`✅ Included PDF image ${imgIndex + 1} in follow-up (data URL)`);
+                  }
+                } else {
+                  try {
+                    const response = await fetch(`http://localhost:3001/api/files/${imageRef}`);
+                    if (response.ok) {
+                      const blob = await response.blob();
+                      const reader = new FileReader();
+                      const base64Promise = new Promise<string>((resolve, reject) => {
+                        reader.onload = () => {
+                          const result = reader.result as string;
+                          const base64Data = result.split(',')[1];
+                          resolve(base64Data);
+                        };
+                        reader.onerror = reject;
+                      });
+                      
+                      reader.readAsDataURL(blob);
+                      const base64Data = await base64Promise;
+                      
+                      messageImages.push(base64Data);
+                      console.log(`✅ Included PDF image ${imgIndex + 1} in follow-up (server file)`);
+                    }
+                  } catch (fetchError) {
+                    console.error(`❌ Error fetching PDF image for follow-up:`, fetchError);
+                  }
+                }
+              }
+            }
+          }
+          
+          // Handle Office document images from previous messages
+          if (['docx', 'doc', 'xlsx', 'xls'].includes(attachment.type) && attachment.imageFileIds && attachment.imageFileIds.length > 0) {
+            console.log(`📸 Including ${attachment.imageFileIds.length} Office images in follow-up: ${attachment.name}`);
+            
+            for (let imgIndex = 0; imgIndex < attachment.imageFileIds.length; imgIndex++) {
+              const imageRef = attachment.imageFileIds[imgIndex];
+              
+              if (imageRef && typeof imageRef === 'string') {
+                if (imageRef.startsWith('data:image/')) {
+                  const base64Data = imageRef.split(',')[1];
+                  if (base64Data) {
+                    messageImages.push(base64Data);
+                    console.log(`✅ Included Office image ${imgIndex + 1} in follow-up (data URL)`);
+                  }
+                } else {
+                  try {
+                    const response = await fetch(`http://localhost:3001/api/files/${imageRef}`);
+                    if (response.ok) {
+                      const blob = await response.blob();
+                      const reader = new FileReader();
+                      const base64Promise = new Promise<string>((resolve, reject) => {
+                        reader.onload = () => {
+                          const result = reader.result as string;
+                          const base64Data = result.split(',')[1];
+                          resolve(base64Data);
+                        };
+                        reader.onerror = reject;
+                      });
+                      
+                      reader.readAsDataURL(blob);
+                      const base64Data = await base64Promise;
+                      
+                      messageImages.push(base64Data);
+                      console.log(`✅ Included Office image ${imgIndex + 1} in follow-up (server file)`);
+                    }
+                  } catch (fetchError) {
+                    console.error(`❌ Error fetching Office image for follow-up:`, fetchError);
+                  }
+                }
+              }
+            }
+          }
         }
+        
+        console.log(`✅ Follow-up message enhanced with ${allAttachments.size} files and ${messageImages.length} images`);
       }
       
       // Debug logging for images being sent to AI

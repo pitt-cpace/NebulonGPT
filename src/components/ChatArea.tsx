@@ -559,21 +559,114 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               });
             }
             
-            // Save PDF content to server instead of storing in JSON
-            try {
-              const contentToSave = fullContent.trim() || `PDF file: ${file.name} (${pdfData.metadata.totalPages} pages)`;
-              
-              const saveResponse = await fetch('http://localhost:3001/api/files/save', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  content: contentToSave,
-                  originalName: `${file.name}_extracted_content.txt`,
-                  mimetype: 'text/plain'
-                }),
-              });
+                    // Save PDF content as structured JSON instead of plain text
+                    try {
+                      const structuredContent: any = {
+                        document: {
+                          type: "pdf",
+                          name: file.name,
+                          metadata: {
+                            title: pdfData.metadata.title || null,
+                            author: pdfData.metadata.author || null,
+                            totalPages: pdfData.metadata.totalPages,
+                            processingDate: new Date().toISOString(),
+                            extractionMethod: "enhanced-pdf-processor"
+                          },
+                          statistics: pdfData.statistics
+                        },
+                        content: {
+                          pages: [] as any[],
+                          tables: [] as any[],
+                          charts: [] as any[],
+                          images: [] as any[],
+                          links: [] as any[]
+                        }
+                      };
+
+                      // Organize text content by pages
+                      const textByPage = new Map<number, any[]>();
+                      pdfData.items.text.forEach(textItem => {
+                        if (!textByPage.has(textItem.pageNumber)) {
+                          textByPage.set(textItem.pageNumber, []);
+                        }
+                        textByPage.get(textItem.pageNumber)!.push({
+                          id: textItem.id,
+                          content: textItem.content,
+                          position: textItem.position,
+                          metadata: {
+                            fontSize: (textItem.metadata as any).fontSize || null,
+                            fontName: (textItem.metadata as any).fontName || null,
+                            isTitle: textItem.metadata.isTitle || false,
+                            isHeader: textItem.metadata.isHeader || false,
+                            confidence: textItem.metadata.confidence || 0.9
+                          }
+                        });
+                      });
+
+                      // Add pages to structured content
+                      for (let pageNum = 1; pageNum <= pdfData.metadata.totalPages; pageNum++) {
+                        const pageTexts = textByPage.get(pageNum) || [];
+                        structuredContent.content.pages.push({
+                          pageNumber: pageNum,
+                          textElements: pageTexts,
+                          fullText: pageTexts.map((t: any) => t.content).join(' ')
+                        });
+                      }
+
+                      // Add tables
+                      structuredContent.content.tables = pdfData.items.tables.map(table => ({
+                        id: table.id,
+                        pageNumber: table.pageNumber,
+                        data: table.content,
+                        structure: table.structure,
+                        position: table.position,
+                        metadata: {
+                          hasHeaders: table.structure.hasHeaders,
+                          rowCount: table.structure.rows,
+                          columnCount: table.structure.columns
+                        }
+                      }));
+
+                      // Add charts
+                      structuredContent.content.charts = pdfData.items.charts.map(chart => ({
+                        id: chart.id,
+                        pageNumber: chart.pageNumber,
+                        type: chart.chartData.type,
+                        title: chart.chartData.title || null,
+                        data: {
+                          labels: chart.chartData.labels || [],
+                          values: chart.chartData.values || []
+                        },
+                        position: chart.position,
+                        hasImage: !!chart.content
+                      }));
+
+                      // Add images
+                      structuredContent.content.images = pdfData.items.images.map((image, index) => ({
+                        id: image.id,
+                        pageNumber: image.pageNumber,
+                        description: `Image ${index + 1} from ${file.name}`,
+                        metadata: {
+                          format: image.metadata.format,
+                          size: image.metadata.size,
+                          isChart: image.metadata.isChart || false,
+                          isDiagram: image.metadata.isDiagram || false
+                        }
+                      }));
+
+                      const contentToSave = JSON.stringify(structuredContent, null, 2);
+                      
+                      const saveResponse = await fetch('http://localhost:3001/api/files/save', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                          content: contentToSave,
+                          originalName: `${file.name}_extracted_content.json`,
+                          mimetype: 'application/json'
+                        }),
+                      });
               
               if (saveResponse.ok) {
                 const saveResult = await saveResponse.json();
@@ -891,9 +984,85 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     fullContent += '\n';
                   }
                     
-                    // Save Office content to server instead of storing in JSON
+                    // Save Office content as structured JSON instead of plain text
                     try {
-                      const contentToSave = fullContent.trim() || `Office document: ${file.name}`;
+                      const structuredOfficeContent: any = {
+                        document: {
+                          type: fileExtension,
+                          name: file.name,
+                          metadata: {
+                            title: officeData.metadata.title || null,
+                            author: officeData.metadata.author || null,
+                            sheetCount: officeData.metadata.sheetCount || null,
+                            sheetNames: officeData.metadata.sheetNames || null,
+                            processingDate: new Date().toISOString(),
+                            extractionMethod: "enhanced-office-processor"
+                          },
+                          statistics: officeData.statistics
+                        },
+                        content: {
+                          text: [] as any[],
+                          tables: [] as any[],
+                          images: [] as any[],
+                          links: [] as any[]
+                        }
+                      };
+
+                      // Add text content with structure
+                      structuredOfficeContent.content.text = officeData.items.text.map((textItem: any) => ({
+                        id: textItem.id,
+                        content: textItem.content,
+                        metadata: {
+                          sheetName: textItem.metadata.sheetName || null,
+                          cellAddress: textItem.metadata.cellAddress || null,
+                          paragraphIndex: textItem.metadata.paragraphIndex || null,
+                          isHeading: textItem.metadata.isHeading || false,
+                          headingLevel: textItem.metadata.headingLevel || 0,
+                          wordCount: textItem.metadata.wordCount || 0,
+                          confidence: textItem.metadata.confidence || 0.9
+                        }
+                      }));
+
+                      // Add tables with structure
+                      structuredOfficeContent.content.tables = officeData.items.tables.map((table: any) => ({
+                        id: table.id,
+                        data: table.content,
+                        metadata: {
+                          sheetName: table.metadata.sheetName || null,
+                          sheetIndex: table.metadata.sheetIndex || null,
+                          structure: table.metadata.structure,
+                          cellCount: table.metadata.cellCount || 0,
+                          hasHeaders: table.metadata.structure?.hasHeaders || false
+                        }
+                      }));
+
+                      // Add images with metadata
+                      structuredOfficeContent.content.images = officeData.items.images.map((image: any, index: number) => ({
+                        id: image.id,
+                        description: `Image ${index + 1} from ${file.name}`,
+                        metadata: {
+                          format: image.metadata.format,
+                          size: image.metadata.size,
+                          confidence: image.metadata.confidence || 0.9
+                        }
+                      }));
+
+                      // Add links with metadata
+                      if (officeData.items.links) {
+                        structuredOfficeContent.content.links = officeData.items.links.map((link: any) => ({
+                          id: link.id,
+                          url: link.content,
+                          text: link.metadata.linkText,
+                          type: link.metadata.linkType,
+                          metadata: {
+                            sheetName: link.metadata.sheetName || null,
+                            cellAddress: link.metadata.cellAddress || null,
+                            confidence: link.metadata.confidence || 0.95
+                          }
+                        }));
+                      }
+
+                      const contentToSave = JSON.stringify(structuredOfficeContent, null, 2);
                       
                       const saveResponse = await fetch('http://localhost:3001/api/files/save', {
                         method: 'POST',
@@ -902,8 +1071,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         },
                         body: JSON.stringify({
                           content: contentToSave,
-                          originalName: `${file.name}_extracted_content.txt`,
-                          mimetype: 'text/plain'
+                          originalName: `${file.name}_extracted_content.json`,
+                          mimetype: 'application/json'
                         }),
                       });
                       
