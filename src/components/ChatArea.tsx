@@ -572,7 +572,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                             processingDate: new Date().toISOString(),
                             extractionMethod: "enhanced-pdf-processor"
                           },
-                          statistics: pdfData.statistics
+                          statistics: pdfData.statistics,
+                          instructions: {
+                            for_llm: "This document contains structured content with metadata. Use metadata ONLY for understanding document structure (headings, layout, positioning). DO NOT include metadata values (fontSize, coordinates, confidence scores) in your responses. Focus on the actual text content and its meaning.",
+                            metadata_purpose: "Metadata is provided for structural analysis only - not for inclusion in responses"
+                          }
                         },
                         content: {
                           pages: [] as any[],
@@ -998,7 +1002,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                             processingDate: new Date().toISOString(),
                             extractionMethod: "enhanced-office-processor"
                           },
-                          statistics: officeData.statistics
+                          statistics: officeData.statistics,
+                          instructions: {
+                            for_llm: "This Office document contains structured content with metadata. Use metadata ONLY for understanding document structure (headings, cell positions, sheet organization). DO NOT include metadata values (cellAddress, sheetName, confidence scores) in your responses unless specifically asked. Focus on the actual content and its meaning.",
+                            metadata_purpose: "Metadata is provided for structural analysis and organization only - not for inclusion in responses"
+                          }
                         },
                         content: {
                           text: [] as any[],
