@@ -37,13 +37,9 @@ WORKDIR /app
 
 # Install runtime dependencies for canvas and other native modules
 RUN apk add --no-cache \
-    python3 \
-    make \
-    g++ \
     cairo \
     jpeg \
     pango \
-    musl \
     giflib \
     pixman \
     pangomm \
@@ -54,7 +50,9 @@ RUN apk add --no-cache \
 COPY package*.json ./
 
 # Install production dependencies only
-RUN npm install --production
+# Note: We don't need build tools in production since canvas is already compiled
+RUN npm install --production --ignore-scripts || \
+    (apk add --no-cache python3 make g++ && npm install --production && apk del python3 make g++)
 
 # Copy server.js
 COPY server.js ./
