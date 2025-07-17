@@ -14,7 +14,7 @@ export interface FileAttachment {
   type: 'text' | 'image' | 'document' | 'pdf' | 'audio' | 'pdf-image' | 'pdf-text' | 'pdf-table' | 'pdf-chart' | 'docx' | 'doc' | 'xlsx' | 'xls' | 'office-text' | 'office-table' | 'office-image'; // Enhanced types including Office formats
   content?: string; // For backward compatibility and small text content
   fileId?: string; // Reference to file stored on server
-  imageFileIds?: string[]; // Array of file IDs for PDF images stored on server
+  imageFileIds?: (string | { fileId?: string; content?: string })[]; // Array of file IDs or image data for PDF/Office images
   hasImages?: boolean; // Flag to indicate if PDF contains images
   url?: string;     // For future use with other file types
   size: number;

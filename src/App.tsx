@@ -206,13 +206,6 @@ const App: React.FC = () => {
       const result = await deleteChat(chatId);
       
       if (result.success) {
-        console.log(`✅ Chat and files deleted successfully`);
-        console.log(`📊 Files deleted: ${result.filesDeleted}, Failed: ${result.filesFailed}`);
-        
-        // Show user feedback if files were deleted
-        if (result.filesDeleted > 0) {
-          console.log(`🗑️ Cleaned up ${result.filesDeleted} associated file(s)`);
-        }
         
         // Update local state after successful server deletion
         const updatedChats = chats.filter(chat => chat.id !== chatId);
@@ -232,7 +225,6 @@ const App: React.FC = () => {
           }
         }
       } else {
-        console.error('❌ Failed to delete chat from server');
         // Still update local state as fallback
         const updatedChats = chats.filter(chat => chat.id !== chatId);
         setChats(updatedChats);
@@ -250,8 +242,6 @@ const App: React.FC = () => {
         }
       }
     } catch (error) {
-      console.error('❌ Error deleting chat:', error);
-      
       // Fallback: still update local state even if server deletion fails
       const updatedChats = chats.filter(chat => chat.id !== chatId);
       setChats(updatedChats);

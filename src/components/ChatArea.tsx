@@ -438,9 +438,19 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       try {
         // Handle different file types
         if (file.type.startsWith('image/')) {
-          // Handle image files - upload to server
+          // Handle image files - store both server reference AND base64 content for LLM
           console.log(`Processing image: ${file.name}`);
           try {
+            // First, convert image to base64 for LLM processing
+            const reader = new FileReader();
+            const base64Promise = new Promise<string>((resolve, reject) => {
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+            });
+            reader.readAsDataURL(file);
+            const base64Content = await base64Promise;
+            
+            // Also upload to server for storage and downloads
             const formData = new FormData();
             formData.append('file', file);
             
@@ -456,11 +466,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             const result = await response.json();
             
             if (result.success) {
-              // Store ONLY file reference - no content in JSON
-              fileAttachment.fileId = result.fileId;
-              // No content stored locally - will be fetched from server when needed
+              // Store BOTH file reference AND base64 content
+              fileAttachment.fileId = result.fileId; // For downloads
+              fileAttachment.content = base64Content; // For LLM processing
               setAttachments(prev => [...prev, fileAttachment]);
-              console.log(`✅ Image uploaded and stored on server: ${file.name} -> ${result.fileId}`);
+              console.log(`✅ Image uploaded and stored: ${file.name} -> ${result.fileId} (${Math.round(base64Content.length / 1024)}KB base64)`);
             } else {
               throw new Error('Upload failed');
             }
@@ -696,9 +706,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             // Set image information - save images to server
             if (pdfData.items.images.length > 0) {
               fileAttachment.hasImages = true;
-              const savedImageIds: string[] = [];
+              const savedImageIds: (string | { fileId?: string; content?: string })[] = [];
               
-              // Save each image to server
+              // Save each image to server AND store base64 content for LLM
               for (let imgIndex = 0; imgIndex < pdfData.items.images.length; imgIndex++) {
                 const imageData = pdfData.items.images[imgIndex];
                 try {
@@ -717,14 +727,26 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   if (imageSaveResponse.ok) {
                     const imageSaveResult = await imageSaveResponse.json();
                     if (imageSaveResult.success) {
-                      savedImageIds.push(imageSaveResult.fileId);
-                      console.log(`✅ PDF image saved to server: ${imageSaveResult.fileId}`);
+                      // Store BOTH server file ID AND base64 content for immediate LLM access
+                      savedImageIds.push({
+                        fileId: imageSaveResult.fileId,
+                        content: imageData.content // Keep base64 data URL for LLM
+                      });
+                      console.log(`✅ PDF image saved to server with base64: ${imageSaveResult.fileId}`);
                     }
+                  } else {
+                    // Fallback: store only base64 content
+                    savedImageIds.push({
+                      content: imageData.content
+                    });
+                    console.warn(`⚠️ PDF image server save failed, using base64 only`);
                   }
                 } catch (imageSaveError) {
                   console.warn(`⚠️ Could not save PDF image to server:`, imageSaveError);
-                  // Fallback: store data URL if server save fails
-                  savedImageIds.push(imageData.content);
+                  // Fallback: store only base64 content
+                  savedImageIds.push({
+                    content: imageData.content
+                  });
                 }
               }
               
@@ -745,7 +767,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               };
             }
             
-            // Store chart information
+            // Store chart information with file IDs
             if (pdfData.items.charts.length > 0) {
               fileAttachment.metadata = {
                 ...fileAttachment.metadata,
@@ -754,9 +776,22 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   pageNumber: chart.pageNumber,
                   chartData: chart.chartData,
                   position: chart.position,
-                  content: chart.content // This contains the chart image
+                  content: chart.content // This contains the chart image file ID or base64
                 }))
               };
+              
+              // Also add chart image file IDs to the main imageFileIds array for cleanup
+              const chartImageIds = pdfData.items.charts
+                .map(chart => chart.content)
+                .filter(content => content && typeof content === 'string' && !content.startsWith('data:'));
+              
+              if (chartImageIds.length > 0) {
+                fileAttachment.imageFileIds = [
+                  ...(fileAttachment.imageFileIds || []),
+                  ...chartImageIds
+                ];
+                console.log(`📈 Added ${chartImageIds.length} chart image file IDs for cleanup`);
+              }
             }
             
             // Add comprehensive metadata
@@ -937,9 +972,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     // Handle Office document images - save to server like PDF images
                     if (officeData.items.images.length > 0) {
                       fileAttachment.hasImages = true;
-                      const savedImageIds: string[] = [];
+                      const savedImageIds: (string | { fileId?: string; content?: string })[] = [];
                       
-                      // Save each image to server
+                      // Save each image to server AND store base64 content for LLM
                       for (let imgIndex = 0; imgIndex < officeData.items.images.length; imgIndex++) {
                         const imageData = officeData.items.images[imgIndex];
                         try {
@@ -958,14 +993,26 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                           if (imageSaveResponse.ok) {
                             const imageSaveResult = await imageSaveResponse.json();
                             if (imageSaveResult.success) {
-                              savedImageIds.push(imageSaveResult.fileId);
-                              console.log(`✅ Office image saved to server: ${imageSaveResult.fileId}`);
+                              // Store BOTH server file ID AND base64 content for immediate LLM access
+                              savedImageIds.push({
+                                fileId: imageSaveResult.fileId,
+                                content: imageData.content // Keep base64 data URL for LLM
+                              });
+                              console.log(`✅ Office image saved to server with base64: ${imageSaveResult.fileId}`);
                             }
+                          } else {
+                            // Fallback: store only base64 content
+                            savedImageIds.push({
+                              content: imageData.content
+                            });
+                            console.warn(`⚠️ Office image server save failed, using base64 only`);
                           }
                         } catch (imageSaveError) {
                           console.warn(`⚠️ Could not save Office image to server:`, imageSaveError);
-                          // Fallback: store data URL if server save fails
-                          savedImageIds.push(imageData.content);
+                          // Fallback: store only base64 content
+                          savedImageIds.push({
+                            content: imageData.content
+                          });
                         }
                       }
                       
@@ -1226,6 +1273,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         });
       }
       
+      
       // Delete files from server
       for (const fileId of fileIdsToDelete) {
         try {
@@ -1243,7 +1291,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         }
       }
       
-      console.log(`🧹 Cleaned up ${fileIdsToDelete.length} files for attachment: ${attachmentToRemove.name}`);
+      const totalFilesDeleted = fileIdsToDelete.length;
+      console.log(`🧹 Cleaned up ${totalFilesDeleted} files for attachment: ${attachmentToRemove.name}`);
     }
     
     // Update the attachments list

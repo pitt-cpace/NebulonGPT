@@ -71,6 +71,7 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '100mb' })); // Increase limit for large attachments
 app.use(bodyParser.urlencoded({ limit: '100mb', extended: true }));
 
+
 // Debug middleware to log all requests
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
@@ -375,6 +376,7 @@ app.delete('/api/files/:fileId', (req, res) => {
     res.status(500).json({ error: 'Failed to delete file' });
   }
 });
+
 
 // Save file content (for processed files like PDF images)
 app.post('/api/files/save', (req, res) => {
