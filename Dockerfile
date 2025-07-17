@@ -3,6 +3,21 @@ FROM node:18-alpine AS build
 
 WORKDIR /app
 
+# Install build dependencies for canvas and other native modules
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    musl-dev \
+    giflib-dev \
+    pixman-dev \
+    pangomm-dev \
+    libjpeg-turbo-dev \
+    freetype-dev
+
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
@@ -19,6 +34,21 @@ RUN npm run build
 FROM node:18-alpine
 
 WORKDIR /app
+
+# Install runtime dependencies for canvas and other native modules
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo \
+    jpeg \
+    pango \
+    musl \
+    giflib \
+    pixman \
+    pangomm \
+    libjpeg-turbo \
+    freetype
 
 # Copy package.json and package-lock.json
 COPY package*.json ./
