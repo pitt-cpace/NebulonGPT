@@ -2,6 +2,16 @@ import { getDocument, PDFPageProxy } from 'pdfjs-dist';
 import { TextItem } from 'pdfjs-dist/types/src/display/api';
 import { chartExtractor, ChartData } from './chartExtractor';
 
+// Helper function to get the correct API base URL for file operations
+const getFileApiBaseUrl = (): string => {
+  // In production (Docker), use relative URLs that will be proxied by nginx
+  if (process.env.NODE_ENV === 'production') {
+    return '/api';
+  }
+  // In development, use the full localhost URL
+  return 'http://localhost:3001/api';
+};
+
 // Enhanced metadata interfaces for comprehensive PDF processing
 export interface PDFTextItem {
   id: string;
@@ -1313,7 +1323,7 @@ export class EnhancedPDFProcessor {
       const filename = `chart_${chartId}_page${pageNumber}_${timestamp}.png`;
       
       // Save to files directory using the standard file save endpoint
-      const response = await fetch('/api/files/save', {
+      const response = await fetch(`${getFileApiBaseUrl()}/files/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1099,7 +1099,7 @@ export class ChartImageExtractor {
       console.log(`💾 Saving chart image to server: ${fileName} (${Math.round(buffer.length / 1024)}KB)`);
       
       // Save to server files directory using the API
-      const response = await fetch('/api/files/save', {
+      const response = await fetch(`${getFileApiBaseUrl()}/files/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1318,7 +1318,7 @@ export class ChartImageExtractor {
       console.log(`💾 Saving chart metadata to server: ${fileName}`);
       
       // Save to server files directory using the API
-      const response = await fetch('/api/files/save', {
+      const response = await fetch(`${getFileApiBaseUrl()}/files/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
