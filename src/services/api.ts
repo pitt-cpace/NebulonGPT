@@ -64,6 +64,16 @@ const api = axios.create({
   },
 });
 
+// Helper function to get the correct API base URL for file operations
+const getFileApiBaseUrl = (): string => {
+  // In production (Docker), use relative URLs that will be proxied by nginx
+  if (process.env.NODE_ENV === 'production') {
+    return '/api';
+  }
+  // In development, use the full localhost URL
+  return 'http://localhost:3001/api';
+};
+
 // Fetch available models
 export const fetchModels = async (): Promise<ModelType[]> => {
   try {
@@ -189,7 +199,7 @@ export const sendMessage = async (
             if (contentFileId && !attachment.content) {
               console.log(`📁 File reference found: ${attachment.name} (${contentFileId}) - fetching content from server`);
               try {
-                const response = await fetch(`http://localhost:3001/api/files/${contentFileId}`);
+                const response = await fetch(`${getFileApiBaseUrl()}/files/${contentFileId}`);
                 if (response.ok) {
                   const fileContent = await response.text();
                   console.log(`✅ File content fetched from server: ${attachment.name} (${fileContent.length} characters)`);
@@ -218,7 +228,7 @@ export const sendMessage = async (
               // Image only has file ID - fetch from server
               console.log(`📁 Fetching image from server: ${attachment.fileId}`);
               try {
-                const response = await fetch(`http://localhost:3001/api/files/${attachment.fileId}`);
+                const response = await fetch(`${getFileApiBaseUrl()}/files/${attachment.fileId}`);
                 if (response.ok) {
                   const blob = await response.blob();
                   
@@ -268,7 +278,7 @@ export const sendMessage = async (
                     // Handle file ID - fetch from server
                     console.log(`📁 Fetching PDF image ${imgIndex + 1} from server: ${imageRef}`);
                     try {
-                      const response = await fetch(`http://localhost:3001/api/files/${imageRef}`);
+                      const response = await fetch(`${getFileApiBaseUrl()}/files/${imageRef}`);
                       if (response.ok) {
                         const blob = await response.blob();
                         
@@ -308,7 +318,7 @@ export const sendMessage = async (
                     // Fallback to server fetch
                     console.log(`📁 Fetching PDF image ${imgIndex + 1} from server: ${imageRef.fileId}`);
                     try {
-                      const response = await fetch(`http://localhost:3001/api/files/${imageRef.fileId}`);
+                      const response = await fetch(`${getFileApiBaseUrl()}/files/${imageRef.fileId}`);
                       if (response.ok) {
                         const blob = await response.blob();
                         
@@ -361,7 +371,7 @@ export const sendMessage = async (
                     // Handle file ID - fetch from server
                     console.log(`📁 Fetching Office image ${imgIndex + 1} from server: ${imageRef}`);
                     try {
-                      const response = await fetch(`http://localhost:3001/api/files/${imageRef}`);
+                    const response = await fetch(`${getFileApiBaseUrl()}/files/${imageRef}`);
                       if (response.ok) {
                         const blob = await response.blob();
                         
@@ -401,7 +411,7 @@ export const sendMessage = async (
                     // Fallback to server fetch
                     console.log(`📁 Fetching Office image ${imgIndex + 1} from server: ${imageRef.fileId}`);
                     try {
-                      const response = await fetch(`http://localhost:3001/api/files/${imageRef.fileId}`);
+                      const response = await fetch(`${getFileApiBaseUrl()}/files/${imageRef.fileId}`);
                       if (response.ok) {
                         const blob = await response.blob();
                         
@@ -528,7 +538,7 @@ export const sendMessage = async (
                         }
                       } else {
                         try {
-                          const response = await fetch(`http://localhost:3001/api/files/${matchingChart.content}`);
+                          const response = await fetch(`${getFileApiBaseUrl()}/files/${matchingChart.content}`);
                           if (response.ok) {
                             const blob = await response.blob();
                             const reader = new FileReader();
@@ -614,7 +624,7 @@ export const sendMessage = async (
                   } else {
                     console.log(`📁 Fetching chart image ${chartIndex + 1} from server: ${chart.content}`);
                     try {
-                      const response = await fetch(`http://localhost:3001/api/files/${chart.content}`);
+                      const response = await fetch(`${getFileApiBaseUrl()}/files/${chart.content}`);
                       if (response.ok) {
                         const blob = await response.blob();
                         
@@ -652,9 +662,8 @@ export const sendMessage = async (
         }
       }
       
-      // For follow-up messages, make ALL previously uploaded files available with their full content
+      // ALWAYS include ALL previously uploaded files in EVERY user message (follow-up or not)
       if (msg.role === 'user' && 
-          (!msg.attachments || msg.attachments.length === 0) && 
           allAttachments.size > 0 && 
           index > 0) {
         
@@ -686,7 +695,7 @@ export const sendMessage = async (
             // Fetch and include file content
             if (contentFileId) {
               try {
-                const response = await fetch(`http://localhost:3001/api/files/${contentFileId}`);
+                const response = await fetch(`${getFileApiBaseUrl()}/files/${contentFileId}`);
                 if (response.ok) {
                   const fileContent = await response.text();
                   console.log(`✅ Included file content in follow-up: ${attachment.name} (${fileContent.length} characters)`);
@@ -731,7 +740,7 @@ export const sendMessage = async (
                   }
                 } else {
                   try {
-                    const response = await fetch(`http://localhost:3001/api/files/${imageRef}`);
+                    const response = await fetch(`${getFileApiBaseUrl()}/files/${imageRef}`);
                     if (response.ok) {
                       const blob = await response.blob();
                       const reader = new FileReader();
@@ -1073,7 +1082,7 @@ export const fetchModelDetails = async (modelName: string): Promise<any> => {
 // Delete a chat and its associated files
 export const deleteChat = async (chatId: string): Promise<{ success: boolean; filesDeleted: number; filesFailed: number }> => {
   try {
-    const response = await fetch(`http://localhost:3001/api/chats/${chatId}`, {
+    const response = await fetch(`${getFileApiBaseUrl()}/chats/${chatId}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',

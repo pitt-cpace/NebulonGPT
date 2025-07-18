@@ -1,8 +1,16 @@
 import { PDFPageProxy } from 'pdfjs-dist';
 import { createCanvas, Canvas, CanvasRenderingContext2D } from 'canvas';
-import * as fs from 'fs';
-import * as path from 'path';
 import { chartExtractor, ChartData } from './chartExtractor';
+
+// Helper function to get the correct API base URL for file operations
+const getFileApiBaseUrl = (): string => {
+  // In production (Docker), use relative URLs that will be proxied by nginx
+  if (process.env.NODE_ENV === 'production') {
+    return '/api';
+  }
+  // In development, use the full localhost URL
+  return 'http://localhost:3001/api';
+};
 
 // Chart region detection and extraction interfaces
 export interface ChartRegion {
@@ -43,8 +51,9 @@ export class ChartImageExtractor {
   private outputDir: string;
 
   private constructor(outputDir: string = './charts') {
+    // For Docker compatibility, we'll save files via the server API instead of local filesystem
     this.outputDir = outputDir;
-    this.ensureOutputDirectory();
+    // Don't create local directories - we'll use the server's files API
   }
 
   public static getInstance(outputDir?: string): ChartImageExtractor {
@@ -54,31 +63,6 @@ export class ChartImageExtractor {
     return ChartImageExtractor.instance;
   }
 
-  /**
-   * Ensure output directories exist
-   */
-  private ensureOutputDirectory(): void {
-    try {
-      if (!fs.existsSync(this.outputDir)) {
-        fs.mkdirSync(this.outputDir, { recursive: true });
-      }
-      
-      const imagesDir = path.join(this.outputDir, 'images');
-      const metadataDir = path.join(this.outputDir, 'metadata');
-      
-      if (!fs.existsSync(imagesDir)) {
-        fs.mkdirSync(imagesDir, { recursive: true });
-      }
-      
-      if (!fs.existsSync(metadataDir)) {
-        fs.mkdirSync(metadataDir, { recursive: true });
-      }
-      
-      console.log(`📁 Chart output directories ready: ${this.outputDir}`);
-    } catch (error) {
-      console.error('❌ Error creating output directories:', error);
-    }
-  }
 
   /**
    * Extract chart regions from PDF page and save as images + JSON
@@ -1097,7 +1081,7 @@ export class ChartImageExtractor {
   }
 
   /**
-   * Save chart image to file
+   * Save chart image to server files directory via API
    */
   private async saveChartImage(
     chartCanvas: Canvas,
@@ -1105,17 +1089,39 @@ export class ChartImageExtractor {
     chartIndex: number
   ): Promise<string> {
     const fileName = `page${pageNumber}_chart${chartIndex}.png`;
-    const imagePath = path.join(this.outputDir, 'images', fileName);
     
     try {
+      // Convert canvas to base64 data URL
       const buffer = chartCanvas.toBuffer('image/png');
-      fs.writeFileSync(imagePath, buffer);
+      const base64Data = buffer.toString('base64');
+      const imageDataUrl = `data:image/png;base64,${base64Data}`;
       
-      console.log(`💾 Saved chart image: ${imagePath} (${Math.round(buffer.length / 1024)}KB)`);
-      return `images/${fileName}`;
+      console.log(`💾 Saving chart image to server: ${fileName} (${Math.round(buffer.length / 1024)}KB)`);
+      
+      // Save to server files directory using the API
+      const response = await fetch('/api/files/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: imageDataUrl,
+          originalName: fileName,
+          mimetype: 'image/png'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log(`✅ Chart image saved to server files directory: ${result.fileId}`);
+      
+      return result.fileId; // Return file ID instead of local path
       
     } catch (error) {
-      console.error(`❌ Error saving chart image:`, error);
+      console.error(`❌ Error saving chart image to server:`, error);
       throw error;
     }
   }
@@ -1297,7 +1303,7 @@ export class ChartImageExtractor {
   }
 
   /**
-   * Save chart metadata as JSON
+   * Save chart metadata as JSON to server files directory via API
    */
   private async saveChartMetadata(
     chartOutput: ChartOutput,
@@ -1305,16 +1311,34 @@ export class ChartImageExtractor {
     chartIndex: number
   ): Promise<void> {
     const fileName = `page${pageNumber}_chart${chartIndex}.json`;
-    const metadataPath = path.join(this.outputDir, 'metadata', fileName);
     
     try {
       const jsonContent = JSON.stringify(chartOutput, null, 2);
-      fs.writeFileSync(metadataPath, jsonContent, 'utf8');
       
-      console.log(`💾 Saved chart metadata: ${metadataPath}`);
+      console.log(`💾 Saving chart metadata to server: ${fileName}`);
+      
+      // Save to server files directory using the API
+      const response = await fetch('/api/files/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: jsonContent,
+          originalName: fileName,
+          mimetype: 'application/json'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log(`✅ Chart metadata saved to server files directory: ${result.fileId}`);
       
     } catch (error) {
-      console.error(`❌ Error saving chart metadata:`, error);
+      console.error(`❌ Error saving chart metadata to server:`, error);
       throw error;
     }
   }
