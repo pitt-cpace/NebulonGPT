@@ -4,10 +4,18 @@ import { chartExtractor, ChartData } from './chartExtractor';
 
 // Helper function to get the correct API base URL for file operations
 const getFileApiBaseUrl = (): string => {
-  // In both development and production, use relative URLs
-  // Development: React dev server proxy will forward to localhost:3001
-  // Production: nginx will proxy to the backend
-  return '/api';
+  // Check if we're running in Docker by looking at the hostname
+  // In Docker, the hostname will not be 'localhost'
+  const hostname = window.location.hostname;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  
+  if (!isLocalhost) {
+    // In Docker/production, use relative URLs (nginx handles proxy)
+    return '/api';
+  } else {
+    // In development on localhost, use direct backend URL
+    return 'http://localhost:3001/api';
+  }
 };
 
 // Chart region detection and extraction interfaces
