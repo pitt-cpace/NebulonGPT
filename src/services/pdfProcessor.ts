@@ -116,7 +116,7 @@ export interface PDFChartItem {
     height: number;
   };
   chartData: {
-    type: 'bar' | 'line' | 'pie' | 'scatter' | 'unknown';
+    type: 'bar' | 'line' | 'pie' | 'scatter' | 'area' | 'unknown';
     title?: string;
     labels?: string[];
     values?: number[];
@@ -207,7 +207,7 @@ export class EnhancedPDFProcessor {
   }
 
   /**
-   * Process a PDF file and extract all items with comprehensive metadata
+   * Process a PDF file and extract content as clean text with embedded charts/tables
    */
   public async processPDFFile(
     fileData: ArrayBuffer,
@@ -219,7 +219,16 @@ export class EnhancedPDFProcessor {
       highResolution?: boolean;
       pageRange?: { start: number; end: number };
     } = {}
-  ): Promise<PDFDocumentData> {
+  ): Promise<{
+    cleanText: string;
+    extractedContentFileId: string;
+    imageFileIds: string[];
+    metadata: {
+      totalPages: number;
+      fileSize: number;
+      processingTime: number;
+    };
+  }> {
     const startTime = Date.now();
     console.log(`🔄 Starting comprehensive PDF processing: ${fileName}`);
 
@@ -344,6 +353,9 @@ export class EnhancedPDFProcessor {
       // Record processing time
       documentData.metadata.processingTime = Date.now() - startTime;
 
+      // Generate clean text with embedded charts/tables
+      const cleanTextResult = await this.generateCleanText(documentData, fileName);
+
       // Cache the processed document
       const cacheKey = `${fileName}-${fileData.byteLength}-${startTime}`;
       this.processedDocuments.set(cacheKey, documentData);
@@ -351,7 +363,16 @@ export class EnhancedPDFProcessor {
       console.log(`✅ PDF processing completed: ${fileName}`);
       console.log(`📊 Statistics:`, documentData.statistics);
 
-      return documentData;
+      return {
+        cleanText: cleanTextResult.cleanText,
+        extractedContentFileId: cleanTextResult.extractedContentFileId,
+        imageFileIds: cleanTextResult.imageFileIds,
+        metadata: {
+          totalPages: documentData.metadata.totalPages,
+          fileSize: documentData.metadata.fileSize,
+          processingTime: documentData.metadata.processingTime,
+        }
+      };
 
     } catch (error) {
       console.error(`❌ Error processing PDF ${fileName}:`, error);
@@ -1138,7 +1159,7 @@ export class EnhancedPDFProcessor {
             pageNumber: chartData.metadata.pageNumber,
             position: chartData.metadata.boundingBox,
             chartData: {
-              type: chartData.type as any,
+              type: chartData.type,
               title: chartData.title,
               labels: chartData.xAxis.values,
               values: chartData.series[0]?.values || [],
@@ -1164,7 +1185,7 @@ export class EnhancedPDFProcessor {
             pageNumber: chartData.metadata.pageNumber,
             position: chartData.metadata.boundingBox,
             chartData: {
-              type: chartData.type as any,
+              type: chartData.type,
               title: chartData.title,
               labels: chartData.xAxis.values,
               values: chartData.series[0]?.values || [],
@@ -1245,7 +1266,7 @@ export class EnhancedPDFProcessor {
   /**
    * Extract chart image from detected chart region and save to server
    */
-  private async extractChartImage(page: PDFPageProxy, chartData: any, pageNumber: number): Promise<string | null> {
+  private async extractChartImage(page: PDFPageProxy, chartData: ChartData, pageNumber: number): Promise<string | null> {
     try {
       console.log(`🖼️ Extracting chart image for ${chartData.id} on page ${pageNumber}`);
       
@@ -1718,6 +1739,221 @@ export class EnhancedPDFProcessor {
       console.log(`🔗 Chart ${chart.id} linked to section "${enhancedChart.metadata.relatedSection}"`);
       return enhancedChart;
     });
+  }
+
+  /**
+   * Generate clean text with embedded charts/tables in their correct positions
+   */
+  private async generateCleanText(
+    documentData: PDFDocumentData, 
+    fileName: string
+  ): Promise<{
+    cleanText: string;
+    extractedContentFileId: string;
+    imageFileIds: string[];
+  }> {
+    console.log(`📝 Generating clean text for ${fileName}`);
+    
+    // Sort all items by page number and position
+    const allItems: Array<{
+      type: 'text' | 'table' | 'chart';
+      pageNumber: number;
+      position: { x: number; y: number; width: number; height: number };
+      content: string;
+      lineNumber?: number;
+      item: PDFTextItem | PDFTableItem | PDFChartItem;
+    }> = [];
+
+    // Add text items
+    documentData.items.text.forEach(textItem => {
+      allItems.push({
+        type: 'text',
+        pageNumber: textItem.pageNumber,
+        position: textItem.position,
+        content: textItem.content,
+        lineNumber: textItem.metadata.lineNumber,
+        item: textItem
+      });
+    });
+
+    // Add table items
+    documentData.items.tables.forEach(tableItem => {
+      const tableText = this.formatTableAsText(tableItem);
+      allItems.push({
+        type: 'table',
+        pageNumber: tableItem.pageNumber,
+        position: tableItem.position,
+        content: tableText,
+        item: tableItem
+      });
+    });
+
+    // Add chart items
+    documentData.items.charts.forEach(chartItem => {
+      const chartText = this.formatChartAsText(chartItem);
+      allItems.push({
+        type: 'chart',
+        pageNumber: chartItem.pageNumber,
+        position: chartItem.position,
+        content: chartText,
+        item: chartItem
+      });
+    });
+
+    // Sort by page number, then by Y position (top to bottom), then by X position (left to right)
+    allItems.sort((a, b) => {
+      if (a.pageNumber !== b.pageNumber) {
+        return a.pageNumber - b.pageNumber;
+      }
+      if (Math.abs(a.position.y - b.position.y) > 10) {
+        return b.position.y - a.position.y; // Higher Y = top of page
+      }
+      return a.position.x - b.position.x; // Left to right
+    });
+
+    // Generate clean text
+    let cleanText = '';
+    let currentPage = 0;
+    let currentLineNumber = 0;
+
+    for (const item of allItems) {
+      // Add page break if needed
+      if (item.pageNumber !== currentPage) {
+        if (currentPage > 0) {
+          cleanText += '\n\n--- PAGE BREAK ---\n\n';
+        }
+        cleanText += `=== PAGE ${item.pageNumber} ===\n\n`;
+        currentPage = item.pageNumber;
+        currentLineNumber = 0;
+      }
+
+      // Add line number for text items
+      if (item.type === 'text') {
+        currentLineNumber++;
+        cleanText += `[Page ${item.pageNumber}, Line ${currentLineNumber}] ${item.content}\n`;
+      } else {
+        // For tables and charts, add them in their correct position
+        cleanText += `\n${item.content}\n\n`;
+      }
+    }
+
+    // Save clean text to server
+    const extractedContentFileId = await this.saveCleanTextToServer(cleanText, fileName);
+    
+    // Collect image file IDs
+    const imageFileIds: string[] = [];
+    
+    // Add chart images
+    documentData.items.charts.forEach(chart => {
+      if (chart.content && !chart.content.startsWith('data:')) {
+        // If content is a file ID, add it
+        imageFileIds.push(chart.content);
+      }
+    });
+
+    // Add regular images
+    documentData.items.images.forEach(image => {
+      if (image.content && !image.content.startsWith('data:')) {
+        // If content is a file ID, add it
+        imageFileIds.push(image.content);
+      }
+    });
+
+    console.log(`✅ Generated clean text: ${cleanText.length} characters, ${imageFileIds.length} images`);
+
+    return {
+      cleanText,
+      extractedContentFileId,
+      imageFileIds
+    };
+  }
+
+  /**
+   * Format table as clean text
+   */
+  private formatTableAsText(table: PDFTableItem): string {
+    let tableText = `[TABLE - Page ${table.pageNumber}]\n`;
+    
+    if (table.structure.hasHeaders && table.content.length > 0) {
+      // Format with headers
+      const headers = table.content[0];
+      const rows = table.content.slice(1);
+      
+      tableText += `Headers: ${headers.join(' | ')}\n`;
+      tableText += '-'.repeat(headers.join(' | ').length) + '\n';
+      
+      rows.forEach((row, index) => {
+        tableText += `Row ${index + 1}: ${row.join(' | ')}\n`;
+      });
+    } else {
+      // Format without headers
+      table.content.forEach((row, index) => {
+        tableText += `Row ${index + 1}: ${row.join(' | ')}\n`;
+      });
+    }
+    
+    tableText += '[END TABLE]\n';
+    return tableText;
+  }
+
+  /**
+   * Format chart as clean text
+   */
+  private formatChartAsText(chart: PDFChartItem): string {
+    let chartText = `[CHART - Page ${chart.pageNumber}]\n`;
+    chartText += `Type: ${chart.chartData.type}\n`;
+    
+    if (chart.chartData.title) {
+      chartText += `Title: ${chart.chartData.title}\n`;
+    }
+    
+    if (chart.chartData.labels && chart.chartData.labels.length > 0) {
+      chartText += `Labels: ${chart.chartData.labels.join(', ')}\n`;
+    }
+    
+    if (chart.chartData.values && chart.chartData.values.length > 0) {
+      chartText += `Values: ${chart.chartData.values.join(', ')}\n`;
+    }
+    
+    chartText += '[END CHART]\n';
+    return chartText;
+  }
+
+  /**
+   * Save clean text to server
+   */
+  private async saveCleanTextToServer(cleanText: string, fileName: string): Promise<string> {
+    try {
+      console.log(`💾 Saving clean text to server for ${fileName}...`);
+      
+      const timestamp = Date.now();
+      const textFileName = `${fileName.replace(/\.[^/.]+$/, '')}_extracted_${timestamp}.txt`;
+      
+      const response = await fetch(`${getFileApiBaseUrl()}/files/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: cleanText,
+          originalName: textFileName,
+          mimetype: 'text/plain'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log(`✅ Clean text saved to server: ${result.fileId}`);
+      
+      return result.fileId;
+
+    } catch (error) {
+      console.error(`❌ Failed to save clean text to server:`, error);
+      throw new Error(`Failed to save extracted content: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   /**

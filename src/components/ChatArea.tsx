@@ -35,6 +35,25 @@ import { getSuggestedPrompts } from '../services/api';
 import { VoskRecognitionService } from '../services/vosk';
 import * as styles from '../styles/components/ChatArea.styles';
 
+// Helper function to get the correct API base URL for file operations
+const getFileApiBaseUrl = (): string => {
+  // Check if we're running in Docker by looking at the hostname and port
+  const hostname = window.location.hostname;
+  const port = window.location.port;
+  
+  // In development, React runs on port 3000, backend on 3001
+  // In Docker/production, we use nginx proxy with relative URLs
+  const isLocalDevelopment = (hostname === 'localhost' || hostname === '127.0.0.1') && port === '3000';
+  
+  if (isLocalDevelopment) {
+    // Development: React on 3000, backend on 3001
+    return 'http://localhost:3001/api';
+  } else {
+    // Docker/production: use relative URLs (nginx handles proxy)
+    return '/api';
+  }
+};
+
 // Set the worker source path with fallback
 try {
   // Use CDN worker as primary since local worker has module import issues
@@ -513,332 +532,36 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               highResolution: true,
             });
             
-            console.log(`✅ PDF processed successfully with enhanced processor:`, pdfData.statistics);
+            console.log(`✅ PDF processed successfully with enhanced processor - Clean text generated`);
             
-            // Create comprehensive content from all extracted items
-            let fullContent = '';
+            // Use the clean text directly from the new processor
+            const fullContent = pdfData.cleanText;
             
-            // Add document metadata
-            if (pdfData.metadata.title) {
-              fullContent += `Title: ${pdfData.metadata.title}\n`;
-            }
-            if (pdfData.metadata.author) {
-              fullContent += `Author: ${pdfData.metadata.author}\n`;
-            }
-            fullContent += `Pages: ${pdfData.metadata.totalPages}\n\n`;
+            // The PDF processor already saved the clean text to server, so we just use the file ID
+            fileAttachment.metadata = {
+              ...fileAttachment.metadata,
+              extractedContentFileId: pdfData.extractedContentFileId
+            };
+            console.log(`✅ PDF content already saved by processor: ${pdfData.extractedContentFileId}`);
             
-            // Add text content organized by page
-            const textByPage = new Map<number, string[]>();
-            pdfData.items.text.forEach(textItem => {
-              if (!textByPage.has(textItem.pageNumber)) {
-                textByPage.set(textItem.pageNumber, []);
-              }
-              textByPage.get(textItem.pageNumber)!.push(textItem.content);
-            });
-            
-            // Add text content page by page
-            for (let pageNum = 1; pageNum <= pdfData.metadata.totalPages; pageNum++) {
-              const pageTexts = textByPage.get(pageNum);
-              if (pageTexts && pageTexts.length > 0) {
-                fullContent += `=== Page ${pageNum} ===\n`;
-                fullContent += pageTexts.join(' ') + '\n\n';
-              }
-            }
-            
-            // Add table information
-            if (pdfData.items.tables.length > 0) {
-              fullContent += `=== Tables Found (${pdfData.items.tables.length}) ===\n`;
-              pdfData.items.tables.forEach((table, index) => {
-                fullContent += `Table ${index + 1} (Page ${table.pageNumber}):\n`;
-                table.content.forEach(row => {
-                  fullContent += row.join(' | ') + '\n';
-                });
-                fullContent += '\n';
-              });
-            }
-            
-            // Add chart information
-            if (pdfData.items.charts.length > 0) {
-              fullContent += `=== Charts Found (${pdfData.items.charts.length}) ===\n`;
-              pdfData.items.charts.forEach((chart, index) => {
-                fullContent += `Chart ${index + 1} (Page ${chart.pageNumber}): ${chart.chartData.type}\n`;
-                if (chart.chartData.title) {
-                  fullContent += `Title: ${chart.chartData.title}\n`;
-                }
-                fullContent += '\n';
-              });
-            }
-            
-                    // Save PDF content as structured JSON instead of plain text
-                    try {
-                      const structuredContent: any = {
-                        document: {
-                          type: "pdf",
-                          name: file.name,
-                          metadata: {
-                            title: pdfData.metadata.title || null,
-                            author: pdfData.metadata.author || null,
-                            totalPages: pdfData.metadata.totalPages,
-                            processingDate: new Date().toISOString(),
-                            extractionMethod: "enhanced-pdf-processor"
-                          },
-                          statistics: pdfData.statistics,
-                          instructions: {
-                            for_llm: "This document contains structured content with metadata. Use metadata ONLY for understanding document structure (headings, layout, positioning). DO NOT include metadata values (fontSize, coordinates, confidence scores) in your responses. Focus on the actual text content and its meaning.",
-                            metadata_purpose: "Metadata is provided for structural analysis only - not for inclusion in responses"
-                          }
-                        },
-                        content: {
-                          pages: [] as any[],
-                          tables: [] as any[],
-                          charts: [] as any[],
-                          images: [] as any[],
-                          links: [] as any[]
-                        }
-                      };
-
-                      // Organize text content by pages
-                      const textByPage = new Map<number, any[]>();
-                      pdfData.items.text.forEach(textItem => {
-                        if (!textByPage.has(textItem.pageNumber)) {
-                          textByPage.set(textItem.pageNumber, []);
-                        }
-                        textByPage.get(textItem.pageNumber)!.push({
-                          id: textItem.id,
-                          content: textItem.content,
-                          position: textItem.position,
-                          metadata: {
-                            fontSize: (textItem.metadata as any).fontSize || null,
-                            fontName: (textItem.metadata as any).fontName || null,
-                            isTitle: textItem.metadata.isTitle || false,
-                            isHeader: textItem.metadata.isHeader || false,
-                            confidence: textItem.metadata.confidence || 0.9
-                          }
-                        });
-                      });
-
-                      // Add pages to structured content
-                      for (let pageNum = 1; pageNum <= pdfData.metadata.totalPages; pageNum++) {
-                        const pageTexts = textByPage.get(pageNum) || [];
-                        structuredContent.content.pages.push({
-                          pageNumber: pageNum,
-                          textElements: pageTexts,
-                          fullText: pageTexts.map((t: any) => t.content).join(' ')
-                        });
-                      }
-
-                      // Add tables
-                      structuredContent.content.tables = pdfData.items.tables.map(table => ({
-                        id: table.id,
-                        pageNumber: table.pageNumber,
-                        data: table.content,
-                        structure: table.structure,
-                        position: table.position,
-                        metadata: {
-                          hasHeaders: table.structure.hasHeaders,
-                          rowCount: table.structure.rows,
-                          columnCount: table.structure.columns
-                        }
-                      }));
-
-                      // Add charts
-                      structuredContent.content.charts = pdfData.items.charts.map(chart => ({
-                        id: chart.id,
-                        pageNumber: chart.pageNumber,
-                        type: chart.chartData.type,
-                        title: chart.chartData.title || null,
-                        data: {
-                          labels: chart.chartData.labels || [],
-                          values: chart.chartData.values || []
-                        },
-                        position: chart.position,
-                        hasImage: !!chart.content
-                      }));
-
-                      // Add images
-                      structuredContent.content.images = pdfData.items.images.map((image, index) => ({
-                        id: image.id,
-                        pageNumber: image.pageNumber,
-                        description: `Image ${index + 1} from ${file.name}`,
-                        metadata: {
-                          format: image.metadata.format,
-                          size: image.metadata.size,
-                          isChart: image.metadata.isChart || false,
-                          isDiagram: image.metadata.isDiagram || false
-                        }
-                      }));
-
-                      const contentToSave = JSON.stringify(structuredContent, null, 2);
-                      
-                      const saveResponse = await fetch('http://localhost:3001/api/files/save', {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                          content: contentToSave,
-                          originalName: `${file.name}_extracted_content.json`,
-                          mimetype: 'application/json'
-                        }),
-                      });
-              
-              if (saveResponse.ok) {
-                const saveResult = await saveResponse.json();
-                if (saveResult.success) {
-                  // Store extracted content file ID separately for AI processing
-                  fileAttachment.metadata = {
-                    ...fileAttachment.metadata,
-                    extractedContentFileId: saveResult.fileId
-                  };
-                  console.log(`✅ PDF content saved to server: ${saveResult.fileId}`);
-                }
-              }
-            } catch (saveError) {
-              console.warn(`⚠️ Could not save PDF content to server, storing locally:`, saveError);
-              // Fallback: store content locally if server save fails
-              fileAttachment.content = fullContent.trim() || `PDF file: ${file.name} (${pdfData.metadata.totalPages} pages)`;
-            }
-            
-            // IMPORTANT: Keep the original PDF fileId for downloads
-            // fileAttachment.fileId should remain the original PDF file ID (uploadResult.fileId)
-            // The extracted content is stored separately in metadata.extractedContentFileId
-            
-            // Set image information - save images to server
-            if (pdfData.items.images.length > 0) {
+            // Store image file IDs from the new processor
+            if (pdfData.imageFileIds && pdfData.imageFileIds.length > 0) {
+              fileAttachment.imageFileIds = pdfData.imageFileIds;
               fileAttachment.hasImages = true;
-              const savedImageIds: (string | { fileId?: string; content?: string })[] = [];
-              
-              // Save each image to server AND store base64 content for LLM
-              for (let imgIndex = 0; imgIndex < pdfData.items.images.length; imgIndex++) {
-                const imageData = pdfData.items.images[imgIndex];
-                try {
-                  const imageSaveResponse = await fetch('http://localhost:3001/api/files/save', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      content: imageData.content,
-                      originalName: `${file.name}_page_${imageData.pageNumber}_image_${imgIndex + 1}.jpg`,
-                      mimetype: 'image/jpeg'
-                    }),
-                  });
-                  
-                  if (imageSaveResponse.ok) {
-                    const imageSaveResult = await imageSaveResponse.json();
-                    if (imageSaveResult.success) {
-                      // Store BOTH server file ID AND base64 content for immediate LLM access
-                      savedImageIds.push({
-                        fileId: imageSaveResult.fileId,
-                        content: imageData.content // Keep base64 data URL for LLM
-                      });
-                      console.log(`✅ PDF image saved to server with base64: ${imageSaveResult.fileId}`);
-                    }
-                  } else {
-                    // Fallback: store only base64 content
-                    savedImageIds.push({
-                      content: imageData.content
-                    });
-                    console.warn(`⚠️ PDF image server save failed, using base64 only`);
-                  }
-                } catch (imageSaveError) {
-                  console.warn(`⚠️ Could not save PDF image to server:`, imageSaveError);
-                  // Fallback: store only base64 content
-                  savedImageIds.push({
-                    content: imageData.content
-                  });
-                }
-              }
-              
-              fileAttachment.imageFileIds = savedImageIds;
             }
             
-            // Store table information
-            if (pdfData.items.tables.length > 0) {
-              fileAttachment.metadata = {
-                ...fileAttachment.metadata,
-                tables: pdfData.items.tables.map(table => ({
-                  id: table.id,
-                  pageNumber: table.pageNumber,
-                  content: table.content,
-                  structure: table.structure,
-                  position: table.position
-                }))
-              };
-            }
-            
-            // Store chart information with file IDs
-            if (pdfData.items.charts.length > 0) {
-              fileAttachment.metadata = {
-                ...fileAttachment.metadata,
-                charts: pdfData.items.charts.map(chart => ({
-                  id: chart.id,
-                  pageNumber: chart.pageNumber,
-                  chartData: chart.chartData,
-                  position: chart.position,
-                  content: chart.content // This contains the chart image file ID or base64
-                }))
-              };
-              
-              // Also add chart image file IDs to the main imageFileIds array for cleanup
-              const chartImageIds = pdfData.items.charts
-                .map(chart => chart.content)
-                .filter(content => content && typeof content === 'string' && !content.startsWith('data:'));
-              
-              if (chartImageIds.length > 0) {
-                fileAttachment.imageFileIds = [
-                  ...(fileAttachment.imageFileIds || []),
-                  ...chartImageIds
-                ];
-                console.log(`📈 Added ${chartImageIds.length} chart image file IDs for cleanup`);
-              }
-            }
-            
-            // Add comprehensive metadata
+            // Add basic metadata
             fileAttachment.metadata = {
               ...fileAttachment.metadata,
               totalPages: pdfData.metadata.totalPages,
-              hasEmbeddedImages: pdfData.items.images.length > 0,
-              textLength: pdfData.statistics.totalWords,
-              processingMethod: 'enhanced-pdf-processor',
-              extractionMethod: 'comprehensive',
-              // Enhanced statistics
-              totalTextItems: pdfData.statistics.totalTextItems,
-              totalImages: pdfData.statistics.totalImages,
-              totalTables: pdfData.statistics.totalTables,
-              totalCharts: pdfData.statistics.totalCharts,
-              totalWords: pdfData.statistics.totalWords,
+              processingMethod: 'enhanced-pdf-processor-clean-text',
+              extractionMethod: 'clean-text-with-embedded-elements',
             };
             
             setAttachments(prev => [...prev, fileAttachment]);
             console.log(`✅ Enhanced PDF processing completed: ${file.name}`);
-            console.log(`   - Text items: ${pdfData.statistics.totalTextItems}`);
-            console.log(`   - Images: ${pdfData.statistics.totalImages}`);
-            console.log(`   - Tables: ${pdfData.statistics.totalTables}`);
-            console.log(`   - Charts: ${pdfData.statistics.totalCharts}`);
-            console.log(`   - Total words: ${pdfData.statistics.totalWords}`);
-            
-            // Debug: Show extracted content info
-            if (pdfData.items.images.length > 0) {
-              console.log('📸 Extracted images:');
-              pdfData.items.images.forEach((img, idx) => {
-                console.log(`   ${idx + 1}. ${img.id} (${img.metadata.extractionMethod}): ${Math.round(img.metadata.size / 1024)}KB`);
-              });
-            }
-            
-            if (pdfData.items.tables.length > 0) {
-              console.log('📊 Extracted tables:');
-              pdfData.items.tables.forEach((table, idx) => {
-                console.log(`   ${idx + 1}. ${table.id} (Page ${table.pageNumber}): ${table.structure.rows}x${table.structure.columns} table`);
-              });
-            }
-            
-            if (pdfData.items.charts.length > 0) {
-              console.log('📈 Extracted charts:');
-              pdfData.items.charts.forEach((chart, idx) => {
-                console.log(`   ${idx + 1}. ${chart.id} (Page ${chart.pageNumber}): ${chart.chartData.type} chart`);
-              });
-            }
+            console.log(`   - Clean text generated: ${fullContent.length} characters`);
+            console.log(`   - Images: ${pdfData.imageFileIds?.length || 0}`);
             
           } catch (pdfError) {
             console.error(`❌ Error processing PDF ${file.name}:`, pdfError);
@@ -1277,7 +1000,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // Delete files from server
       for (const fileId of fileIdsToDelete) {
         try {
-          const deleteResponse = await fetch(`http://localhost:3001/api/files/${fileId}`, {
+          const deleteResponse = await fetch(`${getFileApiBaseUrl()}/files/${fileId}`, {
             method: 'DELETE',
           });
           

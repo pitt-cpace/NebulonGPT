@@ -54,6 +54,7 @@ const extractSearchKeywords = (message: string): string | null => {
 };
 
 
+
 // Configure axios with base URL for Ollama API
 const baseURL = 'http://localhost:11434/api';
 
@@ -165,10 +166,19 @@ export const sendMessage = async (
       }
     });
     
-    // Process messages to include file attachments with full conversation context
+    // Add system message for better LLM guidance when processing documents
+    const hasDocuments = allAttachments.size > 0 && 
+      Array.from(allAttachments.values()).some(att => 
+        ['pdf', 'document', 'text', 'docx', 'doc', 'xlsx', 'xls'].includes(att.type)
+      );
+    
+    // Process messages to include file attachments with clean, structured content
     const formattedMessages = await Promise.all(messages.map(async (msg, index) => {
       let enhancedContent = msg.content;
       const messageImages: string[] = [];
+      
+      // Store the original user query to move it to the end
+      const originalUserQuery = enhancedContent;
       
       // If this is the first message in the conversation and there are attachments anywhere,
       // include a context summary of all available files
@@ -177,7 +187,9 @@ export const sendMessage = async (
           .map(att => `- ${att.name} (${att.type}, ${formatFileSize(att.size)}, uploaded ${new Date(att.timestamp).toLocaleString()})`)
           .join('\n');
         
-        enhancedContent = `[CONTEXT: Files available in this conversation:\n${attachmentSummary}]\n\n${enhancedContent}`;
+        enhancedContent = `[CONTEXT: Files available in this conversation:\n${attachmentSummary}]\n\n`;
+      } else {
+        enhancedContent = '';
       }
       
       // If the current message has attachments, handle them appropriately
@@ -187,6 +199,56 @@ export const sendMessage = async (
           // Handle text, document, and PDF attachments by including their content in the message
           if ((attachment.type === 'text' || attachment.type === 'document' || attachment.type === 'pdf') && attachment.content) {
             enhancedContent += `\n\n--- File: ${attachment.name} (Size: ${formatFileSize(attachment.size)}, Type: ${attachment.type}) ---\n${attachment.content}\n--- End of ${attachment.name} ---\n`;
+          }
+          
+          // For PDF and Office files, also include extracted images (charts, diagrams, etc.)
+          if ((attachment.type === 'pdf' || ['docx', 'doc', 'xlsx', 'xls'].includes(attachment.type)) && attachment.imageFileIds && attachment.imageFileIds.length > 0) {
+            console.log(`📸 Including ${attachment.imageFileIds.length} extracted images from ${attachment.name}`);
+            
+            for (let imgIndex = 0; imgIndex < attachment.imageFileIds.length; imgIndex++) {
+              const imageRef = attachment.imageFileIds[imgIndex];
+              
+              if (imageRef) {
+                if (typeof imageRef === 'string') {
+                  // Handle file ID - fetch from server
+                  console.log(`📁 Fetching extracted image ${imgIndex + 1} from server: ${imageRef}`);
+                  try {
+                    const response = await fetch(`${getFileApiBaseUrl()}/files/${imageRef}`);
+                    if (response.ok) {
+                      const blob = await response.blob();
+                      
+                      // Convert blob to base64
+                      const reader = new FileReader();
+                      const base64Promise = new Promise<string>((resolve, reject) => {
+                        reader.onload = () => {
+                          const result = reader.result as string;
+                          const base64Data = result.split(',')[1];
+                          resolve(base64Data);
+                        };
+                        reader.onerror = reject;
+                      });
+                      
+                      reader.readAsDataURL(blob);
+                      const base64Data = await base64Promise;
+                      
+                      messageImages.push(base64Data);
+                      console.log(`✅ Added extracted image ${imgIndex + 1} from ${attachment.name} (${Math.round(base64Data.length * 3 / 4 / 1024)}KB)`);
+                    } else {
+                      console.warn(`⚠️ Could not fetch extracted image from server: ${response.status} for ${imageRef}`);
+                    }
+                  } catch (fetchError) {
+                    console.error(`❌ Error fetching extracted image ${imageRef}:`, fetchError);
+                  }
+                } else if (typeof imageRef === 'object' && imageRef.content) {
+                  // Handle object with content
+                  const base64Data = imageRef.content.split(',')[1];
+                  if (base64Data) {
+                    messageImages.push(base64Data);
+                    console.log(`✅ Added extracted image ${imgIndex + 1} from ${attachment.name} (stored content, ${Math.round(base64Data.length * 3 / 4 / 1024)}KB)`);
+                  }
+                }
+              }
+            }
           }
           
           // Handle file references - fetch content from server if needed
@@ -823,6 +885,11 @@ export const sendMessage = async (
         console.log(`✅ Follow-up message enhanced with ${allAttachments.size} files and ${messageImages.length} images`);
       }
       
+      // Add the original user query at the end (just before images) for better instruction-following structure
+      if (msg.role === 'user' && originalUserQuery.trim()) {
+        enhancedContent += `\n\n--- USER QUERY ---\n${originalUserQuery.trim()}\n--- END USER QUERY ---\n`;
+      }
+      
       // Debug logging for images being sent to AI
       if (messageImages.length > 0) {
         console.log(`🖼️ Sending ${messageImages.length} images to AI model for message ${index + 1}`);
@@ -840,6 +907,18 @@ export const sendMessage = async (
         ...(messageImages.length > 0 && { images: messageImages })
       };
     }));
+    
+    // Add system message for better LLM guidance when processing documents
+    let finalMessages = formattedMessages;
+    if (hasDocuments) {
+      finalMessages = [
+        {
+          role: 'system',
+          content: 'You will receive structured data extracted from documents (PDF, Office files, etc.). Use only the actual content to answer the user\'s request. Ignore metadata like font, position, or confidence values. Focus on meaning and semantic content.'
+        },
+        ...formattedMessages
+      ];
+    }
     
     const endpoint = '/chat';
     
@@ -914,7 +993,7 @@ export const sendMessage = async (
       // Prepare the request payload
       const payload: any = {
         model: modelId,
-        messages: formattedMessages,
+        messages: finalMessages,
         stream: true,
         options: options || {
           num_ctx: 4096,
@@ -1005,7 +1084,7 @@ export const sendMessage = async (
       // Prepare the request payload
       const payload: any = {
         model: modelId,
-        messages: formattedMessages,
+        messages: finalMessages,
         stream: false,
         options: options || {
           num_ctx: 4096,
