@@ -4,12 +4,10 @@ import { chartExtractor, ChartData } from './chartExtractor';
 
 // Helper function to get the correct API base URL for file operations
 const getFileApiBaseUrl = (): string => {
-  // In production (Docker), use relative URLs that will be proxied by nginx
-  if (process.env.NODE_ENV === 'production') {
-    return '/api';
-  }
-  // In development, use the full localhost URL
-  return 'http://localhost:3001/api';
+  // In both development and production, use relative URLs
+  // Development: React dev server proxy will forward to localhost:3001
+  // Production: nginx will proxy to the backend
+  return '/api';
 };
 
 // Enhanced metadata interfaces for comprehensive PDF processing
