@@ -66,10 +66,21 @@ const api = axios.create({
 
 // Helper function to get the correct API base URL for file operations
 const getFileApiBaseUrl = (): string => {
-  // In both development and production, use relative URLs
-  // Development: React dev server proxy will forward to localhost:3001
-  // Production: nginx will proxy to the backend
-  return '/api';
+  // Check if we're running in Docker by looking at the hostname and port
+  const hostname = window.location.hostname;
+  const port = window.location.port;
+  
+  // In development, React runs on port 3000, backend on 3001
+  // In Docker/production, we use nginx proxy with relative URLs
+  const isLocalDevelopment = (hostname === 'localhost' || hostname === '127.0.0.1') && port === '3000';
+  
+  if (isLocalDevelopment) {
+    // Development: React on 3000, backend on 3001
+    return 'http://localhost:3001/api';
+  } else {
+    // Docker/production: use relative URLs (nginx handles proxy)
+    return '/api';
+  }
 };
 
 // Fetch available models
@@ -781,7 +792,7 @@ export const sendMessage = async (
                   }
                 } else {
                   try {
-                    const response = await fetch(`http://localhost:3001/api/files/${imageRef}`);
+                    const response = await fetch(`${getFileApiBaseUrl()}/files/${imageRef}`);
                     if (response.ok) {
                       const blob = await response.blob();
                       const reader = new FileReader();

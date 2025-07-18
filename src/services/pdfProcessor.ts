@@ -4,17 +4,20 @@ import { chartExtractor, ChartData } from './chartExtractor';
 
 // Helper function to get the correct API base URL for file operations
 const getFileApiBaseUrl = (): string => {
-  // Check if we're running in Docker by looking at the hostname
-  // In Docker, the hostname will not be 'localhost'
+  // Check if we're running in Docker by looking at the hostname and port
   const hostname = window.location.hostname;
-  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  const port = window.location.port;
   
-  if (!isLocalhost) {
-    // In Docker/production, use relative URLs (nginx handles proxy)
-    return '/api';
-  } else {
-    // In development on localhost, use direct backend URL
+  // In development, React runs on port 3000, backend on 3001
+  // In Docker/production, we use nginx proxy with relative URLs
+  const isLocalDevelopment = (hostname === 'localhost' || hostname === '127.0.0.1') && port === '3000';
+  
+  if (isLocalDevelopment) {
+    // Development: React on 3000, backend on 3001
     return 'http://localhost:3001/api';
+  } else {
+    // Docker/production: use relative URLs (nginx handles proxy)
+    return '/api';
   }
 };
 
