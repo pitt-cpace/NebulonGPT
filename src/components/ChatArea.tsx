@@ -102,6 +102,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [interimTranscript, setInterimTranscript] = useState('');
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [fileProcessingError, setFileProcessingError] = useState<string | null>(null);
+  const [voiceBufferStatus, setVoiceBufferStatus] = useState<{
+    isOfflineMode: boolean;
+    cachedChunks: number;
+    cachedSizeKB: number;
+    offlineDurationSeconds: number;
+    maxBufferSizeKB: number;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -185,6 +192,31 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       setInterimTranscript('');
     }
   }, [micStoppedTrigger, voskRecognition, isListening]);
+
+  // Monitor voice buffer status when recording
+  useEffect(() => {
+    if (!voskRecognition || !isListening) {
+      setVoiceBufferStatus(null);
+      return;
+    }
+
+    const updateBufferStatus = () => {
+      if (voskRecognition) {
+        const status = voskRecognition.getVoiceBufferStatus();
+        setVoiceBufferStatus(status);
+      }
+    };
+
+    // Update immediately
+    updateBufferStatus();
+
+    // Update every second while recording
+    const interval = setInterval(updateBufferStatus, 1000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [voskRecognition, isListening]);
 
   // Dedicated function to start mic listening
   const startMicListening = useCallback(async () => {
@@ -1440,6 +1472,35 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       speechError
                     )}
                   </Typography>
+                )}
+                
+                {/* Voice buffer status indicator */}
+                {voiceBufferStatus && voiceBufferStatus.isOfflineMode && (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      mt: 0.5,
+                      p: 0.5,
+                      bgcolor: 'error.main',
+                      color: 'error.contrastText',
+                      borderRadius: 1,
+                      fontSize: '10px',
+                      whiteSpace: 'nowrap',
+                      zIndex: 1000,
+                      boxShadow: 2,
+                      animation: 'pulse 2s infinite',
+                      '@keyframes pulse': {
+                        '0%': { opacity: 1 },
+                        '50%': { opacity: 0.7 },
+                        '100%': { opacity: 1 },
+                      },
+                    }}
+                  >
+                    🔴 OFFLINE: {voiceBufferStatus.cachedChunks} chunks ({voiceBufferStatus.cachedSizeKB}KB) 
+                    - {voiceBufferStatus.offlineDurationSeconds.toFixed(1)}s
+                  </Box>
                 )}
               </Box>
 
