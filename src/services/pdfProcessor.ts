@@ -897,10 +897,13 @@ export class EnhancedPDFProcessor {
         // In a more sophisticated implementation, you'd segment the image regions
         const imageDataUrl = await this.optimizeImageForLLM(canvas, pageNumber, 'visual-content');
         
+        // Save the image to server first
+        const savedImageId = await this.saveImageToServer(imageDataUrl, pageNumber, 'visual-content');
+        
         const imageItem: PDFImageItem = {
           id: `image-${pageNumber}-visual-content`,
           type: 'image',
-          content: imageDataUrl,
+          content: savedImageId || imageDataUrl, // Use saved file ID or fallback to base64
           pageNumber,
           position: { x: 0, y: 0, width: viewport.width / 2, height: viewport.height / 2 },
           dimensions: {
@@ -921,7 +924,7 @@ export class EnhancedPDFProcessor {
         };
         
         images.push(imageItem);
-        console.log(`✅ Extracted visual content from page ${pageNumber}: ${Math.round(imageItem.metadata.size / 1024)}KB`);
+        console.log(`✅ Extracted visual content from page ${pageNumber}: ${Math.round(imageItem.metadata.size / 1024)}KB, saved as: ${savedImageId || 'base64'}`);
       }
       
       console.log(`📊 Extracted ${images.length} image regions from page ${pageNumber}`);
@@ -1331,6 +1334,51 @@ export class EnhancedPDFProcessor {
 
     } catch (error) {
       console.error(`❌ Error extracting chart image:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Save image to server filesystem in files directory
+   */
+  private async saveImageToServer(imageDataUrl: string, pageNumber: number, suffix: string): Promise<string | null> {
+    try {
+      console.log(`💾 Saving image from page ${pageNumber} to files directory...`);
+      
+      // Extract base64 data from data URL
+      const base64Data = imageDataUrl.split(',')[1];
+      if (!base64Data) {
+        throw new Error('Invalid image data URL');
+      }
+
+      // Generate filename
+      const timestamp = Date.now();
+      const filename = `image_page${pageNumber}_${suffix}_${timestamp}.jpg`;
+      
+      // Save to files directory using the standard file save endpoint
+      const response = await fetch(`${getFileApiBaseUrl()}/files/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: imageDataUrl,
+          originalName: filename,
+          mimetype: 'image/jpeg'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log(`✅ Image saved to files directory: ${result.fileId}`);
+      
+      return result.fileId; // Return file ID instead of filepath
+
+    } catch (error) {
+      console.warn(`⚠️ Failed to save image to files directory:`, error);
       return null;
     }
   }
@@ -1926,33 +1974,74 @@ export class EnhancedPDFProcessor {
     try {
       console.log(`💾 Saving clean text to server for ${fileName}...`);
       
+      // Validate inputs
+      if (!cleanText || typeof cleanText !== 'string') {
+        console.warn(`⚠️ Clean text is empty or invalid for ${fileName}, creating placeholder content`);
+        cleanText = `[PDF Processing Results for ${fileName}]\n\nNo text content was extracted from this PDF.\nThis may be an image-based PDF or contain only visual elements.\n\nProcessed on: ${new Date().toISOString()}`;
+      }
+      
+      if (!fileName || typeof fileName !== 'string') {
+        throw new Error('Invalid fileName provided');
+      }
+      
       const timestamp = Date.now();
       const textFileName = `${fileName.replace(/\.[^/.]+$/, '')}_extracted_${timestamp}.txt`;
+      
+      console.log(`📝 Preparing to save ${cleanText.length} characters as ${textFileName}`);
+      
+      const requestBody = {
+        content: cleanText,
+        originalName: textFileName,
+        mimetype: 'text/plain'
+      };
+      
+      console.log(`🔍 Request body validation: content length=${requestBody.content.length}, originalName="${requestBody.originalName}", mimetype="${requestBody.mimetype}"`);
       
       const response = await fetch(`${getFileApiBaseUrl()}/files/save`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          content: cleanText,
-          originalName: textFileName,
-          mimetype: 'text/plain'
-        })
+        body: JSON.stringify(requestBody)
       });
 
+      console.log(`📡 Server response status: ${response.status} ${response.statusText}`);
+
       if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
+        // Try to get more detailed error information
+        let errorDetails = '';
+        try {
+          const errorResponse = await response.text();
+          errorDetails = errorResponse;
+          console.error(`❌ Server error response:`, errorDetails);
+        } catch (parseError) {
+          console.error(`❌ Could not parse server error response:`, parseError);
+        }
+        
+        throw new Error(`Server responded with ${response.status}: ${response.statusText}${errorDetails ? ` - ${errorDetails}` : ''}`);
       }
 
       const result = await response.json();
-      console.log(`✅ Clean text saved to server: ${result.fileId}`);
+      
+      if (!result.success || !result.fileId) {
+        throw new Error(`Server response missing required fields: ${JSON.stringify(result)}`);
+      }
+      
+      console.log(`✅ Clean text saved to server: ${result.fileId} (${cleanText.length} characters)`);
       
       return result.fileId;
 
     } catch (error) {
-      console.error(`❌ Failed to save clean text to server:`, error);
-      throw new Error(`Failed to save extracted content: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error(`❌ Failed to save clean text to server for ${fileName}:`, error);
+      
+      // Provide more specific error information
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error(`Network error while saving extracted content: ${error.message}`);
+      } else if (error instanceof Error && error.message.includes('400')) {
+        throw new Error(`Server validation error while saving extracted content: ${error.message}`);
+      } else {
+        throw new Error(`Failed to save extracted content: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
   }
 
