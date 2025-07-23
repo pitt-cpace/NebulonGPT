@@ -22,6 +22,7 @@ Your Fully Private Ollama-based Web User Interface - A modern, elegant interface
 - **Real-time transcription** with interim results
 - **Model management interface** for easy switching
 - **WebSocket-based** communication on port 2700
+- **Voice caching** - saves up to 2 seconds of voice data for connection recovery
 
 ## Prerequisites
 
