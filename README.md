@@ -38,7 +38,7 @@ Your Fully Private Ollama-based Web User Interface - A modern, elegant interface
 2. Clone this repository:
    ```bash
    git clone --branch New-Features-From-Main-Branch https://github.com/pitt-cpace/NebulonGPT.git
-   cd ollama-ui
+   cd NebulonGPT
    ```
 
 3. Start the application using the provided script:
