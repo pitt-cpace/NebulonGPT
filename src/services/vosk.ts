@@ -34,6 +34,15 @@ export class VoskRecognitionService {
   private currentBufferSize = 0;
   private offlineModeStartTime: number | null = null;
   
+  // Silence detection for auto-stop
+  private silenceDetectionEnabled = true;
+  private silenceThreshold = 0.01; // Audio level threshold for silence detection
+  private silenceTimeout = 2000; // 2 seconds of silence before auto-stop
+  private lastAudioTime = 0;
+  private silenceTimer: NodeJS.Timeout | null = null;
+  private audioLevelSamples: number[] = [];
+  private maxAudioLevelSamples = 10; // Keep last 10 samples for averaging
+  
   // Event callbacks
   private onResultCallback: ((result: VoskResult) => void) | null = null;
   private onErrorCallback: ((error: string) => void) | null = null;
@@ -233,9 +242,14 @@ export class VoskRecognitionService {
         console.log('⚙️ Creating AudioWorklet node...');
         this.processor = new AudioWorkletNode(this.audioContext, 'vosk-audio-processor');
 
-        // Handle messages from the AudioWorklet processor with voice caching
+        // Handle messages from the AudioWorklet processor with voice caching and silence detection
         this.processor.port.onmessage = (event) => {
           if (event.data.type === 'audioData' && this.isRecording) {
+            // Process audio data for silence detection
+            if (this.silenceDetectionEnabled) {
+              this.processAudioForSilenceDetection(event.data.data);
+            }
+            
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
               // Online: Send directly to server
               this.socket.send(event.data.data);
@@ -332,6 +346,13 @@ export class VoskRecognitionService {
       }
 
       this.isRecording = true;
+      
+      // Initialize silence detection
+      this.lastAudioTime = Date.now();
+      this.audioLevelSamples = [];
+      this.clearSilenceTimer();
+      console.log(`🔇 Silence detection initialized - enabled: ${this.silenceDetectionEnabled}, timeout: ${this.silenceTimeout}ms`);
+      
       console.log('🎙️ Vosk speech recognition started - isRecording set to true');
       console.log('📋 Final state after start:');
       console.log('  - isRecording:', this.isRecording);
@@ -364,6 +385,11 @@ export class VoskRecognitionService {
 
     this.isRecording = false;
     this.wasRecordingBeforeDisconnect = false; // Clear the flag since this is manual stop
+    
+    // Clear silence detection timer
+    this.clearSilenceTimer();
+    console.log('🔇 Silence detection timer cleared');
+    
     console.log('🛑 Vosk speech recognition stopped - isRecording set to false');
     console.log('🛑 wasRecordingBeforeDisconnect cleared to prevent auto-resume');
 
@@ -1067,6 +1093,146 @@ export class VoskRecognitionService {
   public clearCachedVoiceData(): void {
     console.log('🗑️ Manually clearing cached voice data...');
     this.clearVoiceBuffer();
+  }
+
+  // ========================================
+  // SILENCE DETECTION METHODS
+  // ========================================
+
+  /**
+   * Process audio data for silence detection
+   */
+  private processAudioForSilenceDetection(audioData: ArrayBuffer): void {
+    if (!this.silenceDetectionEnabled || !this.isRecording) {
+      return;
+    }
+
+    try {
+      // Convert ArrayBuffer to Float32Array for analysis
+      const int16Array = new Int16Array(audioData);
+      const float32Array = new Float32Array(int16Array.length);
+      
+      // Convert int16 to float32 and calculate RMS (Root Mean Square) for audio level
+      let sum = 0;
+      for (let i = 0; i < int16Array.length; i++) {
+        const sample = int16Array[i] / 32768.0; // Convert to -1.0 to 1.0 range
+        float32Array[i] = sample;
+        sum += sample * sample;
+      }
+      
+      const rms = Math.sqrt(sum / float32Array.length);
+      
+      // Add to audio level samples for averaging
+      this.audioLevelSamples.push(rms);
+      if (this.audioLevelSamples.length > this.maxAudioLevelSamples) {
+        this.audioLevelSamples.shift();
+      }
+      
+      // Calculate average audio level
+      const avgLevel = this.audioLevelSamples.reduce((a, b) => a + b, 0) / this.audioLevelSamples.length;
+      
+      // Check if audio level is above silence threshold
+      if (avgLevel > this.silenceThreshold) {
+        // Audio detected - reset silence timer
+        this.lastAudioTime = Date.now();
+        this.clearSilenceTimer();
+        console.log(`🎤 Audio detected (level: ${avgLevel.toFixed(4)}, threshold: ${this.silenceThreshold})`);
+      } else {
+        // Silence detected - check if we should start/continue silence timer
+        const silenceDuration = Date.now() - this.lastAudioTime;
+        
+        if (silenceDuration > 500 && !this.silenceTimer) { // Wait 500ms before starting silence timer
+          console.log(`🔇 Silence detected, starting ${this.silenceTimeout}ms timer...`);
+          this.startSilenceTimer();
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Error processing audio for silence detection:', error);
+    }
+  }
+
+  /**
+   * Start silence timer for auto-stop
+   */
+  private startSilenceTimer(): void {
+    if (this.silenceTimer) {
+      return; // Timer already running
+    }
+
+    this.silenceTimer = setTimeout(async () => {
+      if (this.isRecording && this.silenceDetectionEnabled) {
+        console.log(`🔇 ${this.silenceTimeout}ms of silence detected - auto-stopping microphone`);
+        try {
+          await this.stop();
+          
+          // Notify that recording ended due to silence
+          if (this.onEndCallback) {
+            this.onEndCallback();
+          }
+        } catch (error) {
+          console.error('❌ Error auto-stopping due to silence:', error);
+        }
+      }
+      this.silenceTimer = null;
+    }, this.silenceTimeout);
+  }
+
+  /**
+   * Clear silence timer
+   */
+  private clearSilenceTimer(): void {
+    if (this.silenceTimer) {
+      clearTimeout(this.silenceTimer);
+      this.silenceTimer = null;
+    }
+  }
+
+  /**
+   * Enable or disable silence detection
+   */
+  public setSilenceDetectionEnabled(enabled: boolean): void {
+    this.silenceDetectionEnabled = enabled;
+    if (!enabled) {
+      this.clearSilenceTimer();
+    }
+    console.log(`🔇 Silence detection ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Set silence detection parameters
+   */
+  public setSilenceDetectionParams(threshold: number, timeout: number): void {
+    this.silenceThreshold = Math.max(0.001, Math.min(0.1, threshold)); // Clamp between 0.001 and 0.1
+    this.silenceTimeout = Math.max(500, Math.min(10000, timeout)); // Clamp between 0.5s and 10s
+    console.log(`🔇 Silence detection params updated - threshold: ${this.silenceThreshold}, timeout: ${this.silenceTimeout}ms`);
+  }
+
+  /**
+   * Get current silence detection status
+   */
+  public getSilenceDetectionStatus(): {
+    enabled: boolean;
+    threshold: number;
+    timeout: number;
+    currentLevel: number;
+    silenceDuration: number;
+    isTimerActive: boolean;
+  } {
+    const avgLevel = this.audioLevelSamples.length > 0 
+      ? this.audioLevelSamples.reduce((a, b) => a + b, 0) / this.audioLevelSamples.length 
+      : 0;
+    
+    const silenceDuration = Date.now() - this.lastAudioTime;
+    
+    return {
+      enabled: this.silenceDetectionEnabled,
+      threshold: this.silenceThreshold,
+      timeout: this.silenceTimeout,
+      currentLevel: avgLevel,
+      silenceDuration: silenceDuration,
+      isTimerActive: this.silenceTimer !== null,
+    };
   }
 }
 
