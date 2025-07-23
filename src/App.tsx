@@ -19,7 +19,7 @@ const App: React.FC = () => {
   // Model settings
   const [contextLength, setContextLength] = useState(4096); // Default context length
   const [temperature, setTemperature] = useState(0.8); // Default temperature
-  const [maxContextLength, setMaxContextLength] = useState(2048); // Default max context length
+  const [maxContextLength, setMaxContextLength] = useState(32768); // Default max context length for modern models
 
   // Vosk speech recognition state
   const [micStoppedTrigger, setMicStoppedTrigger] = useState(0);

@@ -14,6 +14,7 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/http.d/default.conf
       - chat-data:/app/data
+      - vosk-models:/app/vosk-models
     environment:
       - NODE_ENV=production
       # This is used during the build process
@@ -37,7 +38,7 @@ services:
       - ./Vosk-Server/websocket/models:/app/websocket/models
     environment:
       - PYTHONUNBUFFERED=1
-    command: ["python", "/app/websocket/asr_server_with_models.py", "/app/websocket/models"]
+    command: ["python", "/app/websocket/asr_server_with_models.py", "/app/models"]
 
 networks:
   nebulon-network:

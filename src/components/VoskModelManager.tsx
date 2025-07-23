@@ -72,7 +72,7 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
   const [selectAllDir, setSelectAllDir] = useState(false);
   const [selectAllOther, setSelectAllOther] = useState(false);
 
-  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+  const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
   const loadModels = useCallback(async () => {
     setLoading(true);
