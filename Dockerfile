@@ -49,5 +49,6 @@ RUN chmod +x /app/start-services.sh
 # Port 3001 is only used internally within the container
 EXPOSE 80
 
-# Start both services
-CMD ["/app/start-services.sh"]
+# Override the default entrypoint and start both services
+ENTRYPOINT []
+CMD ["sh", "/app/start-services.sh"]

@@ -40,6 +40,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
 import { getSuggestedPrompts } from '../services/api';
+import { VoskRecognitionService } from '../services/vosk';
 import * as styles from '../styles/components/ChatArea.styles';
 
 // Set the worker source path
@@ -54,7 +55,11 @@ interface ChatAreaProps {
   onStopResponse: () => void;
   onToggleSidebar: () => void;
   onSelectModel: (model: ModelType) => void;
-  sidebarOpen: boolean; // Add sidebarOpen prop
+  sidebarOpen: boolean;
+  voskRecognition?: VoskRecognitionService | null;
+  micStoppedTrigger?: number;
+  onMicStart?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -66,12 +71,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onStopResponse,
   onToggleSidebar,
   onSelectModel,
-  sidebarOpen, // Destructure sidebarOpen
+  sidebarOpen,
+  voskRecognition,
+  micStoppedTrigger,
+  onMicStart,
+  onMicStop,
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
   const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
   const [isListening, setIsListening] = useState(false);
+  const [isProcessingMic, setIsProcessingMic] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
@@ -88,69 +98,104 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [chat?.messages]);
 
-  // Initialize speech recognition - using browser's built-in local speech recognition
+  // Initialize Vosk speech recognition event handlers
   useEffect(() => {
-    // Check if the browser supports the Web Speech API
-    // Note: This uses the browser's built-in speech recognition which is processed locally
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-    if (!SpeechRecognition) {
-      console.warn('Local speech recognition is not supported in this browser.');
-      setSpeechError('Local speech recognition not supported in this browser');
+    if (!voskRecognition) {
+      // Fallback to browser speech recognition if Vosk is not available
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      
+      if (!SpeechRecognition) {
+        console.warn('Neither Vosk nor browser speech recognition is available.');
+        setSpeechError('Speech recognition not available');
+        return;
+      }
+
+      try {
+        // Create a browser speech recognition instance as fallback
+        const recognition = new SpeechRecognition();
+        
+        // Configure speech recognition to use local processing
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+        
+        // Set up event handlers
+        recognition.onresult = (event: SpeechRecognitionEvent) => {
+          let interimTranscript = '';
+          let finalTranscript = '';
+          
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalTranscript += transcript;
+            } else {
+              interimTranscript += transcript;
+            }
+          }
+          
+          // Update the interim transcript for display
+          setInterimTranscript(interimTranscript);
+          
+          // If we have a final transcript, update the message
+          if (finalTranscript) {
+            finalTranscriptRef.current += finalTranscript;
+            setMessage(finalTranscriptRef.current);
+          }
+        };
+        
+        recognition.onend = () => {
+          setIsListening(false);
+          setInterimTranscript('');
+        };
+        
+        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+          console.error('Browser speech recognition error', event.error);
+          setSpeechError(`Browser speech error: ${event.error}`);
+          setIsListening(false);
+        };
+        
+        // Store the recognition instance in the ref
+        recognitionRef.current = recognition;
+        console.log('🔄 Using browser speech recognition as fallback');
+      } catch (error) {
+        console.error('Error initializing browser speech recognition:', error);
+        setSpeechError('Failed to initialize speech recognition');
+      }
+      
       return;
     }
 
-    try {
-      // Create a speech recognition instance
-      const recognition = new SpeechRecognition();
+    // Set up event handlers for the VoskRecognitionService instance
+    voskRecognition.onResult((result: { text?: string; partial?: string }) => {
+      if (result.partial) {
+        // Update interim transcript for real-time display
+        setInterimTranscript(result.partial);
+      }
       
-      // Configure speech recognition to use local processing
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-      
-      // Set up event handlers
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
-        
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-        
-        // Update the interim transcript for display
-        setInterimTranscript(interimTranscript);
-        
-        // If we have a final transcript, update the message
-        if (finalTranscript) {
-          finalTranscriptRef.current += finalTranscript;
-          setMessage(finalTranscriptRef.current);
-        }
-      };
-      
-      recognition.onend = () => {
-        setIsListening(false);
-        setInterimTranscript('');
-      };
-      
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error('Speech recognition error', event.error);
-        setSpeechError(`Error: ${event.error}`);
-        setIsListening(false);
-      };
-      
-      // Store the recognition instance in the ref
-      recognitionRef.current = recognition;
-    } catch (error) {
-      console.error('Error initializing speech recognition:', error);
-      setSpeechError('Failed to initialize local speech recognition');
-    }
+      if (result.text) {
+        // Final transcript received
+        console.log('🟢 Vosk Final:', result.text);
+        finalTranscriptRef.current += result.text + ' ';
+        setMessage(finalTranscriptRef.current);
+        setInterimTranscript(''); // Clear interim transcript
+      }
+    });
     
+    voskRecognition.onError((error: string) => {
+      console.error('Vosk speech recognition error:', error);
+      setSpeechError(error);
+      setIsListening(false);
+    });
+    
+    voskRecognition.onEnd(() => {
+      setIsListening(false);
+      setInterimTranscript('');
+    });
+
+    // Clear any previous errors
+    setSpeechError(null);
+    console.log('✅ Vosk speech recognition initialized');
+
     // Clean up on component unmount
     return () => {
       if (recognitionRef.current) {
@@ -160,41 +205,203 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           recognitionRef.current.onerror = null;
           recognitionRef.current.abort();
         } catch (error) {
-          console.error('Error cleaning up speech recognition:', error);
+          console.error('Error cleaning up browser speech recognition:', error);
         }
       }
     };
-  }, []);
+  }, [voskRecognition]);
 
-  // Toggle speech recognition
-  const toggleListening = useCallback(() => {
-    if (!recognitionRef.current) {
-      setSpeechError('Speech recognition not available');
+  // Handle mic stopped from settings - listen for the trigger
+  useEffect(() => {
+    if (micStoppedTrigger && micStoppedTrigger > 0 && voskRecognition && !voskRecognition.isCurrentlyRecording() && isListening) {
+      console.log('🔄 Mic stopped from settings, updating ChatArea UI state...');
+      setIsListening(false);
+      setInterimTranscript('');
+    }
+  }, [micStoppedTrigger, voskRecognition, isListening]);
+
+  // Dedicated function to start mic listening
+  const startMicListening = useCallback(async () => {
+    console.log('🎙️ STARTING speech recognition...');
+    
+    if (!voskRecognition) {
+      // Fallback to browser speech recognition
+      if (!recognitionRef.current) {
+        setSpeechError('Speech recognition not available');
+        return;
+      }
+      
+      try {
+        finalTranscriptRef.current = message;
+        recognitionRef.current.start();
+        setIsListening(true);
+        console.log('✅ Browser speech recognition started');
+      } catch (error) {
+        console.error('Error starting browser speech recognition:', error);
+        setSpeechError('Failed to start speech recognition');
+      }
       return;
+    }
+
+    if (isListening) {
+      console.log('⚠️ Already listening, skipping start');
+      return;
+    }
+
+    try {
+      const modelCheck = await voskRecognition.checkModelAvailability();
+      if (!modelCheck.hasModels) {
+        console.error('❌ Model availability check failed:', modelCheck.errorMessage);
+        setSpeechError(modelCheck.errorMessage || 'Speech recognition not available');
+        throw new Error(modelCheck.errorMessage || 'Speech recognition not available');
+      }
+      
+      // Check if a model is currently loaded on the server
+      const currentModel = await voskRecognition.getServerCurrentModel();
+      
+      if (!currentModel || currentModel === 'none') {
+        // No model loaded, auto-load default model when user clicks microphone
+        console.log('🎤 No model loaded, auto-selecting default model for microphone usage...');
+        
+        const availableModels = await voskRecognition.getAvailableModels();
+        if (availableModels.length === 0) {
+          throw new Error('No speech recognition models available');
+        }
+        
+        // Priority order for default model selection
+        const preferredModels = [
+          'vosk-model-small-en-us-0.15',
+          'vosk-model-en-us-0.22',
+          'vosk-model-small-en-us',
+          'vosk-model-en-us'
+        ];
+        
+        let defaultModel = '';
+        
+        // Try to find a preferred model
+        for (const preferred of preferredModels) {
+          if (availableModels.includes(preferred)) {
+            defaultModel = preferred;
+            break;
+          }
+        }
+        
+        // If no preferred model found, use the first available model
+        if (!defaultModel) {
+          defaultModel = availableModels[0];
+        }
+        
+        console.log(`🎤 Auto-loading default model for microphone: ${defaultModel}`);
+        await voskRecognition.selectModel(defaultModel);
+        console.log(`✅ Default model loaded successfully: ${defaultModel}`);
+      } else {
+        console.log(`✅ Using currently running model for speech recognition: ${currentModel}`);
+      }
+    } catch (error) {
+      console.error('❌ Failed to check/load model for speech recognition:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to prepare speech recognition';
+      setSpeechError(errorMessage);
+      throw error;
     }
     
     setSpeechError(null); // Clear any previous errors
     
-    if (isListening) {
+    try {
+      // Reset the final transcript when starting a new recognition session
+      finalTranscriptRef.current = message;
+      console.log('  - finalTranscriptRef reset to:', finalTranscriptRef.current);
+      
+      // Start recognition
+      console.log('  - Calling voskRecognition.start()...');
+      await voskRecognition.start();
+      console.log('✅ voskRecognition.start() completed successfully');
+      
+      setIsListening(true);
+      console.log('✅ UI state updated - isListening set to true');
+      console.log('✅ Vosk speech recognition started successfully');
+    } catch (error) {
+      console.error('❌ Error starting Vosk speech recognition:', error);
+      setSpeechError('Failed to start Vosk speech recognition');
+      console.log('❌ UI state - speechError set to:', 'Failed to start Vosk speech recognition');
+      throw error;
+    }
+  }, [isListening, message, voskRecognition]);
+
+  // Dedicated function to stop mic listening
+  const stopMicListening = useCallback(async () => {
+    console.log('🛑 STOPPING speech recognition...');
+    
+    if (voskRecognition) {
+      if (!isListening) {
+        console.log('⚠️ Not currently listening, skipping stop');
+        return;
+      }
+      
+      try {
+        await voskRecognition.stop();
+        console.log('✅ voskRecognition.stop() called successfully');
+      } catch (error) {
+        console.error('❌ Error stopping Vosk speech recognition:', error);
+        // Don't throw here, we still want to update UI state
+      }
+    } else if (recognitionRef.current) {
+      // Fallback to browser speech recognition
       try {
         recognitionRef.current.stop();
+        console.log('✅ Browser speech recognition stopped');
       } catch (error) {
-        console.error('Error stopping speech recognition:', error);
-      }
-      setIsListening(false);
-      setInterimTranscript('');
-    } else {
-      try {
-        // Reset the final transcript when starting a new recognition session
-        finalTranscriptRef.current = message;
-        recognitionRef.current.start();
-        setIsListening(true);
-      } catch (error) {
-        console.error('Error starting speech recognition:', error);
-        setSpeechError('Failed to start speech recognition');
+        console.error('❌ Error stopping browser speech recognition:', error);
       }
     }
-  }, [isListening, message]);
+    
+    // Update all UI states
+    setIsListening(false);
+    setInterimTranscript('');
+    console.log('✅ UI state updated - isListening set to false, interimTranscript cleared');
+  }, [voskRecognition, isListening]);
+
+  // Toggle speech recognition with debounce protection
+  const toggleListening = useCallback(async () => {
+    console.log('🎤 MICROPHONE BUTTON CLICKED!');
+    console.log('  - isListening:', isListening);
+    console.log('  - isProcessingMic:', isProcessingMic);
+    
+    // Prevent rapid clicks - debounce protection
+    if (isProcessingMic) {
+      console.log('⏳ Mic operation already in progress, ignoring click');
+      return;
+    }
+    
+    // Set processing state to prevent rapid clicks
+    setIsProcessingMic(true);
+    
+    try {
+      if (isListening) {
+        // Stop listening
+        await stopMicListening();
+      } else {
+        // Start listening
+        await startMicListening();
+      }
+    } catch (error) {
+      console.error('❌ Error in mic toggle operation:', error);
+      // Error handling is already done in individual functions
+    } finally {
+      // Always clear processing state after operation completes
+      setIsProcessingMic(false);
+      console.log('🏁 toggleListening completed - processing state cleared');
+    }
+  }, [isListening, isProcessingMic, startMicListening, stopMicListening]);
+
+  // Expose mic functions to parent components
+  useEffect(() => {
+    if (onMicStart) {
+      onMicStart.current = startMicListening;
+    }
+    if (onMicStop) {
+      onMicStop.current = stopMicListening;
+    }
+  }, [startMicListening, stopMicListening, onMicStart, onMicStop]);
 
   const handleSendMessage = () => {
     // Allow sending if there's a message OR attachments
@@ -1289,7 +1496,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   size="small" 
                   sx={isListening ? styles.micButtonActive : (speechError ? styles.micButtonError : styles.micButton)}
                   onClick={toggleListening}
-                  disabled={loading || !recognitionRef.current}
+                  disabled={loading || isProcessingMic || (!voskRecognition && !recognitionRef.current)}
                   title={speechError || (isListening ? 'Stop dictation' : 'Start dictation')}
                 >
                   <MicIcon />

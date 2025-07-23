@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, CssBaseline } from '@mui/material';
 import * as styles from './styles/components/App.styles';
 import Sidebar from './components/Sidebar';
@@ -6,6 +6,7 @@ import ChatArea from './components/ChatArea';
 import SettingsDialog from './components/SettingsDialog';
 import { ModelType, ChatType, MessageType, FileAttachment } from './types';
 import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
+import { voskRecognition } from './services/vosk';
 
 const App: React.FC = () => {
   const [models, setModels] = useState<ModelType[]>([]);
@@ -19,6 +20,16 @@ const App: React.FC = () => {
   const [contextLength, setContextLength] = useState(4096); // Default context length
   const [temperature, setTemperature] = useState(0.8); // Default temperature
   const [maxContextLength, setMaxContextLength] = useState(2048); // Default max context length
+
+  // Vosk speech recognition state
+  const [micStoppedTrigger, setMicStoppedTrigger] = useState(0);
+  const onMicStartRef = useRef<(() => Promise<void>) | null>(null);
+  const onMicStopRef = useRef<(() => Promise<void>) | null>(null);
+
+  // Handle mic stopped from settings
+  const handleMicStopped = () => {
+    setMicStoppedTrigger(prev => prev + 1);
+  };
 
   // Function to determine the chat API URL based on environment
   const getChatApiUrl = useCallback(() => {
@@ -384,6 +395,10 @@ const App: React.FC = () => {
         temperature={temperature}
         maxContextLength={maxContextLength}
         onSaveSettings={handleSaveSettings}
+        voskRecognition={voskRecognition}
+        onMicStopped={handleMicStopped}
+        onMicStart={onMicStartRef}
+        onMicStop={onMicStopRef}
       />
       
       {/* Chat interface */}
@@ -406,6 +421,10 @@ const App: React.FC = () => {
         models={models}
         onSelectModel={handleSelectModel}
         sidebarOpen={sidebarOpen}
+        voskRecognition={voskRecognition}
+        micStoppedTrigger={micStoppedTrigger}
+        onMicStart={onMicStartRef}
+        onMicStop={onMicStopRef}
       />
     </Box>
   );

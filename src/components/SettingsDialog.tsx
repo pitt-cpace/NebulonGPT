@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -10,9 +10,13 @@ import {
   Slider,
   Box,
   IconButton,
+  Divider,
 } from '@mui/material';
-import { Settings as SettingsIcon, Close as CloseIcon } from '@mui/icons-material';
+import { Settings as SettingsIcon, Close as CloseIcon, Storage as StorageIcon } from '@mui/icons-material';
 import { ModelType } from '../types';
+import { VoskRecognitionService } from '../services/vosk';
+import VoskModelSelector from './VoskModelSelector';
+import VoskModelManager from './VoskModelManager';
 import * as styles from '../styles/components/SettingsDialog.styles';
 
 interface SettingsDialogProps {
@@ -21,20 +25,30 @@ interface SettingsDialogProps {
   temperature: number;
   maxContextLength?: number; // Maximum context length supported by the model
   onSaveSettings: (contextLength: number, temperature: number) => void;
+  voskRecognition?: VoskRecognitionService | null;
+  onMicStopped?: () => void;
+  onMicStart?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
 
 const SettingsDialog: React.FC<SettingsDialogProps> = ({
   model,
   contextLength,
   temperature,
-  maxContextLength = 2048, // Default to 48000 if not provided
+  maxContextLength = 48000, // Default to 48000 if not provided
   onSaveSettings,
+  voskRecognition,
+  onMicStopped,
+  onMicStart,
+  onMicStop,
 }) => {
   const [open, setOpen] = useState(false);
   const [localContextLength, setLocalContextLength] = useState(contextLength);
   const [localTemperature, setLocalTemperature] = useState(temperature);
   const [contextLengthError, setContextLengthError] = useState('');
   const [temperatureError, setTemperatureError] = useState('');
+  const [modelManagerOpen, setModelManagerOpen] = useState(false);
+  const [refreshModels, setRefreshModels] = useState<(() => void) | null>(null);
 
   // Update local state when props change
   useEffect(() => {
@@ -114,6 +128,24 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             </Typography>
           </Box>
 
+          {/* Vosk Speech Recognition Model Section */}
+          <Divider sx={{ my: 2 }} />
+          <VoskModelSelector
+            voskRecognition={voskRecognition || null}
+            onModelSelected={(modelName) => {
+              console.log('Model selected:', modelName);
+            }}
+            onError={(error) => {
+              console.error('Vosk model selector error:', error);
+            }}
+            onMicStopped={onMicStopped}
+            onMicStart={onMicStart}
+            onMicStop={onMicStop}
+            onManageModels={() => setModelManagerOpen(true)}
+            onRefreshReady={(refreshFn) => setRefreshModels(() => refreshFn)}
+          />
+          <Divider sx={{ my: 2 }} />
+
           <Box sx={styles.sectionContainer}>
             <Typography id="context-length-slider" gutterBottom>
               Context Length (2000-{maxContextLength})
@@ -174,6 +206,14 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Vosk Model Manager Dialog */}
+      <VoskModelManager
+        open={modelManagerOpen}
+        onClose={() => setModelManagerOpen(false)}
+        voskRecognition={voskRecognition}
+        onRefreshModels={refreshModels || undefined}
+      />
     </>
   );
 };

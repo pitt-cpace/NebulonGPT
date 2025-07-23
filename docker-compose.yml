@@ -10,7 +10,7 @@ services:
       - "3000:80"
     restart: unless-stopped
     networks:
-      - ollama-network
+      - nebulon-network
     volumes:
       - ./nginx.conf:/etc/nginx/http.d/default.conf
       - chat-data:/app/data
@@ -18,11 +18,33 @@ services:
       - NODE_ENV=production
       # This is used during the build process
       - REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434
+      - REACT_APP_VOSK_SERVER_URL=ws://vosk-server:2700
+    depends_on:
+      - vosk-server
+
+  vosk-server:
+    build:
+      context: ./Vosk-Server
+      dockerfile: Dockerfile.vosk
+    container_name: vosk-server
+    ports:
+      - "2700:2700"
+    restart: unless-stopped
+    networks:
+      - nebulon-network
+    volumes:
+      - vosk-models:/app/models
+      - ./Vosk-Server/websocket/models:/app/websocket/models
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python", "/app/websocket/asr_server_with_models.py", "/app/websocket/models"]
 
 networks:
-  ollama-network:
+  nebulon-network:
     driver: bridge
 
 volumes:
   chat-data:
+    driver: local
+  vosk-models:
     driver: local

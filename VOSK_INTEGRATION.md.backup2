@@ -1,0 +1,198 @@
+# Vosk Speech Recognition Integration
+
+This document describes the integration of Vosk speech recognition server to replace the browser's built-in speech recognition in NebulonGPT.
+
+## Overview
+
+The integration replaces the browser's Web Speech API with a local Vosk server that provides:
+- Fully offline speech recognition
+- Better privacy (no data sent to external services)
+- More consistent performance across different browsers
+- Support for multiple languages and models
+
+## Setup Instructions
+
+### Prerequisites
+
+1. **Python 3.7+** installed on your system
+2. **pip** package manager
+
+### Installation
+
+1. **Install Python dependencies:**
+   ```bash
+   pip install vosk websockets
+   ```
+
+2. **Extract the Vosk model** (already done):
+   The small English model `vosk-model-small-en-us-0.15` has been extracted to:
+   ```
+   Vosk-Server/websocket/models/vosk-model-small-en-us-0.15/
+   ```
+
+### Running the Application
+
+The Vosk server runs separately from the main application. You need to start both services:
+
+#### Step 1: Start the Vosk Server (Required for speech recognition)
+
+**Option A: Use the batch file (Windows):**
+```bash
+start-vosk-server.bat
+```
+
+**Option B: Manual startup:**
+```bash
+cd Vosk-Server/websocket
+python asr_server.py models\vosk-model-small-en-us-0.15
+```
+
+#### Step 2: Start the Main Application
+```bash
+npm run start:both
+```
+
+This starts both the Express server (backend) and React development server (frontend).
+
+#### Alternative: Start services individually
+```bash
+# Terminal 1: Start Express server
+npm run server
+
+# Terminal 2: Start React app
+npm start
+
+# Terminal 3: Start Vosk server (separate terminal)
+cd Vosk-Server/websocket
+python asr_server.py models\vosk-model-small-en-us-0.15
+```
+
+## How It Works
+
+### Architecture
+
+1. **Vosk Server**: Runs on `localhost:2700` and provides WebSocket-based speech recognition
+2. **VoskService**: TypeScript service that manages the WebSocket connection and audio processing
+3. **Audio Worklet**: Processes microphone audio and sends it to the Vosk server
+4. **ChatArea Component**: Updated to use VoskService instead of browser speech recognition
+
+### Key Components
+
+#### VoskService (`src/services/voskService.ts`)
+- Manages WebSocket connection to Vosk server
+- Handles audio context and worklet processing
+- Provides event-based API for speech recognition results
+
+#### Audio Worklet (`public/data-conversion-processor.js`)
+- Processes raw audio data from microphone
+- Converts audio to the format expected by Vosk server
+- Sends audio chunks via WebSocket
+
+#### Updated ChatArea Component
+- Replaced browser Speech Recognition API with VoskService
+- Maintains the same user interface and functionality
+- Improved error handling and connection status
+
+### Speech Recognition Flow
+
+1. User clicks microphone button
+2. VoskService initializes WebSocket connection to Vosk server
+3. Audio worklet starts capturing microphone input
+4. Audio data is processed and sent to Vosk server
+5. Vosk server returns partial and final recognition results
+6. Results are displayed in the chat interface
+
+## Configuration
+
+### Vosk Server Settings
+
+The Vosk server can be configured with environment variables:
+
+- `VOSK_SERVER_INTERFACE`: Server interface (default: `0.0.0.0`)
+- `VOSK_SERVER_PORT`: Server port (default: `2700`)
+- `VOSK_MODEL_PATH`: Path to the Vosk model (default: `model`)
+- `VOSK_SAMPLE_RATE`: Audio sample rate (default: `16000`)
+- `VOSK_SHOW_WORDS`: Show individual words (default: `True`)
+- `VOSK_ALTERNATIVES`: Number of alternatives (default: `0`)
+
+### VoskService Configuration
+
+The VoskService can be configured when initializing:
+
+```typescript
+const voskService = new VoskService({
+  serverUrl: 'ws://localhost:2700',  // Vosk server URL
+  sampleRate: 16000,                 // Audio sample rate
+  showWords: true,                   // Include word-level results
+  maxAlternatives: 0,                // Number of alternative results
+});
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"Failed to connect to Vosk server"**
+   - Ensure the Vosk server is running on localhost:2700
+   - Check that Python and required packages are installed
+   - Verify the model path is correct
+
+2. **"Failed to start speech recognition. Check microphone permissions."**
+   - Grant microphone permissions in your browser
+   - Ensure no other applications are using the microphone
+   - Try refreshing the page
+
+3. **Audio worklet errors**
+   - Ensure the `data-conversion-processor.js` file is accessible
+   - Check browser console for detailed error messages
+   - Verify the audio context is properly initialized
+
+### Debugging
+
+Enable debug logging by opening browser developer tools and checking the console for:
+- Vosk service initialization messages
+- WebSocket connection status
+- Audio processing errors
+
+## Model Information
+
+### Current Model
+- **Name**: vosk-model-small-en-us-0.15
+- **Language**: English (US)
+- **Size**: ~40MB
+- **Accuracy**: Good for general speech recognition
+
+### Using Different Models
+
+To use a different Vosk model:
+
+1. Download the model from [Vosk Models](https://alphacephei.com/vosk/models)
+2. Extract it to `Vosk-Server/websocket/models/`
+3. Update the model path in the startup scripts:
+   ```bash
+   python asr_server.py your-model-name
+   ```
+
+## Performance Notes
+
+- The small model provides good accuracy for general use
+- Larger models offer better accuracy but require more resources
+- Speech recognition is processed locally, ensuring privacy
+- Performance depends on your system's CPU capabilities
+
+## Security Considerations
+
+- All speech processing happens locally
+- No audio data is sent to external services
+- WebSocket connection is local (localhost only)
+- Microphone access requires user permission
+
+## Future Enhancements
+
+Potential improvements for the Vosk integration:
+
+1. **Multi-language support**: Allow users to switch between different language models
+2. **Custom vocabulary**: Add domain-specific terms for better accuracy
+3. **Voice activity detection**: Automatically start/stop recording based on speech
+4. **Model management**: UI for downloading and switching between models
+5. **Performance optimization**: GPU acceleration for larger models

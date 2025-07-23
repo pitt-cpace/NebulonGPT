@@ -34,11 +34,11 @@ else
     echo "Starting container..."
     docker run -d --name nebulon-gpt \
         -p 3000:80 \
-        # --add-host=host.docker.internal:host-gateway \
+        --add-host=host.docker.internal:host-gateway \
         -v "$(pwd)/nginx.conf:/etc/nginx/http.d/default.conf" \
         -v nebulon-gpt-data:/app/data \
         -e NODE_ENV=production \
-        -e REACT_APP_OLLAMA_API_URL=http://localhost:11434 \
+        -e REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434 \
         nebulon-gpt
 fi
 
