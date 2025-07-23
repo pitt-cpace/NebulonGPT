@@ -15,6 +15,7 @@ const App: React.FC = () => {
   const [currentChat, setCurrentChat] = useState<ChatType | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [initialized, setInitialized] = useState(false);
   
   // Model settings
   const [contextLength, setContextLength] = useState(4096); // Default context length
@@ -40,13 +41,17 @@ const App: React.FC = () => {
   // Function to save chats to the server
   const saveChatsToServer = useCallback(async (chatsToSave: ChatType[]) => {
     try {
-      await fetch(getChatApiUrl(), {
+      const response = await fetch(getChatApiUrl(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(chatsToSave),
       });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
     } catch (error) {
       console.error('Failed to save chats to server:', error);
     }
@@ -118,20 +123,6 @@ const App: React.FC = () => {
           } catch (error) {
             console.error('Failed to fetch model details for default model:', error);
           }
-          
-          // Only create a new chat if no chats were loaded from the server
-          if (chats.length === 0) {
-            const newChat: ChatType = {
-              id: `chat-${Date.now()}`,
-              title: 'New Chat',
-              modelId: defaultModel.id,
-              messages: [],
-              createdAt: new Date().toISOString(),
-            };
-            
-            setChats([newChat]);
-            setCurrentChat(newChat);
-          }
         }
       } catch (error) {
         console.error('Failed to load models:', error);
@@ -140,8 +131,31 @@ const App: React.FC = () => {
       }
     };
 
-    loadModels();
-  }, [chats.length]);
+    if (!initialized) {
+      loadModels();
+    }
+  }, [initialized]);
+
+  // Initialize app after both models and chats are loaded
+  useEffect(() => {
+    if (models.length > 0 && !initialized) {
+      // Check if we need to create a default chat
+      if (chats.length === 0) {
+        const defaultModel = models[0];
+        const newChat: ChatType = {
+          id: `chat-${Date.now()}`,
+          title: 'New Chat',
+          modelId: defaultModel.id,
+          messages: [],
+          createdAt: new Date().toISOString(),
+        };
+        
+        setChats([newChat]);
+        setCurrentChat(newChat);
+      }
+      setInitialized(true);
+    }
+  }, [models, chats, initialized]);
 
   const handleCreateNewChat = () => {
     if (!selectedModel) return;
