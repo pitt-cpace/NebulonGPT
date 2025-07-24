@@ -71,12 +71,43 @@ app.post('/api/chats', (req, res) => {
   }
 });
 
+// Helper function to calculate directory size recursively
+const getDirectorySize = (dirPath) => {
+  let totalSize = 0;
+  
+  try {
+    const items = fs.readdirSync(dirPath);
+    
+    for (const item of items) {
+      const itemPath = path.join(dirPath, item);
+      const stats = fs.statSync(itemPath);
+      
+      if (stats.isDirectory()) {
+        totalSize += getDirectorySize(itemPath);
+      } else {
+        totalSize += stats.size;
+      }
+    }
+  } catch (error) {
+    console.error(`Error calculating directory size for ${dirPath}:`, error);
+  }
+  
+  return totalSize;
+};
+
 // Helper function to get file stats
 const getFileStats = (filePath) => {
   try {
     const stats = fs.statSync(filePath);
+    let size = stats.size;
+    
+    // For directories, calculate the total size of all contents
+    if (stats.isDirectory()) {
+      size = getDirectorySize(filePath);
+    }
+    
     return {
-      size: stats.size,
+      size: size,
       modified: stats.mtime.toISOString(),
       isDirectory: stats.isDirectory(),
       isFile: stats.isFile()
