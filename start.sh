@@ -1,55 +1,77 @@
 #!/bin/bash
 
-# Check if Docker is installed
-if ! command -v docker &> /dev/null; then
-    echo "Docker is not installed. Please install Docker first."
-    echo "Visit: https://www.docker.com/products/docker-desktop/"
+# Cross-platform startup script for NebulonGPT
+# Works on Mac, Windows (PowerShell/Git Bash), and Linux
+
+echo "🚀 Starting NebulonGPT with Vosk Server..."
+echo "=========================================="
+echo ""
+
+# Check if Docker is installed and running
+echo "🔍 Checking Docker..."
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Docker is not running or not installed."
+    echo ""
+    echo "Please ensure Docker is installed and running:"
+    echo "  • macOS: Open Docker Desktop from Applications"
+    echo "  • Windows: Open Docker Desktop from Start Menu"
+    echo "  • Linux: Run 'sudo systemctl start docker'"
+    echo ""
+    echo "Download Docker: https://www.docker.com/products/docker-desktop/"
+    exit 1
+fi
+echo "✅ Docker is running"
+
+# Check Docker Compose availability
+echo "🔍 Checking Docker Compose..."
+if docker compose version > /dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+    echo "✅ Using 'docker compose' (newer version)"
+elif command -v docker-compose > /dev/null 2>&1; then
+    COMPOSE_CMD="docker-compose"
+    echo "✅ Using 'docker-compose' (legacy version)"
+else
+    echo "❌ Docker Compose not found. Please install Docker Compose."
+    echo "Visit: https://docs.docker.com/compose/install/"
     exit 1
 fi
 
-# Check if Ollama is running
-if ! curl -s http://localhost:11434/api/tags &> /dev/null; then
-    echo "Ollama doesn't seem to be running on port 11434."
-    echo "Please start Ollama with 'ollama serve' before running this application."
-    exit 1
-fi
+echo ""
+echo "🔧 Building and starting services..."
+echo "This may take a few minutes on first run..."
+echo ""
 
-# Try to use docker compose (newer Docker versions)
-if docker compose version &> /dev/null; then
-    echo "Starting Nebulon-GPT with docker compose..."
-    docker compose up -d
-# Fall back to docker-compose if available
-elif command -v docker-compose &> /dev/null; then
-    echo "Starting Nebulon-GPT with docker-compose..."
-    docker-compose up -d
-# If neither is available, use plain docker commands
-else
-    echo "Docker Compose not found. Using plain Docker commands..."
+# Build and start all services
+$COMPOSE_CMD up --build -d
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "✅ Services started successfully!"
+    echo ""
+    echo "📋 Service Status:"
+    echo "  🌐 NebulonGPT Web UI: http://localhost:3000"
+    echo "  🎤 Vosk Speech Server: ws://localhost:2700"
+    echo ""
+    echo "📊 To view logs:"
+    echo "  $COMPOSE_CMD logs -f nebulon-gpt"
+    echo "  $COMPOSE_CMD logs -f vosk-server"
+    echo ""
+    echo "🛑 To stop services:"
+    echo "  $COMPOSE_CMD down"
+    echo ""
+    echo "🔄 To restart services:"
+    echo "  $COMPOSE_CMD restart"
+    echo ""
     
-    # Build the image
-    echo "Building Docker image..."
-    docker build -t nebulon-gpt .
+    # Show running containers
+    echo "🐳 Running containers:"
+    $COMPOSE_CMD ps
     
-    # Run the container
-    echo "Starting container..."
-    docker run -d --name nebulon-gpt \
-        -p 3000:80 \
-        --add-host=host.docker.internal:host-gateway \
-        -v "$(pwd)/nginx.conf:/etc/nginx/http.d/default.conf" \
-        -v nebulon-gpt-data:/app/data \
-        -e NODE_ENV=production \
-        -e REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434 \
-        nebulon-gpt
-fi
-
-# Wait for the container to start
-sleep 3
-
-# Check if the container is running
-if docker ps | grep -q nebulon-gpt; then
-    echo "Nebulon-GPT is now running!"
-    echo "Open your browser and navigate to: http://localhost:3000"
+    echo ""
+    echo "🎉 Setup complete! Open http://localhost:3000 in your browser"
 else
-    echo "Failed to start Nebulon-GPT. Please check the logs with 'docker logs nebulon-gpt'."
+    echo ""
+    echo "❌ Failed to start services. Check the logs above for errors."
+    echo "🔍 For troubleshooting, run: $COMPOSE_CMD logs"
     exit 1
 fi
