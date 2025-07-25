@@ -85,6 +85,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [interimTranscript, setInterimTranscript] = useState('');
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -464,6 +465,43 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   const handleSuggestedPrompt = (prompt: string) => {
     onSendMessage(prompt);
+  };
+
+  // Check if current model is the default model
+  const isCurrentModelDefault = () => {
+    if (!model) return false;
+    try {
+      const defaultModelId = localStorage.getItem('defaultModelId');
+      return defaultModelId === model.id;
+    } catch (error) {
+      console.error('Failed to check default model:', error);
+      return false;
+    }
+  };
+
+  // Handle setting current model as default
+  const handleSetAsDefault = () => {
+    if (!model) {
+      console.warn('No model selected to set as default');
+      return;
+    }
+
+    // If it's already the default, don't do anything
+    if (isCurrentModelDefault()) {
+      console.log(`${model.name} is already the default model`);
+      return;
+    }
+
+    try {
+      // Store the default model in localStorage
+      localStorage.setItem('defaultModelId', model.id);
+      console.log(`✅ Set ${model.name} as default model`);
+      
+      // Update state to trigger re-render and change button text
+      setDefaultModelId(model.id);
+    } catch (error) {
+      console.error('Failed to set default model:', error);
+    }
   };
 
   // Handle PDF file selection
@@ -1426,8 +1464,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             variant="body2"
             color="text.secondary"
             sx={{ ml: 1, cursor: 'pointer' }}
+            onClick={handleSetAsDefault}
           >
-            Set as default
+            {isCurrentModelDefault() ? 'Default' : 'Set as default'}
           </Typography>
 
           <Box sx={{ flexGrow: 1 }} />
