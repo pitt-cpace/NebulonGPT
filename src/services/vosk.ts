@@ -29,7 +29,7 @@ export class VoskRecognitionService {
   
   // Silence detection for auto-stop
   private silenceDetectionEnabled = true;
-  private silenceThreshold = 0.01; // Audio level threshold for silence detection
+  private silenceThreshold = 0.03; // Audio level threshold for silence detection (increased to avoid background noise)
   private silenceTimeout = 1000; // 1 second of silence before auto-stop
   private lastAudioTime = 0;
   private silenceTimer: number | null = null;
