@@ -21,12 +21,6 @@ export class VoskService {
   private isListening = false;
   private config: Required<VoskServiceConfig>;
 
-  // Voice caching for connection recovery (2 seconds)
-  private audioCache: Float32Array[] = [];
-  private readonly CACHE_DURATION_MS = 2000; // 2 seconds
-  private readonly CACHE_CHUNK_SIZE = 1024; // Audio chunk size
-  private cacheMaxChunks: number = 0;
-  private cacheIndex = 0;
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 3;
 
@@ -42,37 +36,8 @@ export class VoskService {
       showWords: config.showWords !== undefined ? config.showWords : true,
       maxAlternatives: config.maxAlternatives || 0,
     };
-    
-    // Initialize audio cache
-    this.initializeAudioCache();
   }
 
-  private initializeAudioCache(): void {
-    // Calculate how many chunks we need for 10 seconds
-    const chunksPerSecond = this.config.sampleRate / this.CACHE_CHUNK_SIZE;
-    this.cacheMaxChunks = Math.ceil((this.CACHE_DURATION_MS / 1000) * chunksPerSecond);
-    
-    // Initialize circular buffer
-    this.audioCache = new Array(this.cacheMaxChunks);
-    for (let i = 0; i < this.cacheMaxChunks; i++) {
-      this.audioCache[i] = new Float32Array(this.CACHE_CHUNK_SIZE);
-    }
-    
-    console.log(`Audio cache initialized: ${this.cacheMaxChunks} chunks for ${this.CACHE_DURATION_MS}ms`);
-  }
-
-  private cacheAudioData(audioData: Float32Array): void {
-    // Store audio data in circular buffer
-    const chunk = this.audioCache[this.cacheIndex];
-    const copyLength = Math.min(audioData.length, this.CACHE_CHUNK_SIZE);
-    
-    for (let i = 0; i < copyLength; i++) {
-      chunk[i] = audioData[i];
-    }
-    
-    // Move to next position in circular buffer
-    this.cacheIndex = (this.cacheIndex + 1) % this.cacheMaxChunks;
-  }
 
   private async attemptReconnection(): Promise<boolean> {
     if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
@@ -86,9 +51,7 @@ export class VoskService {
     try {
       await this.initWebSocket();
       
-      // If reconnection successful, replay cached audio
       if (this.isConnected) {
-        await this.replayCachedAudio();
         this.reconnectAttempts = 0; // Reset counter on successful reconnection
         return true;
       }
@@ -97,32 +60,6 @@ export class VoskService {
     }
 
     return false;
-  }
-
-  private async replayCachedAudio(): Promise<void> {
-    if (!this.webSocket || this.webSocket.readyState !== WebSocket.OPEN) {
-      return;
-    }
-
-    console.log('Replaying cached audio data...');
-    
-    // Send cached audio data in order (oldest first)
-    for (let i = 0; i < this.cacheMaxChunks; i++) {
-      const index = (this.cacheIndex + i) % this.cacheMaxChunks;
-      const chunk = this.audioCache[index];
-      
-      // Convert Float32Array to the format expected by Vosk server
-      const int16Array = new Int16Array(chunk.length);
-      for (let j = 0; j < chunk.length; j++) {
-        int16Array[j] = Math.max(-32768, Math.min(32767, chunk[j] * 32768));
-      }
-      
-      // Send to server with a small delay to avoid overwhelming
-      this.webSocket.send(int16Array.buffer);
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    
-    console.log('Cached audio replay completed');
   }
 
   public async initialize(): Promise<void> {
@@ -276,11 +213,6 @@ export class VoskService {
 
       // Handle audio data from processor
       this.processor.port.onmessage = (event) => {
-        const audioData = new Float32Array(event.data);
-        
-        // Always cache audio data for potential replay
-        this.cacheAudioData(audioData);
-        
         // Send to server if connected
         if (this.webSocket && this.webSocket.readyState === WebSocket.OPEN) {
           this.webSocket.send(event.data);
@@ -374,29 +306,6 @@ export class VoskService {
 
   public get listening(): boolean {
     return this.isListening;
-  }
-
-  // Cache management methods
-  public clearCache(): void {
-    this.cacheIndex = 0;
-    for (let i = 0; i < this.cacheMaxChunks; i++) {
-      this.audioCache[i].fill(0);
-    }
-    console.log('Audio cache cleared');
-  }
-
-  public getCacheStatus(): {
-    maxDurationMs: number;
-    maxChunks: number;
-    currentIndex: number;
-    isEnabled: boolean;
-  } {
-    return {
-      maxDurationMs: this.CACHE_DURATION_MS,
-      maxChunks: this.cacheMaxChunks,
-      currentIndex: this.cacheIndex,
-      isEnabled: true,
-    };
   }
 
   public getReconnectionStatus(): {

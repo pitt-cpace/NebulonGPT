@@ -23,25 +23,16 @@ export class VoskRecognitionService {
   private maxReconnectAttempts = 10;
   private reconnectDelay = 500; // Start with 500ms
   private maxReconnectDelay = 5000; // Max 5 seconds
-  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectTimer: number | null = null;
   private wasRecordingBeforeDisconnect = false;
   
-  // Voice data caching for offline scenarios
-  private voiceBuffer: ArrayBuffer[] = [];
-  private isOfflineMode = false;
-  private maxBufferSize = 300; // Max 300 chunks (~30 seconds of audio)
-  private maxBufferMemory = 15 * 1024 * 1024; // Max 15MB of cached audio
-  private currentBufferSize = 0;
-  private offlineModeStartTime: number | null = null;
   
   // Silence detection for auto-stop
   private silenceDetectionEnabled = true;
   private silenceThreshold = 0.01; // Audio level threshold for silence detection
-  private silenceTimeout = 2000; // 2 seconds of silence before auto-stop
+  private silenceTimeout = 1000; // 1 second of silence before auto-stop
   private lastAudioTime = 0;
-  private silenceTimer: NodeJS.Timeout | null = null;
-  private audioLevelSamples: number[] = [];
-  private maxAudioLevelSamples = 10; // Keep last 10 samples for averaging
+  private silenceTimer: number | null = null;
   
   // Event callbacks
   private onResultCallback: ((result: VoskResult) => void) | null = null;
@@ -58,7 +49,7 @@ export class VoskRecognitionService {
     return new Promise((resolve, reject) => {
       try {
         // Use environment variable for Docker or localhost for development
-        const voskServerUrl = process.env.REACT_APP_VOSK_SERVER_URL || 'ws://localhost:2700';
+        const voskServerUrl = (window as any).REACT_APP_VOSK_SERVER_URL || 'ws://localhost:2700';
         this.socket = new WebSocket(voskServerUrl);
         
         this.socket.onopen = () => {
@@ -242,7 +233,7 @@ export class VoskRecognitionService {
         console.log('⚙️ Creating AudioWorklet node...');
         this.processor = new AudioWorkletNode(this.audioContext, 'vosk-audio-processor');
 
-        // Handle messages from the AudioWorklet processor with voice caching and silence detection
+        // Handle messages from the AudioWorklet processor with silence detection
         this.processor.port.onmessage = (event) => {
           if (event.data.type === 'audioData' && this.isRecording) {
             // Process audio data for silence detection
@@ -251,11 +242,8 @@ export class VoskRecognitionService {
             }
             
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-              // Online: Send directly to server
+              // Send directly to server
               this.socket.send(event.data.data);
-            } else {
-              // Offline: Cache voice data
-              this.cacheVoiceData(event.data.data);
             }
           }
         };
@@ -349,7 +337,6 @@ export class VoskRecognitionService {
       
       // Initialize silence detection
       this.lastAudioTime = Date.now();
-      this.audioLevelSamples = [];
       this.clearSilenceTimer();
       console.log(`🔇 Silence detection initialized - enabled: ${this.silenceDetectionEnabled}, timeout: ${this.silenceTimeout}ms`);
       
@@ -574,7 +561,7 @@ export class VoskRecognitionService {
     
     console.log(`🔄 Attempting reconnection ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms...`);
 
-    this.reconnectTimer = setTimeout(async () => {
+    this.reconnectTimer = window.setTimeout(async () => {
       try {
         console.log(`🔌 Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
         
@@ -585,15 +572,6 @@ export class VoskRecognitionService {
         this.isReconnecting = false;
         this.reconnectAttempts = 0;
         
-        // Send any cached voice data first
-        if (this.voiceBuffer.length > 0) {
-          console.log('📤 Sending cached voice data after reconnection...');
-          try {
-            await this.sendCachedVoiceData();
-          } catch (error) {
-            console.error('❌ Failed to send cached voice data after reconnection:', error);
-          }
-        }
         
         // If we were recording before disconnect, try to resume
         if (this.wasRecordingBeforeDisconnect && this.currentModel) {
@@ -921,179 +899,6 @@ export class VoskRecognitionService {
     });
   }
 
-  // ========================================
-  // VOICE DATA CACHING METHODS
-  // ========================================
-
-  /**
-   * Cache voice data when connection is lost
-   */
-  private cacheVoiceData(audioData: ArrayBuffer): void {
-    try {
-      // Check if we're entering offline mode for the first time
-      if (!this.isOfflineMode) {
-        this.isOfflineMode = true;
-        this.offlineModeStartTime = Date.now();
-        console.log('🔴 OFFLINE MODE ACTIVATED - Voice data will be cached');
-        
-        // Notify user about offline mode
-        if (this.onErrorCallback) {
-          this.onErrorCallback('Connection lost - voice data is being cached offline');
-        }
-      }
-
-      // Check memory limits before adding new data
-      const audioDataSize = audioData.byteLength;
-      
-      // Remove old chunks if we're approaching memory limit
-      while (this.currentBufferSize + audioDataSize > this.maxBufferMemory && this.voiceBuffer.length > 0) {
-        const removedChunk = this.voiceBuffer.shift();
-        if (removedChunk) {
-          this.currentBufferSize -= removedChunk.byteLength;
-          console.log(`🗑️ Removed old voice chunk to free memory (${Math.round(removedChunk.byteLength / 1024)}KB)`);
-        }
-      }
-
-      // Remove old chunks if we're approaching chunk limit
-      while (this.voiceBuffer.length >= this.maxBufferSize) {
-        const removedChunk = this.voiceBuffer.shift();
-        if (removedChunk) {
-          this.currentBufferSize -= removedChunk.byteLength;
-          console.log(`🗑️ Removed old voice chunk to maintain buffer size limit`);
-        }
-      }
-
-      // Add new audio data to buffer
-      this.voiceBuffer.push(audioData);
-      this.currentBufferSize += audioDataSize;
-
-      const bufferDurationSeconds = this.voiceBuffer.length * 0.1; // Approximate: each chunk ~100ms
-      console.log(`🎙️ Cached voice chunk ${this.voiceBuffer.length}/${this.maxBufferSize} (${Math.round(this.currentBufferSize / 1024)}KB, ~${bufferDurationSeconds.toFixed(1)}s)`);
-
-      // Log offline duration periodically
-      if (this.offlineModeStartTime && this.voiceBuffer.length % 10 === 0) {
-        const offlineDuration = (Date.now() - this.offlineModeStartTime) / 1000;
-        console.log(`📴 Offline for ${offlineDuration.toFixed(1)}s - ${this.voiceBuffer.length} chunks cached`);
-      }
-
-    } catch (error) {
-      console.error('❌ Error caching voice data:', error);
-    }
-  }
-
-  /**
-   * Send cached voice data after reconnection
-   */
-  private async sendCachedVoiceData(): Promise<void> {
-    if (this.voiceBuffer.length === 0) {
-      console.log('📭 No cached voice data to send');
-      return;
-    }
-
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      console.warn('⚠️ Cannot send cached voice data - WebSocket not connected');
-      return;
-    }
-
-    try {
-      const totalChunks = this.voiceBuffer.length;
-      const totalSize = this.currentBufferSize;
-      const offlineDuration = this.offlineModeStartTime ? (Date.now() - this.offlineModeStartTime) / 1000 : 0;
-
-      console.log(`📤 Sending ${totalChunks} cached voice chunks (${Math.round(totalSize / 1024)}KB, ~${offlineDuration.toFixed(1)}s offline)`);
-
-      // Send each cached audio chunk to the server
-      for (let i = 0; i < this.voiceBuffer.length; i++) {
-        const audioChunk = this.voiceBuffer[i];
-        
-        try {
-          // Check if connection is still open before sending each chunk
-          if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send(audioChunk);
-            
-            // Small delay to prevent overwhelming the server
-            if (i < this.voiceBuffer.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 5)); // 5ms delay between chunks
-            }
-            
-            // Log progress for large buffers
-            if (totalChunks > 20 && (i + 1) % 10 === 0) {
-              console.log(`📤 Sent ${i + 1}/${totalChunks} cached chunks (${Math.round(((i + 1) / totalChunks) * 100)}%)`);
-            }
-          } else {
-            console.warn(`⚠️ Connection lost while sending cached data at chunk ${i + 1}/${totalChunks}`);
-            break;
-          }
-        } catch (sendError) {
-          console.error(`❌ Error sending cached chunk ${i + 1}/${totalChunks}:`, sendError);
-          break;
-        }
-      }
-
-      // Clear the buffer after sending
-      this.clearVoiceBuffer();
-      console.log('✅ All cached voice data sent successfully');
-
-      // Notify user that cached data was processed
-      if (this.onErrorCallback) {
-        this.onErrorCallback(`Reconnected - processed ${offlineDuration.toFixed(1)}s of cached voice data`);
-      }
-
-    } catch (error) {
-      console.error('❌ Error sending cached voice data:', error);
-      
-      // Don't clear buffer on error - keep it for next reconnection attempt
-      if (this.onErrorCallback) {
-        this.onErrorCallback('Failed to send cached voice data - will retry on next connection');
-      }
-    }
-  }
-
-  /**
-   * Clear voice buffer and reset offline mode
-   */
-  private clearVoiceBuffer(): void {
-    const clearedChunks = this.voiceBuffer.length;
-    const clearedSize = this.currentBufferSize;
-    
-    this.voiceBuffer = [];
-    this.currentBufferSize = 0;
-    this.isOfflineMode = false;
-    this.offlineModeStartTime = null;
-    
-    if (clearedChunks > 0) {
-      console.log(`🧹 Cleared voice buffer: ${clearedChunks} chunks (${Math.round(clearedSize / 1024)}KB)`);
-    }
-  }
-
-  /**
-   * Get current voice buffer status
-   */
-  public getVoiceBufferStatus(): {
-    isOfflineMode: boolean;
-    cachedChunks: number;
-    cachedSizeKB: number;
-    offlineDurationSeconds: number;
-    maxBufferSizeKB: number;
-  } {
-    const offlineDuration = this.offlineModeStartTime ? (Date.now() - this.offlineModeStartTime) / 1000 : 0;
-    
-    return {
-      isOfflineMode: this.isOfflineMode,
-      cachedChunks: this.voiceBuffer.length,
-      cachedSizeKB: Math.round(this.currentBufferSize / 1024),
-      offlineDurationSeconds: offlineDuration,
-      maxBufferSizeKB: Math.round(this.maxBufferMemory / 1024),
-    };
-  }
-
-  /**
-   * Manually clear voice buffer (for emergency situations)
-   */
-  public clearCachedVoiceData(): void {
-    console.log('🗑️ Manually clearing cached voice data...');
-    this.clearVoiceBuffer();
-  }
 
   // ========================================
   // SILENCE DETECTION METHODS
@@ -1110,33 +915,22 @@ export class VoskRecognitionService {
     try {
       // Convert ArrayBuffer to Float32Array for analysis
       const int16Array = new Int16Array(audioData);
-      const float32Array = new Float32Array(int16Array.length);
       
       // Convert int16 to float32 and calculate RMS (Root Mean Square) for audio level
       let sum = 0;
       for (let i = 0; i < int16Array.length; i++) {
         const sample = int16Array[i] / 32768.0; // Convert to -1.0 to 1.0 range
-        float32Array[i] = sample;
         sum += sample * sample;
       }
       
-      const rms = Math.sqrt(sum / float32Array.length);
-      
-      // Add to audio level samples for averaging
-      this.audioLevelSamples.push(rms);
-      if (this.audioLevelSamples.length > this.maxAudioLevelSamples) {
-        this.audioLevelSamples.shift();
-      }
-      
-      // Calculate average audio level
-      const avgLevel = this.audioLevelSamples.reduce((a, b) => a + b, 0) / this.audioLevelSamples.length;
+      const rms = Math.sqrt(sum / int16Array.length);
       
       // Check if audio level is above silence threshold
-      if (avgLevel > this.silenceThreshold) {
+      if (rms > this.silenceThreshold) {
         // Audio detected - reset silence timer
         this.lastAudioTime = Date.now();
         this.clearSilenceTimer();
-        console.log(`🎤 Audio detected (level: ${avgLevel.toFixed(4)}, threshold: ${this.silenceThreshold})`);
+        console.log(`🔊 Audio detected (level: ${rms.toFixed(4)}, threshold: ${this.silenceThreshold})`);
       } else {
         // Silence detected - check if we should start/continue silence timer
         const silenceDuration = Date.now() - this.lastAudioTime;
@@ -1160,9 +954,9 @@ export class VoskRecognitionService {
       return; // Timer already running
     }
 
-    this.silenceTimer = setTimeout(async () => {
+    this.silenceTimer = window.setTimeout(async () => {
       if (this.isRecording && this.silenceDetectionEnabled) {
-        console.log(`🔇 ${this.silenceTimeout}ms of silence detected - auto-stopping microphone`);
+        console.log(`� ${this.silenceTimeout}ms of silence detected - auto-stopping microphone`);
         try {
           await this.stop();
           
@@ -1219,17 +1013,13 @@ export class VoskRecognitionService {
     silenceDuration: number;
     isTimerActive: boolean;
   } {
-    const avgLevel = this.audioLevelSamples.length > 0 
-      ? this.audioLevelSamples.reduce((a, b) => a + b, 0) / this.audioLevelSamples.length 
-      : 0;
-    
     const silenceDuration = Date.now() - this.lastAudioTime;
     
     return {
       enabled: this.silenceDetectionEnabled,
       threshold: this.silenceThreshold,
       timeout: this.silenceTimeout,
-      currentLevel: avgLevel,
+      currentLevel: 0, // No longer tracking current level without caching
       silenceDuration: silenceDuration,
       isTimerActive: this.silenceTimer !== null,
     };
