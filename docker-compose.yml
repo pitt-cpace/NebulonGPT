@@ -18,8 +18,10 @@ services:
       # This is used during the build process
       - REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434
       - REACT_APP_VOSK_SERVER_URL=ws://vosk-server:2700
+      - REACT_APP_TTS_SERVER_URL=ws://kokoro-tts:2701
     depends_on:
       - vosk-server
+      - kokoro-tts
 
   vosk-server:
     build:
@@ -38,6 +40,23 @@ services:
       - PYTHONUNBUFFERED=1
     command: ["python", "/app/websocket/asr_server_with_models.py", "/app/models"]
 
+  kokoro-tts:
+    build:
+      context: ./Kokoro-TTS-Server
+      dockerfile: Dockerfile
+    container_name: kokoro-tts
+    ports:
+      - "2701:2701"
+    restart: unless-stopped
+    networks:
+      - nebulon-network
+    volumes:
+      - tts-models:/app/models
+    environment:
+      - PYTHONUNBUFFERED=1
+      - KOKORO_SERVER_HOST=0.0.0.0
+      - KOKORO_SERVER_PORT=2701
+
 networks:
   nebulon-network:
     driver: bridge
@@ -46,4 +65,6 @@ volumes:
   chat-data:
     driver: local
   vosk-models:
+    driver: local
+  tts-models:
     driver: local

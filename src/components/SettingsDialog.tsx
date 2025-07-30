@@ -21,6 +21,7 @@ import {
 import { Settings as SettingsIcon, Close as CloseIcon, Storage as StorageIcon, RecordVoiceOver as VoiceIcon } from '@mui/icons-material';
 import { ModelType } from '../types';
 import { VoskRecognitionService } from '../services/vosk';
+import { ttsService, TTSStatus } from '../services/ttsService';
 import VoskModelSelector from './VoskModelSelector';
 import VoskModelManager from './VoskModelManager';
 import * as styles from '../styles/components/SettingsDialog.styles';
@@ -59,7 +60,10 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   // TTS Settings state
   const [fullVoiceMode, setFullVoiceMode] = useState(false);
   const [voiceGender, setVoiceGender] = useState<'female' | 'male'>('female');
-  const [ttsStatus, setTtsStatus] = useState<'connected' | 'connecting' | 'disconnected' | 'reconnecting'>('disconnected');
+  const [ttsStatus, setTtsStatus] = useState<TTSStatus>('disconnected');
+  
+  // Store original TTS settings for cancel functionality
+  const [originalTtsSettings, setOriginalTtsSettings] = useState({ fullVoiceMode: false, voiceGender: 'female' as 'female' | 'male' });
 
   // Update local state when props change
   useEffect(() => {
@@ -67,14 +71,43 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setLocalTemperature(temperature);
   }, [contextLength, temperature]);
 
-  // Simulate TTS connection status (for demo purposes)
+  // Initialize TTS service and load settings
   useEffect(() => {
-    // Set initial status to reconnecting to match the image
-    setTtsStatus('reconnecting');
+    // Load TTS settings from service
+    const settings = ttsService.getSettings();
+    setFullVoiceMode(settings.fullVoiceMode);
+    setVoiceGender(settings.voiceGender);
+    setOriginalTtsSettings(settings);
     
-    // You can add actual TTS connection logic here later
-    // For now, just simulate the reconnecting status
+    // Set up status callback
+    ttsService.setStatusCallback(setTtsStatus);
+    
+    // Get initial status
+    setTtsStatus(ttsService.getStatus());
+    
+    // Try to connect to TTS server
+    ttsService.connect().catch((error) => {
+      console.error('Failed to connect to TTS server:', error);
+    });
+
+    return () => {
+      // Clean up on unmount
+      ttsService.setStatusCallback(() => {});
+    };
   }, []);
+
+  // Handle TTS settings changes (local only, not saved until Save button)
+  const handleFullVoiceModeChange = (checked: boolean) => {
+    setFullVoiceMode(checked);
+    // Update service temporarily for immediate UI feedback
+    ttsService.updateSettings({ fullVoiceMode: checked });
+  };
+
+  const handleVoiceGenderChange = (gender: 'female' | 'male') => {
+    setVoiceGender(gender);
+    // Update service temporarily for immediate UI feedback
+    ttsService.updateSettings({ voiceGender: gender });
+  };
 
   const handleOpen = () => {
     setOpen(true);
@@ -87,6 +120,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setLocalTemperature(temperature);
     setContextLengthError('');
     setTemperatureError('');
+    
+    // Reset TTS settings to original values
+    setFullVoiceMode(originalTtsSettings.fullVoiceMode);
+    setVoiceGender(originalTtsSettings.voiceGender);
+    ttsService.updateSettings(originalTtsSettings);
   };
 
   const handleSave = () => {
@@ -101,7 +139,15 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       return;
     }
 
+    // Save model settings
     onSaveSettings(localContextLength, localTemperature);
+    
+    // Save TTS settings to localStorage
+    ttsService.saveSettings();
+    
+    // Update original settings for next time
+    setOriginalTtsSettings({ fullVoiceMode, voiceGender });
+    
     setOpen(false);
   };
 
@@ -134,7 +180,14 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
         <SettingsIcon />
       </IconButton>
 
-      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <Dialog 
+        open={open} 
+        onClose={handleClose} 
+        maxWidth="sm" 
+        fullWidth
+        disableRestoreFocus
+        keepMounted={false}
+      >
         <DialogTitle sx={styles.dialogTitle}>
           <Typography variant="h6">Model Settings</Typography>
           <IconButton edge="end" color="inherit" onClick={handleClose} aria-label="close">
@@ -179,7 +232,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
               control={
                 <Checkbox
                   checked={fullVoiceMode}
-                  onChange={(e) => setFullVoiceMode(e.target.checked)}
+                  onChange={(e) => handleFullVoiceModeChange(e.target.checked)}
                   color="primary"
                 />
               }
@@ -194,66 +247,70 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
               sx={{ mb: 2, alignItems: 'flex-start' }}
             />
 
-            <FormControl component="fieldset" sx={{ mb: 2 }}>
-              <FormLabel component="legend" sx={{ mb: 1 }}>
-                Voice Gender
-              </FormLabel>
-              <RadioGroup
-                row
-                value={voiceGender}
-                onChange={(e) => setVoiceGender(e.target.value as 'female' | 'male')}
-              >
-                <FormControlLabel
-                  value="female"
-                  control={<Radio color="primary" />}
-                  label="Female"
-                />
-                <FormControlLabel
-                  value="male"
-                  control={<Radio color="primary" />}
-                  label="Male"
-                />
-              </RadioGroup>
-            </FormControl>
+            {fullVoiceMode && (
+              <FormControl component="fieldset" sx={{ mb: 2 }}>
+                <FormLabel component="legend" sx={{ mb: 1 }}>
+                  Voice Gender
+                </FormLabel>
+                <RadioGroup
+                  row
+                  value={voiceGender}
+                  onChange={(e) => handleVoiceGenderChange(e.target.value as 'female' | 'male')}
+                >
+                  <FormControlLabel
+                    value="female"
+                    control={<Radio color="primary" />}
+                    label="Female"
+                  />
+                  <FormControlLabel
+                    value="male"
+                    control={<Radio color="primary" />}
+                    label="Male"
+                  />
+                </RadioGroup>
+              </FormControl>
+            )}
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                TTS Status:
-              </Typography>
-              <Box
-                sx={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 0.5,
-                }}
-              >
+            {fullVoiceMode && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  TTS Status:
+                </Typography>
                 <Box
                   sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    backgroundColor: 
-                      ttsStatus === 'connected' ? 'success.main' :
-                      ttsStatus === 'connecting' ? 'warning.main' :
-                      ttsStatus === 'reconnecting' ? 'warning.main' :
-                      'error.main',
-                  }}
-                />
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: 
-                      ttsStatus === 'connected' ? 'success.main' :
-                      ttsStatus === 'connecting' ? 'warning.main' :
-                      ttsStatus === 'reconnecting' ? 'warning.main' :
-                      'error.main',
-                    textTransform: 'capitalize',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 0.5,
                   }}
                 >
-                  {ttsStatus === 'reconnecting' ? 'Reconnecting...' : ttsStatus}
-                </Typography>
+                  <Box
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      backgroundColor: 
+                        ttsStatus === 'connected' ? 'success.main' :
+                        ttsStatus === 'connecting' ? 'warning.main' :
+                        ttsStatus === 'reconnecting' ? 'warning.main' :
+                        'error.main',
+                    }}
+                  />
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      color: 
+                        ttsStatus === 'connected' ? 'success.main' :
+                        ttsStatus === 'connecting' ? 'warning.main' :
+                        ttsStatus === 'reconnecting' ? 'warning.main' :
+                        'error.main',
+                      textTransform: 'capitalize',
+                    }}
+                  >
+                    {ttsStatus === 'reconnecting' ? 'Reconnecting...' : ttsStatus}
+                  </Typography>
+                </Box>
               </Box>
-            </Box>
+            )}
           </Box>
           <Divider sx={{ my: 2 }} />
 

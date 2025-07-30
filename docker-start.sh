@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🐳 Starting NebulonGPT with Vosk Server in Docker..."
+echo "🐳 Starting NebulonGPT with Vosk & Kokoro TTS Servers in Docker..."
 echo ""
 
 # Check if Docker is running
@@ -27,10 +27,12 @@ echo ""
 echo "📋 Service Status:"
 echo "  🌐 NebulonGPT Web UI: http://localhost:3000"
 echo "  🎤 Vosk Speech Server: ws://localhost:2700"
+echo "  🎵 Kokoro TTS Server: ws://localhost:2701"
 echo ""
 echo "📊 To view logs:"
 echo "  docker-compose logs -f nebulon-gpt"
 echo "  docker-compose logs -f vosk-server"
+echo "  docker-compose logs -f kokoro-tts"
 echo ""
 echo "🛑 To stop services:"
 echo "  docker-compose down"
