@@ -87,7 +87,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const suggestedPrompts = getSuggestedPrompts();
@@ -102,67 +101,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   // Initialize Vosk speech recognition event handlers
   useEffect(() => {
     if (!voskRecognition) {
-      // Fallback to browser speech recognition if Vosk is not available
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      
-      if (!SpeechRecognition) {
-        console.warn('Neither Vosk nor browser speech recognition is available.');
-        setSpeechError('Speech recognition not available');
-        return;
-      }
-
-      try {
-        // Create a browser speech recognition instance as fallback
-        const recognition = new SpeechRecognition();
-        
-        // Configure speech recognition to use local processing
-        recognition.continuous = false;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
-        
-        // Set up event handlers
-        recognition.onresult = (event: SpeechRecognitionEvent) => {
-          let interimTranscript = '';
-          let finalTranscript = '';
-          
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              finalTranscript += transcript;
-            } else {
-              interimTranscript += transcript;
-            }
-          }
-          
-          // Update the interim transcript for display
-          setInterimTranscript(interimTranscript);
-          
-          // If we have a final transcript, update the message
-          if (finalTranscript) {
-            finalTranscriptRef.current += finalTranscript;
-            setMessage(finalTranscriptRef.current);
-          }
-        };
-        
-        recognition.onend = () => {
-          setIsListening(false);
-          setInterimTranscript('');
-        };
-        
-        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-          console.error('Browser speech recognition error', event.error);
-          setSpeechError(`Browser speech error: ${event.error}`);
-          setIsListening(false);
-        };
-        
-        // Store the recognition instance in the ref
-        recognitionRef.current = recognition;
-        console.log('🔄 Using browser speech recognition as fallback');
-      } catch (error) {
-        console.error('Error initializing browser speech recognition:', error);
-        setSpeechError('Failed to initialize speech recognition');
-      }
-      
+      console.warn('Vosk speech recognition is not available.');
+      setSpeechError('Speech recognition not available');
       return;
     }
 
@@ -199,16 +139,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
     // Clean up on component unmount
     return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.onresult = null;
-          recognitionRef.current.onend = null;
-          recognitionRef.current.onerror = null;
-          recognitionRef.current.abort();
-        } catch (error) {
-          console.error('Error cleaning up browser speech recognition:', error);
-        }
-      }
+      // Cleanup handled by Vosk service
     };
   }, [voskRecognition]);
 
@@ -226,21 +157,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     console.log('🎙️ STARTING speech recognition...');
     
     if (!voskRecognition) {
-      // Fallback to browser speech recognition
-      if (!recognitionRef.current) {
-        setSpeechError('Speech recognition not available');
-        return;
-      }
-      
-      try {
-        finalTranscriptRef.current = message;
-        recognitionRef.current.start();
-        setIsListening(true);
-        console.log('✅ Browser speech recognition started');
-      } catch (error) {
-        console.error('Error starting browser speech recognition:', error);
-        setSpeechError('Failed to start speech recognition');
-      }
+      setSpeechError('Speech recognition not available');
       return;
     }
 
@@ -344,14 +261,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       } catch (error) {
         console.error('❌ Error stopping Vosk speech recognition:', error);
         // Don't throw here, we still want to update UI state
-      }
-    } else if (recognitionRef.current) {
-      // Fallback to browser speech recognition
-      try {
-        recognitionRef.current.stop();
-        console.log('✅ Browser speech recognition stopped');
-      } catch (error) {
-        console.error('❌ Error stopping browser speech recognition:', error);
       }
     }
     
@@ -1535,7 +1444,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   size="small" 
                   sx={isListening ? styles.micButtonActive : (speechError ? styles.micButtonError : styles.micButton)}
                   onClick={toggleListening}
-                  disabled={loading || isProcessingMic || (!voskRecognition && !recognitionRef.current)}
+                  disabled={loading || isProcessingMic || !voskRecognition}
                   title={speechError || (isListening ? 'Stop dictation' : 'Start dictation')}
                 >
                   <MicIcon />
