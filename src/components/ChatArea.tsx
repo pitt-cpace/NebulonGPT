@@ -91,6 +91,45 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const suggestedPrompts = getSuggestedPrompts();
 
+  const handleSendMessage = useCallback(() => {
+    // Allow sending if there's a message OR attachments
+    if ((message.trim() || attachments.length > 0) && !loading) {
+      let messageText = message.trim();
+      
+      // Check if there are PDF attachments and add a special prompt
+      const hasPdfAttachments = attachments.some(attachment => attachment.type === 'pdf');
+      if (hasPdfAttachments) {
+        // Count PDF attachments with text and images
+        const pdfWithTextCount = attachments.filter(att => att.type === 'pdf' && att.content).length;
+        const pdfWithImagesCount = attachments.filter(att => att.type === 'pdf' && att.images && att.images.length > 0).length;
+        
+        // Create a descriptive prefix for the message
+        let pdfDescription = "I've attached PDF file(s)";
+        if (pdfWithTextCount > 0 && pdfWithImagesCount > 0) {
+          pdfDescription += " containing both text and images";
+        } else if (pdfWithTextCount > 0) {
+          pdfDescription += " containing text";
+        } else if (pdfWithImagesCount > 0) {
+          pdfDescription += " containing images";
+        }
+        
+        // Add the PDF description to the message if there's no existing message
+        if (!messageText) {
+          messageText = pdfDescription + ".";
+        } else {
+          messageText = messageText + pdfDescription + ".";
+        }
+      }
+      
+      // Send message with any attachments
+      onSendMessage(messageText, attachments.length > 0 ? attachments : undefined);
+      
+      // Clear message and attachments
+      setMessage('');
+      setAttachments([]);
+    }
+  }, [message, attachments, loading, onSendMessage]);
+
   // Scroll to bottom when messages change
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -131,6 +170,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     voskRecognition.onEnd(() => {
       setIsListening(false);
       setInterimTranscript('');
+      
+      // Auto-send message if there's content (triggered by silence detection or manual stop)
+      if (message.trim()) {
+        handleSendMessage();
+      }
     });
 
     // Clear any previous errors
@@ -141,7 +185,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return () => {
       // Cleanup handled by Vosk service
     };
-  }, [voskRecognition]);
+  }, [voskRecognition, message, handleSendMessage]);
 
   // Handle mic stopped from settings - listen for the trigger
   useEffect(() => {
@@ -268,7 +312,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     setIsListening(false);
     setInterimTranscript('');
     console.log('✅ UI state updated - isListening set to false, interimTranscript cleared');
-  }, [voskRecognition, isListening]);
+  }, [voskRecognition, isListening, message]);
 
   // Toggle speech recognition with debounce protection
   const toggleListening = useCallback(async () => {
@@ -313,44 +357,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [startMicListening, stopMicListening, onMicStart, onMicStop]);
 
-  const handleSendMessage = () => {
-    // Allow sending if there's a message OR attachments
-    if ((message.trim() || attachments.length > 0) && !loading) {
-      let messageText = message.trim();
-      
-      // Check if there are PDF attachments and add a special prompt
-      const hasPdfAttachments = attachments.some(attachment => attachment.type === 'pdf');
-      if (hasPdfAttachments) {
-        // Count PDF attachments with text and images
-        const pdfWithTextCount = attachments.filter(att => att.type === 'pdf' && att.content).length;
-        const pdfWithImagesCount = attachments.filter(att => att.type === 'pdf' && att.images && att.images.length > 0).length;
-        
-        // Create a descriptive prefix for the message
-        let pdfDescription = "I've attached PDF file(s)";
-        if (pdfWithTextCount > 0 && pdfWithImagesCount > 0) {
-          pdfDescription += " containing both text and images";
-        } else if (pdfWithTextCount > 0) {
-          pdfDescription += " containing text";
-        } else if (pdfWithImagesCount > 0) {
-          pdfDescription += " containing images";
-        }
-        
-        // Add the PDF description to the message if there's no existing message
-        if (!messageText) {
-          messageText = pdfDescription + ".";
-        } else {
-          messageText = messageText + pdfDescription + ".";
-        }
-      }
-      
-      // Send message with any attachments
-      onSendMessage(messageText, attachments.length > 0 ? attachments : undefined);
-      
-      // Clear message and attachments
-      setMessage('');
-      setAttachments([]);
-    }
-  };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
