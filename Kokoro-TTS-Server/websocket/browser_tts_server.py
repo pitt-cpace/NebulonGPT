@@ -34,6 +34,8 @@ class BrowserTTSServer:
         self.language = language
         self.pipeline = None
         self.active_sessions = {}
+        self.audio_queues = {}  # Per-session audio queues
+        self.session_states = {}  # Per-session state management (paused/resumed)
         
     async def initialize_pipeline(self):
         """Initialize Kokoro TTS pipeline"""
@@ -48,7 +50,7 @@ class BrowserTTSServer:
             logger.error(f"Failed to initialize Kokoro pipeline: {str(e)}")
             raise
         
-    async def handle_client(self, websocket, path):
+    async def handle_client(self, websocket, path=None):
         """Handle WebSocket client connections"""
         client_address = websocket.remote_address
         logger.info(f"Browser TTS Connection from {client_address}")
@@ -87,8 +89,12 @@ class BrowserTTSServer:
     async def process_message(self, websocket, data):
         """Process incoming WebSocket messages"""
         
+        # Handle queue control commands
+        if 'action' in data:
+            return await self.handle_queue_action(websocket, data)
+        
         # Handle streaming session start
-        if data.get('start_stream'):
+        elif data.get('start_stream'):
             return await self.start_streaming_session(websocket, data)
         
         # Handle text chunk for streaming
@@ -101,10 +107,10 @@ class BrowserTTSServer:
         
         # Handle regular TTS request
         elif 'text' in data:
-            return await self.process_regular_tts(data)
+            return await self.process_regular_tts(websocket, data)
         
         else:
-            return {'error': 'Invalid request format'}
+            return {'error': 'No recognized command in request'}
 
     async def start_streaming_session(self, websocket, data):
         """Start a new streaming TTS session"""
@@ -250,7 +256,95 @@ class BrowserTTSServer:
             'session_id': session_id
         }
 
-    async def process_regular_tts(self, data):
+    async def handle_queue_action(self, websocket, data):
+        """Handle queue control actions (stop, clear, pause, resume)"""
+        action = data.get('action', '').lower()
+        
+        # Find session for this websocket
+        session_id = None
+        session_data = None
+        
+        for sid, sdata in self.active_sessions.items():
+            if sdata.get('websocket') == websocket:
+                session_id = sid
+                session_data = sdata
+                break
+        
+        # Initialize session state if not exists
+        if websocket not in self.session_states:
+            self.session_states[websocket] = {
+                'paused': False,
+                'queued_audio': [],
+                'processing': False
+            }
+        
+        session_state = self.session_states[websocket]
+        
+        if action == 'stop' or action == 'clear':
+            # Clear any active streaming session
+            if session_data:
+                session_data['text_buffer'] = ''
+                logger.info(f"Cleared text buffer for session {session_id}")
+            
+            # Clear audio queue for this websocket
+            if websocket in self.audio_queues:
+                self.audio_queues[websocket] = []
+                logger.info(f"Cleared audio queue for client")
+            
+            # Clear session state
+            session_state['paused'] = False
+            session_state['queued_audio'] = []
+            session_state['processing'] = False
+            
+            return {
+                'type': 'queue_cleared',
+                'action': action,
+                'status': 'success',
+                'message': 'Server-side queue and buffers cleared'
+            }
+        
+        elif action == 'pause':
+            # Pause audio generation and queuing
+            session_state['paused'] = True
+            logger.info(f"Paused audio generation for client {websocket.remote_address}")
+            
+            return {
+                'type': 'queue_paused',
+                'action': action,
+                'status': 'success',
+                'message': 'Audio generation paused',
+                'paused': True
+            }
+        
+        elif action == 'resume':
+            # Resume audio generation and process any queued audio
+            session_state['paused'] = False
+            logger.info(f"Resumed audio generation for client {websocket.remote_address}")
+            
+            # Process any queued audio that was paused
+            if session_state['queued_audio']:
+                logger.info(f"Processing {len(session_state['queued_audio'])} queued audio chunks")
+                
+                # Send all queued audio
+                for queued_chunk in session_state['queued_audio']:
+                    await websocket.send(json.dumps(queued_chunk))
+                
+                # Clear the queue after sending
+                session_state['queued_audio'] = []
+            
+            return {
+                'type': 'queue_resumed',
+                'action': action,
+                'status': 'success',
+                'message': 'Audio generation resumed',
+                'paused': False,
+                'processed_queued': len(session_state['queued_audio']) if session_state['queued_audio'] else 0
+            }
+        
+        else:
+            return {'error': f'Unknown action: {action}'}
+
+    async def process_regular_tts(self, websocket, data):
         """Process regular (non-streaming) TTS request"""
         text = data.get('text', '')
         voice = data.get('voice', 'af_heart')
@@ -260,20 +354,45 @@ class BrowserTTSServer:
         if not text:
             return {'error': 'No text provided'}
         
+        # Check if session is paused
+        if websocket in self.session_states and self.session_states[websocket]['paused']:
+            # Queue the request for later processing
+            audio_response = {
+                'type': 'complete_audio',
+                'text': text,
+                'voice': voice,
+                'speed': speed,
+                'language': language,
+                'status': 'queued_for_resume'
+            }
+            
+            self.session_states[websocket]['queued_audio'].append(audio_response)
+            logger.info(f"Queued TTS request for paused session: {text[:50]}...")
+            
+            return {
+                'type': 'request_queued',
+                'message': 'TTS request queued - session is paused',
+                'text': text[:50] + '...' if len(text) > 50 else text
+            }
+        
         try:
             audio_data = await self.generate_audio(text, voice, speed, language)
             
             if audio_data:
-                return {
+                audio_response = {
+                    'type': 'complete_audio',
                     'text': text,
                     'voice': voice,
                     'speed': speed,
                     'language': language,
-                    'audio_data': base64.b64encode(audio_data).decode('utf-8'),
+                    'audio': base64.b64encode(audio_data).decode('utf-8'),
                     'audio_format': 'wav',
                     'sample_rate': 24000,
                     'size': len(audio_data)
                 }
+                
+                # Send immediately if not paused
+                return audio_response
             else:
                 return {'error': 'Failed to generate audio'}
                 

@@ -30,5 +30,5 @@ ENV PYTHONPATH=/app
 ENV KOKORO_SERVER_HOST=0.0.0.0
 ENV KOKORO_SERVER_PORT=2701
 
-# Default command to run the basic TTS server
-CMD ["python3", "websocket/tts_server.py"]
+# Default command to run the browser-compatible TTS server
+CMD ["python3", "websocket/browser_tts_server.py", "--host", "0.0.0.0", "--port", "2701"]

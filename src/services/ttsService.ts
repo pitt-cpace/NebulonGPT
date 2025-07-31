@@ -1,9 +1,20 @@
 export interface TTSSettings {
   fullVoiceMode: boolean;
   voiceGender: 'female' | 'male';
+  voice: string;
+  speed: number;
+  language: string;
 }
 
-export type TTSStatus = 'connected' | 'connecting' | 'disconnected' | 'reconnecting';
+export type TTSStatus = 'connected' | 'connecting' | 'disconnected' | 'reconnecting' | 'paused';
+
+export interface StreamingSession {
+  sessionId: number;
+  isActive: boolean;
+  voice: string;
+  speed: number;
+  language: string;
+}
 
 export class TTSService {
   private ws: WebSocket | null = null;
@@ -14,9 +25,15 @@ export class TTSService {
   private statusCallback?: (status: TTSStatus) => void;
   private settings: TTSSettings = {
     fullVoiceMode: false,
-    voiceGender: 'female'
+    voiceGender: 'female',
+    voice: 'af_heart',
+    speed: 1.0,
+    language: 'a'
   };
   private readonly STORAGE_KEY = 'nebulongpt_tts_settings';
+  private currentSession: StreamingSession | null = null;
+  private isPaused = false;
+  private audioQueue: HTMLAudioElement[] = [];
 
   constructor(serverUrl?: string) {
     // Use environment variable if available, otherwise fallback to localhost
@@ -34,6 +51,15 @@ export class TTSService {
 
   public updateSettings(settings: Partial<TTSSettings>) {
     this.settings = { ...this.settings, ...settings };
+    
+    // Update voice based on gender if not explicitly set
+    if (settings.voiceGender && !settings.voice) {
+      const voiceMap = {
+        'female': 'af_heart',
+        'male': 'am_adam'
+      };
+      this.settings.voice = voiceMap[settings.voiceGender];
+    }
   }
 
   public saveSettings() {
@@ -52,10 +78,13 @@ export class TTSService {
     try {
       const savedSettings = localStorage.getItem(this.STORAGE_KEY);
       if (savedSettings) {
-        const parsed = JSON.parse(savedSettings) as TTSSettings;
+        const parsed = JSON.parse(savedSettings) as Partial<TTSSettings>;
         this.settings = {
           fullVoiceMode: parsed.fullVoiceMode ?? false,
-          voiceGender: parsed.voiceGender ?? 'female'
+          voiceGender: parsed.voiceGender ?? 'female',
+          voice: parsed.voice ?? 'af_heart',
+          speed: parsed.speed ?? 1.0,
+          language: parsed.language ?? 'a'
         };
       }
     } catch (error) {
@@ -63,7 +92,10 @@ export class TTSService {
       // Use default settings if loading fails
       this.settings = {
         fullVoiceMode: false,
-        voiceGender: 'female'
+        voiceGender: 'female',
+        voice: 'af_heart',
+        speed: 1.0,
+        language: 'a'
       };
     }
   }
@@ -127,10 +159,12 @@ export class TTSService {
       await this.connect();
     }
 
+    // Use the current settings for voice, speed, and language
     const message = {
-      action: 'speak',
       text: text,
-      voice: this.settings.voiceGender
+      voice: this.settings.voice,
+      speed: this.settings.speed,
+      language: this.settings.language
     };
 
     this.ws?.send(JSON.stringify(message));
@@ -141,6 +175,83 @@ export class TTSService {
       const message = { action: 'stop' };
       this.ws.send(JSON.stringify(message));
     }
+  }
+
+  public pause() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const message = { action: 'pause' };
+      this.ws.send(JSON.stringify(message));
+    }
+  }
+
+  public resume() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const message = { action: 'resume' };
+      this.ws.send(JSON.stringify(message));
+    }
+  }
+
+  public clear() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const message = { action: 'clear' };
+      this.ws.send(JSON.stringify(message));
+    }
+  }
+
+  public async startStreaming(): Promise<number | null> {
+    if (!this.settings.fullVoiceMode) {
+      return null;
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      await this.connect();
+    }
+
+    const message = {
+      start_stream: true,
+      voice: this.settings.voice,
+      speed: this.settings.speed,
+      language: this.settings.language
+    };
+
+    this.ws?.send(JSON.stringify(message));
+    
+    // Return the session ID when we get the response
+    return new Promise((resolve) => {
+      const originalCallback = this.statusCallback;
+      this.setStatusCallback((status) => {
+        if (originalCallback) originalCallback(status);
+        if (this.currentSession) {
+          resolve(this.currentSession.sessionId);
+        }
+      });
+    });
+  }
+
+  public sendTextChunk(textChunk: string) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.currentSession) {
+      const message = {
+        text_chunk: textChunk
+      };
+      this.ws.send(JSON.stringify(message));
+    }
+  }
+
+  public endStreaming() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.currentSession) {
+      const message = {
+        end_stream: true
+      };
+      this.ws.send(JSON.stringify(message));
+    }
+  }
+
+  public getCurrentSession(): StreamingSession | null {
+    return this.currentSession;
+  }
+
+  public isPausedState(): boolean {
+    return this.isPaused;
   }
 
   private updateStatus(status: TTSStatus) {
@@ -169,8 +280,50 @@ export class TTSService {
       const message = JSON.parse(data);
       
       switch (message.type) {
-        case 'audio':
-          this.playAudio(message.data);
+        case 'complete_audio':
+          // Handle complete audio response from regular TTS
+          if (message.audio) {
+            this.playAudio(message.audio);
+          }
+          break;
+        case 'audio_chunk':
+          // Handle streaming audio chunk
+          if (message.audio_chunk) {
+            this.playAudio(message.audio_chunk);
+          }
+          break;
+        case 'streaming_started':
+          console.log('TTS Streaming started:', message.session_id);
+          this.currentSession = {
+            sessionId: message.session_id,
+            isActive: true,
+            voice: message.voice,
+            speed: message.speed,
+            language: message.language
+          };
+          break;
+        case 'streaming_ended':
+          console.log('TTS Streaming ended:', message.session_id);
+          this.currentSession = null;
+          break;
+        case 'queue_cleared':
+        case 'queue_paused':
+        case 'queue_resumed':
+          console.log('TTS Queue action:', message.action, message.message);
+          if (message.action === 'pause') {
+            this.isPaused = true;
+            this.updateStatus('paused');
+          } else if (message.action === 'resume') {
+            this.isPaused = false;
+            this.updateStatus('connected');
+          }
+          break;
+        case 'chunk_received':
+          // Acknowledgment of text chunk processing
+          console.log('TTS Chunk processed:', message.processed_sentences);
+          break;
+        case 'request_queued':
+          console.log('TTS Request queued:', message.message);
           break;
         case 'status':
           console.log('TTS Status:', message.status);
@@ -179,7 +332,12 @@ export class TTSService {
           console.error('TTS Error:', message.error);
           break;
         default:
-          console.log('Unknown TTS message:', message);
+          // Handle error responses
+          if (message.error) {
+            console.error('TTS Error:', message.error);
+          } else {
+            console.log('Unknown TTS message:', message);
+          }
       }
     } catch (error) {
       console.error('Failed to parse TTS message:', error);

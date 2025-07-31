@@ -31,8 +31,19 @@ pip install misaki[zh]
 ### Starting the Server
 
 ```bash
-python websocket/tts_server.py [language_code]
+python websocket/browser_tts_server.py --host 0.0.0.0 --port 2701
 ```
+
+Or use the startup script:
+```bash
+./start-browser-server.sh
+```
+
+**Command Line Options:**
+- `--host` - Server host (default: localhost)
+- `--port` - Server port (default: 2702)
+- `--device` - Processing device (default: cpu, options: cpu, cuda, mps)
+- `--language` - Default language code (default: a)
 
 **Language Codes:**
 - `a` - American English (default)
@@ -45,27 +56,20 @@ python websocket/tts_server.py [language_code]
 - `p` - Brazilian Portuguese
 - `z` - Mandarin Chinese
 
-### Environment Variables
-
-- `KOKORO_SERVER_INTERFACE` - Server interface (default: 0.0.0.0)
-- `KOKORO_SERVER_PORT` - Server port (default: 2701)
-- `KOKORO_DEVICE` - Processing device (default: cpu, options: cpu, cuda, mps)
-- `KOKORO_DEFAULT_LANGUAGE` - Default language code (default: a)
-
 ### Example Usage
 
 ```bash
-# Start server on default port with American English
-python websocket/tts_server.py
+# Start server on default settings
+python websocket/browser_tts_server.py
 
-# Start server with Spanish
-python websocket/tts_server.py e
+# Start server with custom host and port
+python websocket/browser_tts_server.py --host 0.0.0.0 --port 2701
 
-# Start server with custom port
-KOKORO_SERVER_PORT=3000 python websocket/tts_server.py
+# Start server with GPU acceleration
+python websocket/browser_tts_server.py --device cuda
 
-# Start server with GPU acceleration (if available)
-KOKORO_DEVICE=cuda python websocket/tts_server.py
+# Start server with Spanish as default language
+python websocket/browser_tts_server.py --language e
 ```
 
 ## WebSocket API
@@ -306,4 +310,4 @@ asyncio.run(tts_client())
 ### Logs
 Server logs include connection info, processing times, and error details. Set log level with:
 ```bash
-export PYTHONPATH=. && python -c "import logging; logging.basicConfig(level=logging.DEBUG)" websocket/tts_server.py
+export PYTHONPATH=. && python -c "import logging; logging.basicConfig(level=logging.DEBUG)" websocket/browser_tts_server.py
