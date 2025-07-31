@@ -318,6 +318,13 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
       await voskRecognition.selectModel(modelName);
       setSelectedModel(modelName);
       
+      // Trigger automatic language detection for TTS when model changes
+      const { ttsService } = await import('../services/ttsService');
+      const languageResult = ttsService.autoDetectLanguageFromVoskModel(modelName);
+      if (languageResult.message) {
+        console.log(`🌐 ${languageResult.message}`);
+      }
+      
       if (onModelSelected) {
         onModelSelected(modelName);
       }
