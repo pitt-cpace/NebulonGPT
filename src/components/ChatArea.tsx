@@ -1497,7 +1497,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   size="small" 
                   sx={isListening ? styles.micButtonActive : (speechError ? styles.micButtonError : styles.micButton)}
                   onClick={toggleListening}
-                  disabled={loading || isProcessingMic || !voskRecognition}
+                  disabled={isProcessingMic || !voskRecognition || (loading && !ttsService.getSettings().fullVoiceMode)}
                   title={speechError || (isListening ? 'Stop dictation' : 'Start dictation')}
                 >
                   <MicIcon />
