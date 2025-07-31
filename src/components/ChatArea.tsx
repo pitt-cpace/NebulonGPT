@@ -130,6 +130,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [message, attachments, loading, onSendMessage]);
 
+  // Load default model ID from localStorage on component mount
+  useEffect(() => {
+    try {
+      const savedDefaultModelId = localStorage.getItem('defaultModelId');
+      setDefaultModelId(savedDefaultModelId);
+    } catch (error) {
+      console.error('Failed to load default model ID from localStorage:', error);
+    }
+  }, []);
+
   // Scroll to bottom when messages change
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -179,7 +189,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
     // Clear any previous errors
     setSpeechError(null);
-    console.log('✅ Vosk speech recognition initialized');
 
     // Clean up on component unmount
     return () => {

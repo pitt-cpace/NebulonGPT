@@ -22,6 +22,30 @@ const App: React.FC = () => {
   const [temperature, setTemperature] = useState(0.8); // Default temperature
   const [maxContextLength, setMaxContextLength] = useState(32768); // Default max context length for modern models
 
+  // Load saved settings from localStorage on app start
+  useEffect(() => {
+    try {
+      const savedContextLength = localStorage.getItem('contextLength');
+      const savedTemperature = localStorage.getItem('temperature');
+      
+      if (savedContextLength) {
+        const contextLengthValue = parseInt(savedContextLength, 10);
+        if (!isNaN(contextLengthValue) && contextLengthValue >= 2000) {
+          setContextLength(contextLengthValue);
+        }
+      }
+      
+      if (savedTemperature) {
+        const temperatureValue = parseFloat(savedTemperature);
+        if (!isNaN(temperatureValue) && temperatureValue >= 0 && temperatureValue <= 2) {
+          setTemperature(temperatureValue);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load settings from localStorage:', error);
+    }
+  }, []);
+
   // Vosk speech recognition state
   const [micStoppedTrigger, setMicStoppedTrigger] = useState(0);
   const onMicStartRef = useRef<(() => Promise<void>) | null>(null);
@@ -81,10 +105,25 @@ const App: React.FC = () => {
         setCurrentChat(savedChats[0]);
         
         // If models are already loaded, set the selected model based on the first chat's model ID
+        // BUT only if no default model has been set from localStorage
         if (models.length > 0 && savedChats[0].modelId) {
-          const chatModel = models.find(m => m.id === savedChats[0].modelId);
-          if (chatModel) {
-            setSelectedModel(chatModel);
+          try {
+            const savedDefaultModelId = localStorage.getItem('defaultModelId');
+            // Only use chat model if no default model is set
+            if (!savedDefaultModelId) {
+              const chatModel = models.find(m => m.id === savedChats[0].modelId);
+              if (chatModel) {
+                setSelectedModel(chatModel);
+              }
+            }
+            // If default model is set, keep using it (don't override with chat model)
+          } catch (error) {
+            console.error('Failed to check default model when loading chats:', error);
+            // Fallback to chat model if localStorage check fails
+            const chatModel = models.find(m => m.id === savedChats[0].modelId);
+            if (chatModel) {
+              setSelectedModel(chatModel);
+            }
           }
         }
       }
@@ -93,12 +132,13 @@ const App: React.FC = () => {
     fetchChats();
   }, [loadChatsFromServer, models]);
 
-  // Save chats to server whenever they change
+  // Save chats to server whenever they change (including when empty after deletions)
   useEffect(() => {
-    if (chats.length > 0) {
+    // Only save if the app has been initialized to avoid saving empty array on startup
+    if (initialized) {
       saveChatsToServer(chats);
     }
-  }, [chats, saveChatsToServer]);
+  }, [chats, saveChatsToServer, initialized]);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -109,7 +149,23 @@ const App: React.FC = () => {
         
         // Set default model if available
         if (modelList.length > 0) {
-          const defaultModel = modelList[0];
+          // Check if user has set a preferred default model
+          let defaultModel = modelList[0]; // fallback to first model
+          
+          try {
+            const savedDefaultModelId = localStorage.getItem('defaultModelId');
+            if (savedDefaultModelId) {
+              const savedDefaultModel = modelList.find(m => m.id === savedDefaultModelId);
+              if (savedDefaultModel) {
+                defaultModel = savedDefaultModel;
+              } else {
+                console.log(`⚠️ Saved default model '${savedDefaultModelId}' not found, using first available model`);
+              }
+            }
+          } catch (error) {
+            console.error('Failed to load default model from localStorage:', error);
+          }
+          
           setSelectedModel(defaultModel);
           
           // Fetch context length for the default model
@@ -139,7 +195,10 @@ const App: React.FC = () => {
   // Initialize app after both models and chats are loaded
   useEffect(() => {
     if (models.length > 0 && !initialized) {
-      // Check if we need to create a default chat
+      setInitialized(true);
+      
+      // Only create a default chat if no chats were loaded from server
+      // This should only happen on first app launch, not when user deletes all chats
       if (chats.length === 0) {
         const defaultModel = models[0];
         const newChat: ChatType = {
@@ -153,9 +212,8 @@ const App: React.FC = () => {
         setChats([newChat]);
         setCurrentChat(newChat);
       }
-      setInitialized(true);
     }
-  }, [models, chats, initialized]);
+  }, [models, initialized]); // Removed 'chats' from dependency array
 
   const handleCreateNewChat = () => {
     if (!selectedModel) return;
@@ -187,8 +245,17 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDeleteChat = (chatId: string) => {
+  const handleDeleteChat = async (chatId: string) => {
     const updatedChats = chats.filter(chat => chat.id !== chatId);
+    
+    // Immediately save to server to ensure deletion persists
+    try {
+      await saveChatsToServer(updatedChats);
+    } catch (error) {
+      console.error('Failed to save chats to server after deletion:', error);
+      // Continue with local state update even if server save fails
+    }
+    
     setChats(updatedChats);
     
     if (currentChat?.id === chatId) {
@@ -201,6 +268,28 @@ const App: React.FC = () => {
         const chatModel = models.find(m => m.id === newCurrentChat.modelId);
         if (chatModel) {
           setSelectedModel(chatModel);
+        }
+      } else if (!newCurrentChat) {
+        // If no chats left, revert to default model
+        try {
+          const savedDefaultModelId = localStorage.getItem('defaultModelId');
+          if (savedDefaultModelId && models.length > 0) {
+            const defaultModel = models.find(m => m.id === savedDefaultModelId);
+            if (defaultModel) {
+              setSelectedModel(defaultModel);
+            } else {
+              // Fallback to first model if default not found
+              setSelectedModel(models[0]);
+            }
+          } else if (models.length > 0) {
+            // No default set, use first model
+            setSelectedModel(models[0]);
+          }
+        } catch (error) {
+          console.error('Failed to revert to default model after deleting last chat:', error);
+          if (models.length > 0) {
+            setSelectedModel(models[0]);
+          }
         }
       }
     }
@@ -396,6 +485,15 @@ const App: React.FC = () => {
   const handleSaveSettings = (newContextLength: number, newTemperature: number) => {
     setContextLength(newContextLength);
     setTemperature(newTemperature);
+    
+    // Save settings to localStorage
+    try {
+      localStorage.setItem('contextLength', newContextLength.toString());
+      localStorage.setItem('temperature', newTemperature.toString());
+      console.log(`✅ Saved settings - Context: ${newContextLength}, Temperature: ${newTemperature}`);
+    } catch (error) {
+      console.error('Failed to save settings to localStorage:', error);
+    }
   };
 
   return (
