@@ -932,10 +932,25 @@ export class VoskRecognitionService {
         // Audio detected - reset silence timer
         this.lastAudioTime = Date.now();
         this.clearSilenceTimer();
+        
+        // Pause TTS if full voice mode is enabled and user starts speaking (above threshold)
+        const ttsSettings = ttsService.getSettings();
+        if (ttsSettings.fullVoiceMode) {
+          console.log('🔇 User speaking detected (above threshold) - pausing TTS in full voice mode');
+          ttsService.pause();
+        }
+        
         console.log(`🔊 Audio detected (level: ${rms.toFixed(4)}, threshold: ${this.silenceThreshold})`);
       } else {
         // Silence detected - check if we should start/continue silence timer
         const silenceDuration = Date.now() - this.lastAudioTime;
+        
+        // Resume TTS if full voice mode is enabled and user stops speaking (below threshold)
+        const ttsSettings = ttsService.getSettings();
+        if (ttsSettings.fullVoiceMode && silenceDuration > 200) { // Wait 200ms to avoid rapid pause/resume
+          console.log('🔊 User stopped speaking (below threshold) - resuming TTS in full voice mode');
+          ttsService.resume();
+        }
         
         if (silenceDuration > 500 && !this.silenceTimer) { // Wait 500ms before starting silence timer
           console.log(`🔇 Silence detected, starting ${this.silenceTimeout}ms timer...`);

@@ -35,7 +35,7 @@ if [ ! -f "kokoro_api.py" ]; then
 fi
 
 # Set default port
-PORT=${KOKORO_BROWSER_PORT:-2702}
+PORT=${KOKORO_BROWSER_PORT:-2701}
 HOST=${KOKORO_BROWSER_HOST:-localhost}
 
 echo "✅ Dependencies check passed"

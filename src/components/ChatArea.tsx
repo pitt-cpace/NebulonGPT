@@ -347,10 +347,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
     }
     
-    // Stop TTS if full voice mode is enabled and user manually stops mic
+    // Stop TTS and LLM if full voice mode is enabled and user manually stops mic
     const ttsSettings = ttsService.getSettings();
     if (ttsSettings.fullVoiceMode) {
-      console.log('🔇 User stopped microphone - clearing TTS in full voice mode');
+      console.log('🔇 User stopped microphone - stopping LLM and clearing TTS in full voice mode');
+      
+      // Stop LLM generation if it's currently running
+      if (loading) {
+        console.log('🛑 Stopping LLM generation due to manual mic stop');
+        onStopResponse();
+      }
+      
+      // Stop and clear TTS
       ttsService.stop();
       ttsService.clear();
     }

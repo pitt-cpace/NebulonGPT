@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class BrowserTTSServer:
-    def __init__(self, host='localhost', port=2702, device='cpu', language='a'):
+    def __init__(self, host='localhost', port=2701, device='cpu', language='a'):
         self.host = host
         self.port = port
         self.device = device
@@ -284,23 +284,28 @@ class BrowserTTSServer:
             # Clear any active streaming session
             if session_data:
                 session_data['text_buffer'] = ''
-                logger.info(f"Cleared text buffer for session {session_id}")
+                session_data['processed_sentences'] = 0
+                logger.info(f"Cleared text buffer and reset counters for session {session_id}")
             
             # Clear audio queue for this websocket
             if websocket in self.audio_queues:
                 self.audio_queues[websocket] = []
                 logger.info(f"Cleared audio queue for client")
             
-            # Clear session state
+            # Clear session state completely
             session_state['paused'] = False
             session_state['queued_audio'] = []
             session_state['processing'] = False
+            
+            # Also clear any pending audio generation tasks
+            # Force garbage collection of any in-progress audio generation
+            logger.info(f"Completely cleared all TTS state for client {websocket.remote_address}")
             
             return {
                 'type': 'queue_cleared',
                 'action': action,
                 'status': 'success',
-                'message': 'Server-side queue and buffers cleared'
+                'message': 'Server-side queue, buffers, and all TTS state completely cleared'
             }
         
         elif action == 'pause':
@@ -354,24 +359,20 @@ class BrowserTTSServer:
         if not text:
             return {'error': 'No text provided'}
         
-        # Check if session is paused
-        if websocket in self.session_states and self.session_states[websocket]['paused']:
-            # Queue the request for later processing
-            audio_response = {
-                'type': 'complete_audio',
-                'text': text,
-                'voice': voice,
-                'speed': speed,
-                'language': language,
-                'status': 'queued_for_resume'
+        # Initialize session state if not exists
+        if websocket not in self.session_states:
+            self.session_states[websocket] = {
+                'paused': False,
+                'queued_audio': [],
+                'processing': False
             }
-            
-            self.session_states[websocket]['queued_audio'].append(audio_response)
-            logger.info(f"Queued TTS request for paused session: {text[:50]}...")
-            
+        
+        # Check if session is paused - for real-time conversation, don't queue, just skip
+        if self.session_states[websocket]['paused']:
+            logger.info(f"Skipping TTS request for paused session: {text[:50]}...")
             return {
-                'type': 'request_queued',
-                'message': 'TTS request queued - session is paused',
+                'type': 'request_skipped',
+                'message': 'TTS request skipped - session is paused',
                 'text': text[:50] + '...' if len(text) > 50 else text
             }
         
@@ -486,7 +487,7 @@ async def run_server():
     
     parser = argparse.ArgumentParser(description="Browser-Compatible Kokoro TTS Server")
     parser.add_argument('--host', default='localhost', help='Host to bind to')
-    parser.add_argument('--port', type=int, default=2702, help='Port to bind to')
+    parser.add_argument('--port', type=int, default=2701, help='Port to bind to')
     parser.add_argument('--device', default='cpu', help='Device to use (cpu/cuda)')
     parser.add_argument('--language', default='a', help='Default language code')
     

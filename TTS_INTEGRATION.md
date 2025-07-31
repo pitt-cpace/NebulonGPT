@@ -139,12 +139,12 @@ The TTS settings are integrated into the existing Model Settings dialog:
 - **Usage**: Basic TTS functionality
 
 ### 2. **Queue TTS Server** (`queue_tts_server.py`)
-- **Port**: 2702
+- **Port**: 2701
 - **Features**: Queue management, pause/resume/skip
 - **Usage**: Advanced TTS with playback controls
 
 ### 3. **Browser TTS Server** (`browser_tts_server.py`)
-- **Port**: 2704
+- **Port**: 2701
 - **Features**: Browser-optimized TTS
 - **Usage**: Web-based TTS interface
 
@@ -222,8 +222,8 @@ wscat -c ws://localhost:2701
 |---------|-------------|---------------------|
 | NebulonGPT | 3000 | - |
 | Basic TTS | 2701 | `KOKORO_SERVER_PORT` |
-| Queue TTS | 2702 | `KOKORO_SERVER_PORT` |
-| Browser TTS | 2704 | `KOKORO_SERVER_PORT` |
+| Queue TTS | 2701 | `KOKORO_SERVER_PORT` |
+| Browser TTS | 2701 | `KOKORO_SERVER_PORT` |
 
 ## 📝 Notes
 

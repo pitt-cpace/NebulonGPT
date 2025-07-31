@@ -175,6 +175,10 @@ export class TTSService {
       const message = { action: 'stop' };
       this.ws.send(JSON.stringify(message));
     }
+    
+    // Immediately clear client-side audio for real-time stop
+    this.clearAudioQueue();
+    this.isPaused = false; // Reset paused state
   }
 
   public pause() {
@@ -182,6 +186,10 @@ export class TTSService {
       const message = { action: 'pause' };
       this.ws.send(JSON.stringify(message));
     }
+    
+    // Immediately stop client-side audio playback for real-time pause
+    this.clearAudioQueue();
+    this.isPaused = true;
   }
 
   public resume() {
@@ -189,6 +197,9 @@ export class TTSService {
       const message = { action: 'resume' };
       this.ws.send(JSON.stringify(message));
     }
+    
+    // Reset paused state for client-side audio
+    this.isPaused = false;
   }
 
   public clear() {
@@ -196,6 +207,9 @@ export class TTSService {
       const message = { action: 'clear' };
       this.ws.send(JSON.stringify(message));
     }
+    
+    // Reset paused state when clearing (important for new conversations)
+    this.isPaused = false;
     
     // Clear the local audio queue to prevent overlapping
     this.clearAudioQueue();
