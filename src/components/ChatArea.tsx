@@ -161,6 +161,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       if (result.partial) {
         // Update interim transcript for real-time display
         setInterimTranscript(result.partial);
+        
+        // In full voice mode: if user starts speaking while LLM is generating, stop the LLM
+        const ttsSettings = ttsService.getSettings();
+        const isFullVoiceMode = ttsSettings.fullVoiceMode;
+        
+        if (isFullVoiceMode && loading && result.partial.trim().length > 0) {
+          console.log('🛑 User started speaking while LLM is generating - stopping LLM response');
+          onStopResponse();
+        }
       }
       
       if (result.text) {
