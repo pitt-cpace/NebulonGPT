@@ -152,6 +152,13 @@ export class VoskRecognitionService {
               case 'model_loaded':
                 console.log(`✅ Model loaded: ${msg.model}`);
                 this.currentModel = msg.model;
+                
+                // Trigger automatic language detection for TTS
+                const languageResult = ttsService.autoDetectLanguageFromVoskModel(msg.model);
+                if (languageResult.message) {
+                  console.log(`🌐 ${languageResult.message}`);
+                }
+                
                 if (this.onModelLoadedCallback) {
                   this.onModelLoadedCallback({ model: msg.model });
                 }

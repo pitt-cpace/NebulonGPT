@@ -61,6 +61,7 @@ interface ChatAreaProps {
   micStoppedTrigger?: number;
   onMicStart?: React.MutableRefObject<(() => Promise<void>) | null>;
   onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onListeningStateChange?: (listening: boolean) => void;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -77,6 +78,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   micStoppedTrigger,
   onMicStart,
   onMicStop,
+  onListeningStateChange,
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
@@ -411,6 +413,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       onMicStop.current = stopMicListening;
     }
   }, [startMicListening, stopMicListening, onMicStart, onMicStop]);
+
+  // Notify parent component when listening state changes
+  useEffect(() => {
+    if (onListeningStateChange) {
+      onListeningStateChange(isListening);
+    }
+  }, [isListening, onListeningStateChange]);
 
 
   const handleKeyPress = (e: React.KeyboardEvent) => {

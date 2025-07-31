@@ -297,15 +297,48 @@ class BrowserTTSServer:
             session_state['queued_audio'] = []
             session_state['processing'] = False
             
+            # CRITICAL: Clear Kokoro pipeline cache and force garbage collection
+            try:
+                if self.pipeline:
+                    # Force clear any internal caches in the pipeline
+                    if hasattr(self.pipeline, 'clear_cache'):
+                        self.pipeline.clear_cache()
+                    
+                    # AGGRESSIVE: Recreate the pipeline to completely clear all internal state
+                    logger.info("Recreating Kokoro pipeline to completely clear cache")
+                    old_pipeline = self.pipeline
+                    self.pipeline = None
+                    del old_pipeline
+                    
+                    # Recreate pipeline with same settings
+                    loop = asyncio.get_event_loop()
+                    self.pipeline = await loop.run_in_executor(
+                        None, 
+                        lambda: KPipeline(lang_code=self.language, device=self.device)
+                    )
+                    logger.info("Pipeline recreated successfully")
+                    
+                    # Clear PyTorch cache if using GPU
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        logger.info("Cleared CUDA cache")
+                    
+                    # Force Python garbage collection
+                    import gc
+                    gc.collect()
+                    logger.info("Forced garbage collection")
+                    
+            except Exception as e:
+                logger.warning(f"Error clearing pipeline cache: {str(e)}")
+            
             # Also clear any pending audio generation tasks
-            # Force garbage collection of any in-progress audio generation
-            logger.info(f"Completely cleared all TTS state for client {websocket.remote_address}")
+            logger.info(f"Completely cleared all TTS state and pipeline cache for client {websocket.remote_address}")
             
             return {
                 'type': 'queue_cleared',
                 'action': action,
                 'status': 'success',
-                'message': 'Server-side queue, buffers, and all TTS state completely cleared'
+                'message': 'Server-side queue, buffers, pipeline cache, and all TTS state completely cleared'
             }
         
         elif action == 'pause':
@@ -439,18 +472,23 @@ class BrowserTTSServer:
             return None
 
     def extract_complete_sentences(self, text):
-        """Extract complete sentences from text buffer"""
+        """Extract complete sentences from text buffer with language-aware punctuation"""
         # Minimum buffer size before processing (to avoid processing single words)
-        if len(text.strip()) < 50:
-            # Check for sentence endings even with short text
-            if not re.search(r'[.!?]\s*$', text.strip()):
+        if len(text.strip()) < 30:  # Reduced threshold for better responsiveness
+            # Check for sentence endings with language-aware punctuation
+            if not re.search(r'[.!?。！？｡]\s*$', text.strip()):
                 return []
         
+        # Language-aware sentence boundary patterns
+        # Western languages: . ! ?
+        # Chinese/Japanese: 。！？｡
+        # Also handle common patterns like ellipsis (...) and multiple punctuation
+        sentence_pattern = r'([.!?。！？｡]+(?:\s*[.!?。！？｡]*)*)'
+        
         # Split by sentence boundaries but keep the punctuation
-        sentences = re.split(r'([.!?]+)', text)
+        sentences = re.split(sentence_pattern, text)
         
         complete_sentences = []
-        current_sentence = ""
         
         for i in range(0, len(sentences) - 1, 2):  # Process pairs (text, punctuation)
             if i + 1 < len(sentences):
@@ -460,6 +498,29 @@ class BrowserTTSServer:
                 if sentence_text.strip() and punctuation:
                     complete_sentence = sentence_text + punctuation
                     complete_sentences.append(complete_sentence)
+        
+        # Handle languages without punctuation or incomplete sentences
+        # If no sentences were found but we have substantial text, process it anyway
+        if not complete_sentences and len(text.strip()) > 100:
+            # For languages without clear sentence boundaries, split by length or natural breaks
+            # Look for natural breaking points like commas, spaces after certain lengths
+            words = text.strip().split()
+            if len(words) > 15:  # If we have enough words, process as a chunk
+                # Find a good breaking point (after comma, conjunction, etc.)
+                break_points = []
+                for i, word in enumerate(words):
+                    if word.endswith(',') or word in ['and', 'but', 'or', 'so', 'yet', 'for', 'nor', '和', '但是', '或者', '所以']:
+                        break_points.append(i)
+                
+                if break_points:
+                    # Use the last good breaking point
+                    break_point = break_points[-1] + 1
+                    chunk = ' '.join(words[:break_point])
+                    complete_sentences.append(chunk)
+                else:
+                    # No good breaking point, take first 15 words
+                    chunk = ' '.join(words[:15])
+                    complete_sentences.append(chunk)
         
         return complete_sentences
 

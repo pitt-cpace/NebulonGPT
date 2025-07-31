@@ -49,6 +49,7 @@ const App: React.FC = () => {
 
   // Vosk speech recognition state
   const [micStoppedTrigger, setMicStoppedTrigger] = useState(0);
+  const [isListening, setIsListening] = useState(false);
   const onMicStartRef = useRef<(() => Promise<void>) | null>(null);
   const onMicStopRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -56,6 +57,11 @@ const App: React.FC = () => {
   const handleMicStopped = () => {
     setMicStoppedTrigger(prev => prev + 1);
   };
+
+  // Handle listening state change from ChatArea
+  const handleListeningStateChange = useCallback((listening: boolean) => {
+    setIsListening(listening);
+  }, []);
 
   // Function to determine the chat API URL based on environment
   const getChatApiUrl = useCallback(() => {
@@ -389,6 +395,7 @@ const App: React.FC = () => {
       const ttsSettings = ttsService.getSettings();
       const isFullVoiceMode = ttsSettings.fullVoiceMode;
       
+      
       // Buffer for accumulating text chunks for TTS
       let ttsBuffer = '';
       
@@ -420,8 +427,8 @@ const App: React.FC = () => {
           return updatedChat;
         });
         
-        // Send to TTS if full voice mode is enabled
-        if (isFullVoiceMode) {
+        // Send to TTS if full voice mode is enabled AND microphone is listening
+        if (isFullVoiceMode && isListening) {
           ttsBuffer += chunk;
           
           // Send complete sentences to TTS for better speech quality
@@ -432,7 +439,7 @@ const App: React.FC = () => {
           while ((match = sentenceEndings.exec(ttsBuffer)) !== null) {
             const sentence = ttsBuffer.substring(lastIndex, match.index + match[0].length).trim();
             if (sentence) {
-              console.log('🔊 Sending sentence to TTS:', sentence);
+              console.log('🔊 Sending sentence to TTS (mic is listening):', sentence);
               ttsService.speak(sentence);
             }
             lastIndex = match.index + match[0].length;
@@ -440,6 +447,9 @@ const App: React.FC = () => {
           
           // Keep remaining text in buffer
           ttsBuffer = ttsBuffer.substring(lastIndex);
+        } else if (isFullVoiceMode && !isListening) {
+          // Full voice mode is on but mic is not listening - don't send to TTS
+          console.log('🔇 Full voice mode enabled but microphone not listening - skipping TTS');
         }
       };
       
@@ -454,9 +464,10 @@ const App: React.FC = () => {
         handleStreamUpdate // Streaming callback
       );
       
+      
       // Send any remaining text in the TTS buffer after streaming is complete
-      if (isFullVoiceMode && ttsBuffer.trim()) {
-        console.log('🔊 Sending final text chunk to TTS:', ttsBuffer.trim());
+      if (isFullVoiceMode && isListening && ttsBuffer.trim()) {
+        console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
         ttsService.speak(ttsBuffer.trim());
       }
       
@@ -590,6 +601,7 @@ const App: React.FC = () => {
         micStoppedTrigger={micStoppedTrigger}
         onMicStart={onMicStartRef}
         onMicStop={onMicStopRef}
+        onListeningStateChange={handleListeningStateChange}
       />
     </Box>
   );

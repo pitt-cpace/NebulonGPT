@@ -1,9 +1,16 @@
+import { 
+  getKokoroMappingForVoskModel, 
+  isLanguageSupportedByKokoro, 
+  getUnsupportedLanguageMessage 
+} from './languageMapping';
+
 export interface TTSSettings {
   fullVoiceMode: boolean;
   voiceGender: 'female' | 'male';
   voice: string;
   speed: number;
   language: string;
+  autoLanguageDetection: boolean;
 }
 
 export type TTSStatus = 'connected' | 'connecting' | 'disconnected' | 'reconnecting' | 'paused';
@@ -28,7 +35,8 @@ export class TTSService {
     voiceGender: 'female',
     voice: 'af_heart',
     speed: 1.0,
-    language: 'a'
+    language: 'a',
+    autoLanguageDetection: true
   };
   private readonly STORAGE_KEY = 'nebulongpt_tts_settings';
   private currentSession: StreamingSession | null = null;
@@ -84,7 +92,8 @@ export class TTSService {
           voiceGender: parsed.voiceGender ?? 'female',
           voice: parsed.voice ?? 'af_heart',
           speed: parsed.speed ?? 1.0,
-          language: parsed.language ?? 'a'
+          language: parsed.language ?? 'a',
+          autoLanguageDetection: parsed.autoLanguageDetection ?? true
         };
       }
     } catch (error) {
@@ -95,7 +104,8 @@ export class TTSService {
         voiceGender: 'female',
         voice: 'af_heart',
         speed: 1.0,
-        language: 'a'
+        language: 'a',
+        autoLanguageDetection: true
       };
     }
   }
@@ -216,25 +226,54 @@ export class TTSService {
   }
 
   private clearAudioQueue() {
-    // Stop current audio if playing
-    if (this.audioQueue.length > 0) {
-      const currentAudio = this.audioQueue[0];
-      if (!currentAudio.paused) {
-        currentAudio.pause();
-        currentAudio.currentTime = 0;
-      }
-    }
+    console.log('🧹 AGGRESSIVE client-side audio cache clearing...');
     
-    // Clear all queued audio
-    this.audioQueue.forEach(audio => {
-      if (!audio.paused) {
-        audio.pause();
+    // Stop and destroy ALL audio elements in queue
+    this.audioQueue.forEach((audio, index) => {
+      try {
+        // Stop playback immediately
+        if (!audio.paused) {
+          audio.pause();
+        }
+        
+        // Reset to beginning
         audio.currentTime = 0;
+        
+        // Remove all event listeners to prevent memory leaks
+        audio.onended = null;
+        audio.onerror = null;
+        audio.onloadstart = null;
+        audio.oncanplay = null;
+        
+        // Revoke any blob URLs to free memory
+        if (audio.src && audio.src.startsWith('blob:')) {
+          URL.revokeObjectURL(audio.src);
+        }
+        
+        // Clear the src to release audio data
+        audio.src = '';
+        audio.load(); // Force reload to clear internal buffers
+        
+        console.log(`🗑️ Destroyed audio element ${index}`);
+      } catch (error) {
+        console.warn(`⚠️ Error destroying audio element ${index}:`, error);
       }
     });
     
+    // Completely replace the array (don't just clear it)
     this.audioQueue = [];
-    console.log('🔇 Audio queue cleared');
+    
+    // Reset all session state
+    this.currentSession = null;
+    this.isPaused = false;
+    
+    // Force garbage collection hint (browser may or may not honor this)
+    if (window.gc) {
+      window.gc();
+      console.log('🧹 Forced garbage collection');
+    }
+    
+    console.log('✅ Client-side audio cache completely cleared');
   }
 
   public async startStreaming(): Promise<number | null> {
@@ -355,6 +394,12 @@ export class TTSService {
           } else if (message.action === 'resume') {
             this.isPaused = false;
             this.updateStatus('connected');
+          } else if (message.action === 'stop' || message.action === 'clear') {
+            // Server confirmed cache clearing - do additional client-side cleanup
+            console.log('🔄 Server confirmed cache clearing - performing additional client cleanup');
+            this.clearAudioQueue(); // Double-clear to be absolutely sure
+            this.currentSession = null; // Reset session
+            this.isPaused = false; // Reset state
           }
           break;
         case 'chunk_received':
@@ -450,6 +495,87 @@ export class TTSService {
       default:
         return 'disconnected';
     }
+  }
+
+  /**
+   * Automatically detect and switch TTS language based on active Vosk model
+   */
+  public autoDetectLanguageFromVoskModel(voskModelName: string): { 
+    languageChanged: boolean; 
+    supportedLanguage: boolean; 
+    message?: string; 
+  } {
+    if (!this.settings.autoLanguageDetection) {
+      return { languageChanged: false, supportedLanguage: true };
+    }
+
+    if (!voskModelName) {
+      return { languageChanged: false, supportedLanguage: true };
+    }
+
+    // Get the Kokoro mapping for this Vosk model
+    const mapping = getKokoroMappingForVoskModel(voskModelName);
+    const isSupported = mapping.supported;
+    
+    // Check if language needs to be changed
+    const currentLanguage = this.settings.language;
+    const newLanguage = mapping.kokoroLanguageCode;
+    const newVoice = mapping.defaultVoice;
+    
+    let languageChanged = false;
+    let message: string | undefined;
+
+    if (currentLanguage !== newLanguage) {
+      // Update TTS settings with new language and voice
+      this.updateSettings({
+        language: newLanguage,
+        voice: newVoice
+      });
+      
+      languageChanged = true;
+      
+      if (isSupported) {
+        message = `TTS language automatically switched to ${mapping.kokoroLanguageName} based on Vosk model: ${voskModelName}`;
+        console.log(`🌐 ${message}`);
+      } else {
+        message = getUnsupportedLanguageMessage(voskModelName);
+        console.log(`⚠️ ${message}`);
+      }
+    }
+
+    return {
+      languageChanged,
+      supportedLanguage: isSupported,
+      message
+    };
+  }
+
+  /**
+   * Get current language mapping information
+   */
+  public getCurrentLanguageInfo(voskModelName?: string): {
+    currentLanguage: string;
+    currentVoice: string;
+    mapping?: any;
+    isSupported?: boolean;
+  } {
+    const result = {
+      currentLanguage: this.settings.language,
+      currentVoice: this.settings.voice
+    };
+
+    if (voskModelName) {
+      const mapping = getKokoroMappingForVoskModel(voskModelName);
+      const isSupported = isLanguageSupportedByKokoro(voskModelName);
+      
+      return {
+        ...result,
+        mapping,
+        isSupported
+      };
+    }
+
+    return result;
   }
 }
 
