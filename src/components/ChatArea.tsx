@@ -196,6 +196,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // In full voice mode: auto-send message but keep microphone active
         if (message.trim()) {
           handleSendMessage();
+          
+          // Clear the message and reset transcript for next speech recognition
+          setMessage('');
+          finalTranscriptRef.current = '';
         }
         // Don't stop listening - keep microphone active for continuous conversation
         // Only clear interim transcript
