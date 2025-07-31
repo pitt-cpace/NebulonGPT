@@ -46,7 +46,8 @@ if (!fs.existsSync(CHATS_FILE)) {
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '50mb' })); // Increase payload size limit for large chat histories
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // API endpoints
 app.get('/api/chats', (req, res) => {
