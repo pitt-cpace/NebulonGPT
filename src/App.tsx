@@ -431,8 +431,11 @@ const App: React.FC = () => {
         if (isFullVoiceMode && isListening) {
           ttsBuffer += chunk;
           
-          // Send complete sentences to TTS for better speech quality
-          const sentenceEndings = /[.!?]\s+/g;
+          // Enhanced sentence detection for multiple languages and punctuation patterns
+          // Western: . ! ? : ;
+          // Chinese/Japanese: 。！？：；
+          // Also handle newlines and other natural breaks
+          const sentenceEndings = /[.!?:;。！？：；]\s+|\n\s*/g;
           let match;
           let lastIndex = 0;
           
@@ -445,8 +448,40 @@ const App: React.FC = () => {
             lastIndex = match.index + match[0].length;
           }
           
-          // Keep remaining text in buffer
-          ttsBuffer = ttsBuffer.substring(lastIndex);
+          // Fallback for languages without punctuation: prioritize line breaks
+          if (lastIndex === 0 && ttsBuffer.length > 500) {
+            // No sentence boundaries found, but we have substantial text
+            
+            // Strategy 1: Look for line breaks first (most natural for languages without punctuation)
+            const lineBreakIndex = ttsBuffer.indexOf('\n');
+            if (lineBreakIndex > 0) {
+              const chunk = ttsBuffer.substring(0, lineBreakIndex).trim();
+              if (chunk) {
+                console.log('🔊 Sending line chunk (no punctuation, using line break, mic is listening):', chunk);
+                ttsService.speak(chunk);
+              }
+              // Update buffer to remove sent chunk including the line break
+              ttsBuffer = ttsBuffer.substring(lineBreakIndex + 1);
+              lastIndex = 0; // Reset since we manually processed
+            }
+            // Strategy 2: If no line breaks and buffer is getting long, use word-based chunking
+            else if (ttsBuffer.length > 100) {
+              const words = ttsBuffer.split(' ');
+              if (words.length > 15) {
+                // Send first 15 words as a chunk
+                const chunk = words.slice(0, 15).join(' ');
+                console.log('🔊 Sending word chunk (no punctuation/line breaks found, mic is listening):', chunk);
+                ttsService.speak(chunk);
+                
+                // Update buffer to remove sent chunk
+                ttsBuffer = words.slice(15).join(' ');
+                lastIndex = 0; // Reset since we manually processed
+              }
+            }
+          } else {
+            // Keep remaining text in buffer
+            ttsBuffer = ttsBuffer.substring(lastIndex);
+          }
         } else if (isFullVoiceMode && !isListening) {
           // Full voice mode is on but mic is not listening - don't send to TTS
           console.log('🔇 Full voice mode enabled but microphone not listening - skipping TTS');
