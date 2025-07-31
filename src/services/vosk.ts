@@ -1,4 +1,6 @@
 // Vosk Speech Recognition Service
+import { ttsService } from './ttsService';
+
 export interface VoskResult {
   text?: string;
   partial?: string;
@@ -956,16 +958,32 @@ export class VoskRecognitionService {
 
     this.silenceTimer = window.setTimeout(async () => {
       if (this.isRecording && this.silenceDetectionEnabled) {
-        console.log(`� ${this.silenceTimeout}ms of silence detected - auto-stopping microphone`);
-        try {
-          await this.stop();
+        // Check if full voice mode is enabled
+        const ttsSettings = ttsService.getSettings();
+        const isFullVoiceMode = ttsSettings.fullVoiceMode;
+        
+        if (isFullVoiceMode) {
+          console.log(`🔇 ${this.silenceTimeout}ms of silence detected - full voice mode enabled, triggering onEnd but keeping microphone active`);
           
-          // Notify that recording ended due to silence
+          // In full voice mode: trigger onEnd callback but don't stop the microphone
           if (this.onEndCallback) {
             this.onEndCallback();
           }
-        } catch (error) {
-          console.error('❌ Error auto-stopping due to silence:', error);
+          
+          // Reset silence timer for next detection cycle
+          this.lastAudioTime = Date.now();
+        } else {
+          console.log(`🔇 ${this.silenceTimeout}ms of silence detected - auto-stopping microphone`);
+          try {
+            await this.stop();
+            
+            // Notify that recording ended due to silence
+            if (this.onEndCallback) {
+              this.onEndCallback();
+            }
+          } catch (error) {
+            console.error('❌ Error auto-stopping due to silence:', error);
+          }
         }
       }
       this.silenceTimer = null;

@@ -41,6 +41,7 @@ import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
 import { getSuggestedPrompts } from '../services/api';
 import { VoskRecognitionService } from '../services/vosk';
+import { ttsService } from '../services/ttsService';
 import * as styles from '../styles/components/ChatArea.styles';
 
 // Set the worker source path
@@ -178,12 +179,24 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     });
     
     voskRecognition.onEnd(() => {
-      setIsListening(false);
-      setInterimTranscript('');
+      // Check if full voice mode is enabled
+      const ttsSettings = ttsService.getSettings();
+      const isFullVoiceMode = ttsSettings.fullVoiceMode;
       
-      // Auto-send message if there's content (triggered by silence detection or manual stop)
-      if (message.trim()) {
-        handleSendMessage();
+      if (isFullVoiceMode) {
+        // In full voice mode: auto-send message but keep microphone active
+        if (message.trim()) {
+          handleSendMessage();
+        }
+        // Don't stop listening - keep microphone active for continuous conversation
+        // Only clear interim transcript
+        setInterimTranscript('');
+      } else {
+        // Normal mode: stop listening but DON'T auto-send (user must click send button manually)
+        setIsListening(false);
+        setInterimTranscript('');
+        
+        // No auto-send in normal mode - user must manually click send button
       }
     });
 
