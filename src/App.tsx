@@ -7,6 +7,7 @@ import SettingsDialog from './components/SettingsDialog';
 import { ModelType, ChatType, MessageType, FileAttachment } from './types';
 import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
 import { voskRecognition } from './services/vosk';
+import { ttsService } from './services/ttsService';
 
 const App: React.FC = () => {
   const [models, setModels] = useState<ModelType[]>([]);
@@ -311,10 +312,27 @@ const App: React.FC = () => {
 
   const handleStopResponse = async () => {
     await cancelStream();
+    
+    // Also stop TTS if full voice mode is enabled
+    const ttsSettings = ttsService.getSettings();
+    if (ttsSettings.fullVoiceMode) {
+      console.log('🛑 Stopping TTS due to response cancellation');
+      ttsService.stop();
+      ttsService.clear(); // Clear any queued TTS audio
+    }
   };
 
   const handleSendMessage = async (content: string, attachments?: FileAttachment[]) => {
     if (!currentChat || !selectedModel) return;
+    
+    // Clear TTS if full voice mode is enabled (for new conversation turn)
+    const ttsSettings = ttsService.getSettings();
+    if (ttsSettings.fullVoiceMode) {
+      console.log('🔄 New message - clearing TTS for fresh conversation turn');
+      
+      ttsService.stop();
+      ttsService.clear(); // This will stop current audio and clear queue
+    }
     
     const userMessage: MessageType = {
       id: `msg-${Date.now()}`,
@@ -367,6 +385,13 @@ const App: React.FC = () => {
       // Import the sendMessage function from our API service
       const { sendMessage } = await import('./services/api');
       
+      // Check if full voice mode is enabled for TTS
+      const ttsSettings = ttsService.getSettings();
+      const isFullVoiceMode = ttsSettings.fullVoiceMode;
+      
+      // Buffer for accumulating text chunks for TTS
+      let ttsBuffer = '';
+      
       // Function to handle streaming updates
       const handleStreamUpdate = (chunk: string) => {
         // Update the AI message with the new chunk
@@ -394,6 +419,28 @@ const App: React.FC = () => {
           
           return updatedChat;
         });
+        
+        // Send to TTS if full voice mode is enabled
+        if (isFullVoiceMode) {
+          ttsBuffer += chunk;
+          
+          // Send complete sentences to TTS for better speech quality
+          const sentenceEndings = /[.!?]\s+/g;
+          let match;
+          let lastIndex = 0;
+          
+          while ((match = sentenceEndings.exec(ttsBuffer)) !== null) {
+            const sentence = ttsBuffer.substring(lastIndex, match.index + match[0].length).trim();
+            if (sentence) {
+              console.log('🔊 Sending sentence to TTS:', sentence);
+              ttsService.speak(sentence);
+            }
+            lastIndex = match.index + match[0].length;
+          }
+          
+          // Keep remaining text in buffer
+          ttsBuffer = ttsBuffer.substring(lastIndex);
+        }
       };
       
       // Call the Ollama API with the current messages and streaming handler
@@ -406,6 +453,12 @@ const App: React.FC = () => {
         }, // Pass model settings
         handleStreamUpdate // Streaming callback
       );
+      
+      // Send any remaining text in the TTS buffer after streaming is complete
+      if (isFullVoiceMode && ttsBuffer.trim()) {
+        console.log('🔊 Sending final text chunk to TTS:', ttsBuffer.trim());
+        ttsService.speak(ttsBuffer.trim());
+      }
       
     } catch (error) {
       console.error('Error sending message:', error);

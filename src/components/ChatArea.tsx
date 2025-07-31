@@ -162,13 +162,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Update interim transcript for real-time display
         setInterimTranscript(result.partial);
         
-        // In full voice mode: if user starts speaking while LLM is generating, stop the LLM
+        // In full voice mode: if user starts speaking while LLM is generating, stop the LLM and TTS
         const ttsSettings = ttsService.getSettings();
         const isFullVoiceMode = ttsSettings.fullVoiceMode;
         
         if (isFullVoiceMode && loading && result.partial.trim().length > 0) {
-          console.log('🛑 User started speaking while LLM is generating - stopping LLM response');
-          onStopResponse();
+          console.log('🛑 User started speaking while LLM is generating - stopping LLM response and clearing TTS');
+          onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
+          
+          // Also directly clear TTS to ensure immediate stopping
+          ttsService.stop();
+          ttsService.clear();
         }
       }
       
@@ -341,6 +345,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         console.error('❌ Error stopping Vosk speech recognition:', error);
         // Don't throw here, we still want to update UI state
       }
+    }
+    
+    // Stop TTS if full voice mode is enabled and user manually stops mic
+    const ttsSettings = ttsService.getSettings();
+    if (ttsSettings.fullVoiceMode) {
+      console.log('🔇 User stopped microphone - clearing TTS in full voice mode');
+      ttsService.stop();
+      ttsService.clear();
     }
     
     // Update all UI states

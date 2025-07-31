@@ -196,6 +196,31 @@ export class TTSService {
       const message = { action: 'clear' };
       this.ws.send(JSON.stringify(message));
     }
+    
+    // Clear the local audio queue to prevent overlapping
+    this.clearAudioQueue();
+  }
+
+  private clearAudioQueue() {
+    // Stop current audio if playing
+    if (this.audioQueue.length > 0) {
+      const currentAudio = this.audioQueue[0];
+      if (!currentAudio.paused) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+      }
+    }
+    
+    // Clear all queued audio
+    this.audioQueue.forEach(audio => {
+      if (!audio.paused) {
+        audio.pause();
+        audio.currentTime = 0;
+      }
+    });
+    
+    this.audioQueue = [];
+    console.log('🔇 Audio queue cleared');
   }
 
   public async startStreaming(): Promise<number | null> {
@@ -357,16 +382,44 @@ export class TTSService {
       const audioUrl = URL.createObjectURL(blob);
       const audio = new Audio(audioUrl);
       
-      audio.play().catch(error => {
-        console.error('Failed to play TTS audio:', error);
-      });
+      // Add to queue instead of playing immediately
+      this.audioQueue.push(audio);
       
       // Clean up the URL after playing
       audio.onended = () => {
         URL.revokeObjectURL(audioUrl);
+        // Remove from queue and play next
+        this.audioQueue.shift();
+        this.playNextInQueue();
       };
+      
+      audio.onerror = () => {
+        console.error('Failed to play TTS audio');
+        URL.revokeObjectURL(audioUrl);
+        // Remove from queue and play next
+        this.audioQueue.shift();
+        this.playNextInQueue();
+      };
+      
+      // If this is the only audio in queue, start playing
+      if (this.audioQueue.length === 1) {
+        this.playNextInQueue();
+      }
+      
     } catch (error) {
       console.error('Failed to process TTS audio:', error);
+    }
+  }
+
+  private playNextInQueue() {
+    if (this.audioQueue.length > 0 && !this.isPaused) {
+      const audio = this.audioQueue[0];
+      audio.play().catch(error => {
+        console.error('Failed to play TTS audio:', error);
+        // Remove failed audio and try next
+        this.audioQueue.shift();
+        this.playNextInQueue();
+      });
     }
   }
 
