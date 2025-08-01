@@ -496,7 +496,8 @@ const App: React.FC = () => {
           num_ctx: contextLength,
           temperature: temperature
         }, // Pass model settings
-        handleStreamUpdate // Streaming callback
+        handleStreamUpdate, // Streaming callback
+        isListening // Pass listening state for system message logic
       );
       
       

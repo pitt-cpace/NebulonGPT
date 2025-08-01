@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ModelType, MessageType } from '../types';
+import { ttsService } from './ttsService';
 
 // Configure axios with base URL
 // In development, we use the direct URL
@@ -107,7 +108,8 @@ export const sendMessage = async (
   modelId: string,
   messages: MessageType[],
   options?: Record<string, any>,
-  onStreamUpdate?: (chunk: string) => void
+  onStreamUpdate?: (chunk: string) => void,
+  isListening?: boolean
 ): Promise<string> => {
   try {
     // Extract image attachments and text attachments
@@ -156,10 +158,29 @@ export const sendMessage = async (
         content: msg.content,
       };
     });
+
+    // Check if both full voice mode is enabled AND microphone is listening to add system message
+    const ttsSettings = ttsService.getSettings();
+    let finalMessages = formattedMessages;
+    
+    // Add system message when BOTH full voice mode is enabled AND microphone is listening
+    if (ttsSettings.fullVoiceMode && isListening) {
+      const systemMessage = {
+        role: 'system' as const,
+        content: 'You are a helpful and conversational assistant. Maintain context across turns and speak naturally as if in an ongoing dialogue.'
+      };
+      
+      // Insert system message at the beginning if it's not already there
+      const hasSystemMessage = finalMessages.some(msg => msg.role === 'system');
+      if (!hasSystemMessage) {
+        finalMessages = [systemMessage, ...formattedMessages];
+        console.log('🎙️ Added system message for full voice mode conversation (mic is listening)');
+      }
+    }
     
     console.log('Sending message to Ollama API:', {
       model: modelId,
-      messages: formattedMessages,
+      messages: finalMessages,
       options,
     });
     
@@ -174,7 +195,7 @@ const endpoint = isProduction ? '/chat' : '/chat';
       // Prepare the request payload
       const payload: any = {
         model: modelId,
-        messages: formattedMessages,
+        messages: finalMessages,
         stream: true,
         options: options || {
           num_ctx: 4096,
@@ -259,7 +280,7 @@ const endpoint = isProduction ? '/chat' : '/chat';
       // Prepare the request payload
       const payload: any = {
         model: modelId,
-        messages: formattedMessages,
+        messages: finalMessages,
         stream: false,
         options: options || {
           num_ctx: 4096,

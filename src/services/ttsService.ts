@@ -385,22 +385,28 @@ export class TTSService {
           this.currentSession = null;
           break;
         case 'queue_cleared':
-        case 'queue_paused':
-        case 'queue_resumed':
           console.log('TTS Queue action:', message.action, message.message);
-          if (message.action === 'pause') {
-            this.isPaused = true;
-            this.updateStatus('paused');
-          } else if (message.action === 'resume') {
-            this.isPaused = false;
-            this.updateStatus('connected');
-          } else if (message.action === 'stop' || message.action === 'clear') {
+          if (message.action === 'stop' || message.action === 'clear') {
             // Server confirmed cache clearing - do additional client-side cleanup
             console.log('🔄 Server confirmed cache clearing - performing additional client cleanup');
             this.clearAudioQueue(); // Double-clear to be absolutely sure
             this.currentSession = null; // Reset session
             this.isPaused = false; // Reset state
           }
+          break;
+        case 'queue_paused':
+          //console.log('TTS Queue action:', message.action, message.message);
+          if (message.action === 'pause') {
+            this.isPaused = true;
+            this.updateStatus('paused');
+          } 
+          break;
+        case 'queue_resumed':
+          //console.log('TTS Queue action:', message.action, message.message);
+          if (message.action === 'resume') {
+            this.isPaused = false;
+            this.updateStatus('connected');
+          } 
           break;
         case 'chunk_received':
           // Acknowledgment of text chunk processing

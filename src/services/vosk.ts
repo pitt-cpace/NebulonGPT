@@ -943,7 +943,7 @@ export class VoskRecognitionService {
         // Pause TTS if full voice mode is enabled and user starts speaking (above threshold)
         const ttsSettings = ttsService.getSettings();
         if (ttsSettings.fullVoiceMode) {
-          console.log('🔇 User speaking detected (above threshold) - pausing TTS in full voice mode');
+          //console.log('🔇 User speaking detected (above threshold) - pausing TTS in full voice mode');
           ttsService.pause();
         }
         
@@ -955,7 +955,7 @@ export class VoskRecognitionService {
         // Resume TTS if full voice mode is enabled and user stops speaking (below threshold)
         const ttsSettings = ttsService.getSettings();
         if (ttsSettings.fullVoiceMode && silenceDuration > 200) { // Wait 200ms to avoid rapid pause/resume
-          console.log('🔊 User stopped speaking (below threshold) - resuming TTS in full voice mode');
+          //console.log('🔊 User stopped speaking (below threshold) - resuming TTS in full voice mode');
           ttsService.resume();
         }
         
