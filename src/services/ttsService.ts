@@ -169,9 +169,17 @@ export class TTSService {
       await this.connect();
     }
 
+    // Clean the text before sending to TTS
+    const cleanedText = this.cleanTextForTTS(text);
+    
+    // Skip if text becomes empty after cleaning
+    if (!cleanedText.trim()) {
+      return;
+    }
+
     // Use the current settings for voice, speed, and language
     const message = {
-      text: text,
+      text: cleanedText,
       voice: this.settings.voice,
       speed: this.settings.speed,
       language: this.settings.language
@@ -373,6 +381,49 @@ export class TTSService {
 
   public isPausedState(): boolean {
     return this.isPaused;
+  }
+
+  private cleanTextForTTS(text: string): string {
+    // Remove or replace characters that cause TTS to speak unwanted words
+    let cleaned = text
+      // First, protect mathematical expressions by temporarily replacing them
+      .replace(/(\d+\s*\*\s*\d+)/g, '___MATH_MULT_$1___') // Protect math like "2 * 2"
+      .replace(/(\w+\s*\*\s*\w+)/g, '___WORD_MULT_$1___') // Protect expressions like "x * y"
+      
+      // Remove markdown bold/italic formatting (but not math)
+      .replace(/\*\*(.*?)\*\*/g, '$1') // Remove **bold** formatting, keep content
+      .replace(/(?<!\w)\*([^*\s][^*]*[^*\s])\*(?!\w)/g, '$1') // Remove *italic* but not math
+      
+      // Remove standalone asterisks (not part of math or formatting)
+      .replace(/(?<!\w)\*+(?!\w)/g, '') // Remove standalone asterisks
+      
+      // Remove markdown formatting
+      .replace(/#{1,6}\s+/g, '') // Remove markdown headers
+      .replace(/`{1,3}(.*?)`{1,3}/g, '$1') // Remove code formatting, keep content
+      .replace(/\[(.*?)\]\(.*?\)/g, '$1') // Remove links, keep text
+      .replace(/!\[.*?\]\(.*?\)/g, '') // Remove images completely
+      
+      // Remove table formatting characters
+      .replace(/\|/g, ' ') // Replace table pipes with spaces
+      .replace(/[-=]{2,}/g, ' ') // Remove table separators
+      
+      // Clean up special characters that might be spoken
+      .replace(/[_~`]/g, '') // Remove underscores, tildes, backticks
+      
+      // Restore protected mathematical expressions
+      .replace(/___MATH_MULT_(.*?)___/g, '$1') // Restore math expressions
+      .replace(/___WORD_MULT_(.*?)___/g, '$1') // Restore word expressions
+      
+      // Normalize whitespace
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Log the cleaning for debugging
+    if (text !== cleaned) {
+      console.log('🧹 TTS text cleaned:', { original: text, cleaned });
+    }
+
+    return cleaned;
   }
 
   private updateStatus(status: TTSStatus) {
