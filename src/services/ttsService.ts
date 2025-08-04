@@ -181,6 +181,11 @@ export class TTSService {
   }
 
   public stop() {
+    // End streaming session first if active
+    if (this.currentSession) {
+      this.endStreaming();
+    }
+    
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { action: 'stop' };
       this.ws.send(JSON.stringify(message));
@@ -213,6 +218,11 @@ export class TTSService {
   }
 
   public clear() {
+    // End streaming session first if active
+    if (this.currentSession) {
+      this.endStreaming();
+    }
+    
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { action: 'clear' };
       this.ws.send(JSON.stringify(message));

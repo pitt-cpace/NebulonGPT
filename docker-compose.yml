@@ -1,3 +1,5 @@
+name: nebulongpt
+
 services:
   nebulon-gpt:
     build:
@@ -61,6 +63,8 @@ networks:
 
 volumes:
   chat-data:
-    driver: local
+    name: nebulongpt_chat-data
+    external: false  # Use existing volume and create if it does not exist
   vosk-models:
-    driver: local
+    name: nebulongpt_vosk-models
+    external: false  # Use existing volume and create if it does not exist
