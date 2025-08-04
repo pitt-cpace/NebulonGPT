@@ -338,11 +338,37 @@ class BrowserTTSServer:
             # Also clear any pending audio generation tasks
             logger.info(f"Completely cleared all TTS state and pipeline cache for client {websocket.remote_address}")
             
+            # Verification loop - keep checking until everything is cleared (max 1 second)
+            max_attempts = 10  # Maximum 1 second (10 * 100ms)
+            attempt = 0
+            cleared = False
+            
+            while not cleared and attempt < max_attempts:
+                await asyncio.sleep(0.1)  # Wait 100ms between checks
+                attempt += 1
+                
+                # Check if everything is properly cleared
+                buffers_empty = len(session_state.get('queued_audio', [])) == 0
+                not_paused = session_state.get('paused', False) == False
+                not_processing = session_state.get('processing', False) == False
+                
+                cleared = all([buffers_empty, not_paused, not_processing])
+                
+                if cleared:
+                    logger.info(f"✅ TTS completely cleared after {attempt * 100}ms")
+                    break
+            
+            if not cleared:
+                logger.warning(f"⚠️ TTS clearing verification timeout after 1 second")
+            
             return {
                 'type': 'queue_cleared',
                 'action': action,
-                'status': 'success',
-                'message': 'Server-side queue, buffers, pipeline cache, and all TTS state completely cleared'
+                'status': 'success' if cleared else 'partial',
+                'message': f'Server-side TTS cleared after {attempt * 100}ms verification',
+                'verification_time_ms': attempt * 100,
+                'fully_cleared': cleared,
+                'ready_for_next_operation': cleared
             }
         
         elif action == 'pause':

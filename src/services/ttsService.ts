@@ -217,7 +217,7 @@ export class TTSService {
     this.isPaused = false;
   }
 
-  public clear() {
+  public async clear(): Promise<boolean> {
     // End streaming session first if active
     if (this.currentSession) {
       this.endStreaming();
@@ -233,6 +233,39 @@ export class TTSService {
     
     // Clear the local audio queue to prevent overlapping
     this.clearAudioQueue();
+    
+    // Client-side verification loop - wait until everything is cleared (max 1 second)
+    const maxAttempts = 10; // Maximum 1 second (10 * 100ms)
+    let attempt = 0;
+    let cleared = false;
+    
+    while (!cleared && attempt < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
+      attempt++;
+      
+      // Check if everything is properly cleared on client side
+      const audioQueueEmpty = this.audioQueue.length === 0;
+      const notPaused = !this.isPaused;
+      const noActiveSession = this.currentSession === null;
+      
+      // Check if all audio elements are stopped
+      const allAudioStopped = this.audioQueue.every(audio => 
+        audio.paused && audio.currentTime === 0
+      );
+      
+      cleared = audioQueueEmpty && notPaused && noActiveSession && allAudioStopped;
+      
+      if (cleared) {
+        console.log(`✅ Client TTS completely cleared after ${attempt * 100}ms`);
+        break;
+      }
+    }
+    
+    if (!cleared) {
+      console.warn(`⚠️ Client TTS clearing verification timeout after 1 second`);
+    }
+    
+    return cleared;
   }
 
   private clearAudioQueue() {
