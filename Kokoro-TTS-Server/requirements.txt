@@ -2,5 +2,38 @@ websockets>=10.0
 torch>=1.9.0
 soundfile>=0.12.1
 kokoro>=0.7.16
-misaki[en,zh,ja]
+misaki[en,zh,ja,ko]
 numpy
+huggingface_hub  # Required for downloading Kokoro TTS models
+
+# Language-specific dependencies for multi-language TTS support
+# English language support (male/female voices)
+spacy>=3.7.0
+# English language model for spaCy (must be installed explicitly)
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+phonemizer-fork  # Required by misaki[en] for phonemization
+spacy-curated-transformers  # Required by misaki[en] for advanced NLP
+num2words  # Required by misaki[en] for number-to-word conversion
+espeakng-loader  # Required by misaki[en] for eSpeak-ng integration
+
+# Chinese language support (male/female voices)
+cn2an  # Required by misaki[zh] for Chinese number conversion
+jieba  # Required by misaki[zh] for Chinese text segmentation
+pypinyin  # Required by misaki[zh] for Chinese pinyin conversion
+pypinyin-dict  # Required by misaki[zh] for Chinese pinyin dictionary
+ordered-set  # Required by misaki[zh] for Chinese text processing
+
+# Japanese language support (male/female voices)
+fugashi  # Required by misaki[ja] for Japanese morphological analysis
+pyopenjtalk  # Required by misaki[ja] for Japanese text-to-speech
+jaconv  # Required by misaki[ja] for Japanese character conversion
+mojimoji  # Required by misaki[ja] for Japanese text normalization
+unidic  # Required by misaki[ja] for Japanese dictionary
+
+# Korean language support (male/female voices)
+jamo  # Required by misaki[ko] for Korean character processing
+nltk  # Required by misaki[ko] for Korean text processing
+
+# Note: Voice models for different genders and languages are automatically
+# downloaded by Kokoro TTS when first used with specific voice parameters
+# (e.g., af_heart, am_adam for American English female/male voices)

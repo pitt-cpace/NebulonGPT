@@ -1,97 +1,100 @@
 # Kokoro TTS Server
 
-A WebSocket-based Text-to-Speech server using the Kokoro TTS model, similar to the Vosk ASR server structure.
+A multi-language Text-to-Speech server using Kokoro TTS with support for male and female voices in English, Chinese, Japanese, and Korean.
 
 ## Features
 
-- **Multiple Languages**: Support for English (American/British), Spanish, French, Hindi, Italian, Japanese, Portuguese, and Chinese
-- **Voice Selection**: Choose between male and female voices
-- **Speed Control**: Adjust speech speed from 0.5x to 2.0x
-- **Real-time Processing**: WebSocket-based for low-latency communication
-- **Base64 Audio**: Returns audio as base64-encoded WAV files
+- **Multi-language support**: English, Chinese, Japanese, Korean
+- **Male and female voices** for each supported language
+- **WebSocket-based API** for real-time TTS
+- **Streaming TTS** for long texts
+- **Voice model caching** to avoid runtime downloads
+- **Docker support** for easy deployment
 
-## Installation
+## Quick Start
 
-1. Install Python dependencies:
+### Docker Setup (Recommended)
+
+The Kokoro TTS Server is designed to run in Docker with all dependencies and models automatically installed during the build process.
+
 ```bash
+# Build and start the container (from the main project directory)
+docker compose up -d kokoro-tts
+
+# Or build manually
+docker build -t kokoro-tts .
+docker run -p 2701:2701 kokoro-tts
+```
+
+### Manual Setup (Development)
+
+```bash
+# Install dependencies
 pip install -r requirements.txt
+
+# Start the server
+python3 websocket/browser_tts_server.py
 ```
 
-2. For additional language support:
-```bash
-# For Japanese
-pip install misaki[ja]
+**Note**: When running manually, some models may be downloaded on first use. The Docker setup pre-downloads all models during build time.
 
-# For Chinese
-pip install misaki[zh]
-```
+## Server Configuration
 
-## Usage
-
-### Starting the Server
+The server can be started with custom parameters:
 
 ```bash
-python websocket/browser_tts_server.py --host 0.0.0.0 --port 2701
+python3 websocket/browser_tts_server.py \
+  --host 0.0.0.0 \
+  --port 2701 \
+  --device cpu \
+  --language a
 ```
 
-Or use the startup script:
-```bash
-./start-browser-server.sh
-```
+### Parameters
 
-**Command Line Options:**
-- `--host` - Server host (default: localhost)
-- `--port` - Server port (default: 2702)
-- `--device` - Processing device (default: cpu, options: cpu, cuda, mps)
-- `--language` - Default language code (default: a)
+- `--host`: Host to bind to (default: localhost)
+- `--port`: Port to bind to (default: 2701)
+- `--device`: Device to use - `cpu` or `cuda` (default: cpu)
+- `--language`: Default language code (default: a for American English)
 
-**Language Codes:**
-- `a` - American English (default)
-- `b` - British English  
-- `e` - Spanish
-- `f` - French
-- `h` - Hindi
-- `i` - Italian
-- `j` - Japanese
-- `p` - Brazilian Portuguese
-- `z` - Mandarin Chinese
+## Language Support
 
-### Example Usage
+### English (Language code: `a` or `en`)
+- **Male voices**: `am_adam`, `am_michael`, `bm_george`, `bm_lewis`
+- **Female voices**: `af_heart`, `af_bella`, `af_sarah`, `bf_emma`, `bf_isabella`
+- **Dependencies**: spaCy, phonemizer-fork, en-core-web-sm model
 
-```bash
-# Start server on default settings
-python websocket/browser_tts_server.py
+### Chinese (Language code: `zh`)
+- **Male/Female voices**: Available through Kokoro TTS
+- **Dependencies**: jieba, pypinyin, cn2an, ordered-set
 
-# Start server with custom host and port
-python websocket/browser_tts_server.py --host 0.0.0.0 --port 2701
+### Japanese (Language code: `ja`)
+- **Male/Female voices**: Available through Kokoro TTS
+- **Dependencies**: fugashi, pyopenjtalk, unidic, jaconv, mojimoji
 
-# Start server with GPU acceleration
-python websocket/browser_tts_server.py --device cuda
+### Korean (Language code: `ko`)
+- **Male/Female voices**: Available through Kokoro TTS
+- **Dependencies**: jamo, nltk
 
-# Start server with Spanish as default language
-python websocket/browser_tts_server.py --language e
-```
+## API Usage
 
-## WebSocket API
+### WebSocket Connection
 
-### Connection
 Connect to: `ws://localhost:2701`
 
-### Message Format
+### Message Formats
 
 #### Regular TTS Request
 ```json
 {
-  "text": "Hello, this is a test message",
+  "text": "Hello, world!",
   "voice": "af_heart",
   "speed": 1.0,
   "language": "a"
 }
 ```
 
-#### Streaming TTS Session
-
-**Start Streaming:**
+#### Streaming TTS (Start)
 ```json
 {
   "start_stream": true,
@@ -101,213 +104,125 @@ Connect to: `ws://localhost:2701`
 }
 ```
 
-**Send Text Chunks (for LLM streaming):**
+#### Streaming TTS (Text Chunk)
 ```json
 {
-  "text_chunk": "Hello, this is a "
+  "text_chunk": "This is a chunk of text to be spoken.",
+  "session_id": 1234567890
 }
 ```
 
-**End Streaming:**
+#### Streaming TTS (End)
 ```json
 {
   "end_stream": true
 }
 ```
 
-#### Configuration Update
+#### Queue Control
 ```json
 {
-  "config": {
-    "language": "e"
-  }
+  "action": "stop"    // or "clear", "pause", "resume"
 }
 ```
 
-### Response Format
+### Response Formats
 
-#### Regular TTS Response
+#### Complete Audio Response
 ```json
 {
   "type": "complete_audio",
+  "text": "Hello, world!",
+  "voice": "af_heart",
   "audio": "base64_encoded_wav_data",
-  "sample_rate": 24000,
-  "format": "wav",
-  "text": "Hello, this is a test message",
-  "voice": "af_heart",
-  "speed": 1.0,
-  "language": "a"
+  "audio_format": "wav",
+  "sample_rate": 24000
 }
 ```
 
-#### Streaming Session Started
-```json
-{
-  "status": "streaming_started",
-  "session_id": 12345,
-  "voice": "af_heart",
-  "speed": 1.0,
-  "language": "a"
-}
-```
-
-#### Audio Chunk (Streaming)
+#### Streaming Audio Chunk
 ```json
 {
   "type": "audio_chunk",
+  "session_id": 1234567890,
+  "text_chunk": "This is a chunk",
   "audio_chunk": "base64_encoded_wav_data",
-  "sample_rate": 24000,
-  "format": "wav",
-  "text_chunk": "Hello, this is a ",
-  "voice": "af_heart",
-  "speed": 1.0,
-  "language": "a",
-  "session_id": 12345
+  "audio_format": "wav",
+  "sample_rate": 24000
 }
 ```
 
-#### Chunk Acknowledgment
-```json
-{
-  "type": "chunk_received",
-  "session_id": 12345,
-  "buffer_size": 25,
-  "processed_sentences": 1
-}
-```
+## Voice Models
 
-#### Streaming Session Ended
-```json
-{
-  "type": "streaming_ended",
-  "session_id": 12345
-}
-```
+The server automatically downloads voice models from Hugging Face Hub:
+- **Main model**: `hexgrad/Kokoro-82M`
+- **Language models**: Downloaded as needed for each language
 
-#### Error Response
-```json
-{
-  "error": "Error message description"
-}
-```
+Models are cached locally to avoid repeated downloads.
 
-## Available Voices
+## Dependencies
 
-### Female Voices
-- `af_heart` - American Female (warm, expressive)
-- `af_sky` - American Female (clear, professional)
-- `af_bella` - American Female (friendly, conversational)
+### Core Dependencies
+- `kokoro>=0.7.16` - Main TTS engine
+- `websockets>=10.0` - WebSocket server
+- `torch>=1.9.0` - PyTorch for neural networks
+- `soundfile>=0.12.1` - Audio file handling
+- `huggingface_hub` - Model downloading
 
-### Male Voices  
-- `am_adam` - American Male (deep, authoritative)
-- `am_michael` - American Male (clear, professional)
+### Language-Specific Dependencies
 
-### Language-Specific Voices
-- `bf_emma` - British Female
-- `bm_george` - British Male
-- `ef_isabella` - Spanish Female
-- `em_carlos` - Spanish Male
-- `ff_marie` - French Female
-- `fm_pierre` - French Male
+#### English
+- `spacy>=3.7.0` - NLP processing
+- `en-core-web-sm` - English language model
+- `phonemizer-fork` - Text to phoneme conversion
+- `num2words` - Number to word conversion
+- `espeakng-loader` - eSpeak-ng integration
 
-## Client Example
+#### Chinese
+- `jieba` - Chinese text segmentation
+- `pypinyin` - Pinyin conversion
+- `cn2an` - Chinese number conversion
+- `ordered-set` - Set operations
 
-### JavaScript Client
-```javascript
-const ws = new WebSocket('ws://localhost:2701');
+#### Japanese
+- `fugashi` - Morphological analysis
+- `pyopenjtalk` - Japanese TTS
+- `unidic` - Japanese dictionary
+- `jaconv` - Character conversion
+- `mojimoji` - Text normalization
 
-ws.onopen = function() {
-    // Send TTS request
-    ws.send(JSON.stringify({
-        text: "Hello, how are you today?",
-        voice: "af_heart",
-        speed: 1.0,
-        language: "a"
-    }));
-};
-
-ws.onmessage = function(event) {
-    const response = JSON.parse(event.data);
-    
-    if (response.error) {
-        console.error('TTS Error:', response.error);
-        return;
-    }
-    
-    // Convert base64 to audio and play
-    const audioData = atob(response.audio);
-    const audioArray = new Uint8Array(audioData.length);
-    for (let i = 0; i < audioData.length; i++) {
-        audioArray[i] = audioData.charCodeAt(i);
-    }
-    
-    const audioBlob = new Blob([audioArray], { type: 'audio/wav' });
-    const audioUrl = URL.createObjectURL(audioBlob);
-    const audio = new Audio(audioUrl);
-    audio.play();
-};
-```
-
-### Python Client
-```python
-import asyncio
-import websockets
-import json
-import base64
-import wave
-
-async def tts_client():
-    uri = "ws://localhost:2701"
-    
-    async with websockets.connect(uri) as websocket:
-        # Send TTS request
-        request = {
-            "text": "Hello, this is a test message",
-            "voice": "af_heart", 
-            "speed": 1.0,
-            "language": "a"
-        }
-        
-        await websocket.send(json.dumps(request))
-        response = await websocket.recv()
-        
-        data = json.loads(response)
-        
-        if 'error' in data:
-            print(f"Error: {data['error']}")
-            return
-            
-        # Save audio to file
-        audio_data = base64.b64decode(data['audio'])
-        with open('output.wav', 'wb') as f:
-            f.write(audio_data)
-            
-        print(f"Audio saved to output.wav")
-        print(f"Text: {data['text']}")
-        print(f"Voice: {data['voice']}")
-        print(f"Speed: {data['speed']}")
-
-# Run the client
-asyncio.run(tts_client())
-```
-
-## Performance Notes
-
-- **CPU Mode**: Suitable for development and light usage
-- **GPU Mode**: Recommended for production with high throughput
-- **Memory Usage**: ~1-2GB RAM depending on language models loaded
-- **Latency**: Typically 100-500ms for short texts on modern hardware
+#### Korean
+- `jamo` - Korean character processing
+- `nltk` - Natural language toolkit
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Import Error for kokoro**: Install with `pip install kokoro>=0.9.4`
-2. **Missing espeak**: Install espeak-ng for phoneme processing
-3. **CUDA Errors**: Ensure PyTorch CUDA version matches your CUDA installation
-4. **Memory Issues**: Use CPU mode or reduce concurrent connections
+1. **Models not downloading**: Ensure internet connection during Docker build. Models are pre-downloaded during container build
+2. **Language errors**: All language-specific dependencies are included in the Docker image
+3. **CUDA errors**: Use `--device cpu` if CUDA is not available
+4. **Port conflicts**: Change port with `--port` parameter or modify Docker port mapping
 
 ### Logs
-Server logs include connection info, processing times, and error details. Set log level with:
-```bash
-export PYTHONPATH=. && python -c "import logging; logging.basicConfig(level=logging.DEBUG)" websocket/browser_tts_server.py
+
+The server provides detailed logging for debugging:
+- Model loading progress
+- WebSocket connections
+- TTS generation status
+- Error messages
+
+### Performance Tips
+
+1. **Use Docker for production**: All models are pre-cached in the container
+2. **Use CPU for development**: `--device cpu`
+3. **Models are pre-cached**: No runtime downloads when using Docker
+4. **Streaming for long texts**: Use streaming API for better responsiveness
+
+## Docker Integration
+
+This TTS server is designed to work with the NebulonGPT Docker setup. It's automatically configured in the main `docker-compose.yml` file.
+
+## License
+
+This project uses the Kokoro TTS engine. Please refer to the Kokoro TTS license for usage terms.

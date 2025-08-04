@@ -38,14 +38,34 @@ class BrowserTTSServer:
         self.session_states = {}  # Per-session state management (paused/resumed)
         
     async def initialize_pipeline(self):
-        """Initialize Kokoro TTS pipeline"""
+        """Initialize Kokoro TTS pipeline with proper cache setup"""
         try:
-            loop = asyncio.get_event_loop()
-            self.pipeline = await loop.run_in_executor(
-                None, 
-                lambda: KPipeline(lang_code=self.language, device=self.device)
-            )
-            logger.info(f"Kokoro pipeline initialized with language={self.language}, device={self.device}")
+            # Ensure cache environment variables are set
+            cache_dir = "/app/.cache/huggingface"
+            os.environ["HF_HOME"] = cache_dir
+            os.environ["TRANSFORMERS_CACHE"] = f"{cache_dir}/transformers"
+            os.environ["HF_DATASETS_CACHE"] = f"{cache_dir}/datasets"
+            
+            # Try offline first, then online if needed
+            try:
+                os.environ["HF_HUB_OFFLINE"] = "1"  # Try offline first
+                loop = asyncio.get_event_loop()
+                self.pipeline = await loop.run_in_executor(
+                    None, 
+                    lambda: KPipeline(lang_code=self.language, device=self.device)
+                )
+                logger.info(f"Kokoro pipeline initialized OFFLINE with language={self.language}, device={self.device}")
+            except Exception as offline_error:
+                logger.warning(f"Offline initialization failed: {offline_error}")
+                logger.info("Trying online initialization...")
+                os.environ["HF_HUB_OFFLINE"] = "0"  # Allow online access
+                loop = asyncio.get_event_loop()
+                self.pipeline = await loop.run_in_executor(
+                    None, 
+                    lambda: KPipeline(lang_code=self.language, device=self.device)
+                )
+                logger.info(f"Kokoro pipeline initialized ONLINE with language={self.language}, device={self.device}")
+                
         except Exception as e:
             logger.error(f"Failed to initialize Kokoro pipeline: {str(e)}")
             raise
@@ -297,39 +317,23 @@ class BrowserTTSServer:
             session_state['queued_audio'] = []
             session_state['processing'] = False
             
-            # CRITICAL: Clear Kokoro pipeline cache and force garbage collection
+            # MODERATE: Clear only runtime state, keep model cache
             try:
                 if self.pipeline:
-                    # Force clear any internal caches in the pipeline
-                    if hasattr(self.pipeline, 'clear_cache'):
-                        self.pipeline.clear_cache()
-                    
-                    # AGGRESSIVE: Recreate the pipeline to completely clear all internal state
-                    logger.info("Recreating Kokoro pipeline to completely clear cache")
-                    old_pipeline = self.pipeline
-                    self.pipeline = None
-                    del old_pipeline
-                    
-                    # Recreate pipeline with same settings
-                    loop = asyncio.get_event_loop()
-                    self.pipeline = await loop.run_in_executor(
-                        None, 
-                        lambda: KPipeline(lang_code=self.language, device=self.device)
-                    )
-                    logger.info("Pipeline recreated successfully")
-                    
-                    # Clear PyTorch cache if using GPU
+                    # Clear PyTorch cache if using GPU (but keep models)
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                         logger.info("Cleared CUDA cache")
                     
-                    # Force Python garbage collection
+                    # Force Python garbage collection (but don't recreate pipeline)
                     import gc
                     gc.collect()
                     logger.info("Forced garbage collection")
                     
+                    logger.info("Cleared runtime cache while preserving model cache")
+                    
             except Exception as e:
-                logger.warning(f"Error clearing pipeline cache: {str(e)}")
+                logger.warning(f"Error clearing runtime cache: {str(e)}")
             
             # Also clear any pending audio generation tasks
             logger.info(f"Completely cleared all TTS state and pipeline cache for client {websocket.remote_address}")
