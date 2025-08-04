@@ -344,7 +344,7 @@ class BrowserTTSServer:
         elif action == 'pause':
             # Pause audio generation and queuing
             session_state['paused'] = True
-            logger.info(f"Paused audio generation for client {websocket.remote_address}")
+            #logger.info(f"Paused audio generation for client {websocket.remote_address}")
             
             return {
                 'type': 'queue_paused',
@@ -357,7 +357,7 @@ class BrowserTTSServer:
         elif action == 'resume':
             # Resume audio generation and process any queued audio
             session_state['paused'] = False
-            logger.info(f"Resumed audio generation for client {websocket.remote_address}")
+            #logger.info(f"Resumed audio generation for client {websocket.remote_address}")
             
             # Process any queued audio that was paused
             if session_state['queued_audio']:
