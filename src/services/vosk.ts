@@ -36,6 +36,10 @@ export class VoskRecognitionService {
   private lastAudioTime = 0;
   private silenceTimer: number | null = null;
   
+  // Voice detection threshold to reduce background noise sensitivity
+  private voiceDetectionEnabled = true;
+  private voiceDetectionThreshold = 0.01; // Minimum audio level to send to Vosk (higher = less sensitive to background noise)
+  
   // Event callbacks
   private onResultCallback: ((result: VoskResult) => void) | null = null;
   private onErrorCallback: ((error: string) => void) | null = null;
@@ -250,9 +254,12 @@ export class VoskRecognitionService {
               this.processAudioForSilenceDetection(event.data.data);
             }
             
+            // Check voice detection threshold before sending to Vosk
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-              // Send directly to server
-              this.socket.send(event.data.data);
+              if (this.shouldSendAudioToVosk(event.data.data)) {
+                // Send to server only if above voice detection threshold
+                this.socket.send(event.data.data);
+              }
             }
           }
         };
@@ -1062,6 +1069,75 @@ export class VoskRecognitionService {
       currentLevel: 0, // No longer tracking current level without caching
       silenceDuration: silenceDuration,
       isTimerActive: this.silenceTimer !== null,
+    };
+  }
+
+  // ========================================
+  // VOICE DETECTION METHODS
+  // ========================================
+
+  /**
+   * Check if audio should be sent to Vosk based on voice detection threshold
+   */
+  private shouldSendAudioToVosk(audioData: ArrayBuffer): boolean {
+    if (!this.voiceDetectionEnabled) {
+      return true; // Always send if voice detection is disabled
+    }
+
+    try {
+      // Convert ArrayBuffer to Float32Array for analysis
+      const int16Array = new Int16Array(audioData);
+      
+      // Convert int16 to float32 and calculate RMS (Root Mean Square) for audio level
+      let sum = 0;
+      for (let i = 0; i < int16Array.length; i++) {
+        const sample = int16Array[i] / 32768.0; // Convert to -1.0 to 1.0 range
+        sum += sample * sample;
+      }
+      
+      const rms = Math.sqrt(sum / int16Array.length);
+      
+      // Only send to Vosk if audio level is above voice detection threshold
+      const shouldSend = rms > this.voiceDetectionThreshold;
+      
+      if (!shouldSend) {
+        console.log(`🔇 Audio below voice threshold (${rms.toFixed(4)} < ${this.voiceDetectionThreshold}) - not sending to Vosk`);
+      }
+      
+      return shouldSend;
+      
+    } catch (error) {
+      console.error('❌ Error processing audio for voice detection:', error);
+      return true; // Send anyway if there's an error
+    }
+  }
+
+  /**
+   * Enable or disable voice detection threshold
+   */
+  public setVoiceDetectionEnabled(enabled: boolean): void {
+    this.voiceDetectionEnabled = enabled;
+    console.log(`🎤 Voice detection threshold ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Set voice detection threshold (higher = less sensitive to background noise)
+   */
+  public setVoiceDetectionThreshold(threshold: number): void {
+    this.voiceDetectionThreshold = Math.max(0.001, Math.min(0.5, threshold)); // Clamp between 0.001 and 0.5
+    console.log(`🎤 Voice detection threshold updated: ${this.voiceDetectionThreshold} (higher = less sensitive to background noise)`);
+  }
+
+  /**
+   * Get current voice detection settings
+   */
+  public getVoiceDetectionStatus(): {
+    enabled: boolean;
+    threshold: number;
+  } {
+    return {
+      enabled: this.voiceDetectionEnabled,
+      threshold: this.voiceDetectionThreshold,
     };
   }
 }
