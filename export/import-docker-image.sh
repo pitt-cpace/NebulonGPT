@@ -98,14 +98,14 @@ if [ -f "docker-compose.yml" ]; then
     
     echo ""
     echo "🔨 Starting NebulonGPT application automatically..."
-    docker-compose up -d
+    docker compose up -d
     
     echo ""
     echo "⏳ Waiting for services to start..."
     sleep 5
     
     echo "📊 Container Status:"
-    docker-compose ps
+    docker compose ps
     
     echo ""
     echo "🎉 NebulonGPT is now running!"
@@ -113,7 +113,7 @@ if [ -f "docker-compose.yml" ]; then
 else
     echo "⚠️  docker-compose.yml not found in current directory"
     echo "📋 Please make sure docker-compose.yml is in this directory, then run:"
-    echo "   docker-compose up -d"
+    echo "   docker compose up -d"
     echo ""
     echo "🌐 Then access NebulonGPT at: http://localhost:3000"
 fi
