@@ -15,7 +15,8 @@ export KOKORO_SERVER_PORT=2701
 
 # Start Vosk server in the background
 cd /app/vosk-server/websocket
-python asr_server_with_models.py /app/vosk-server/models &
+export VOSK_MODELS_DIR=/app/vosk-server/models
+python asr_server_with_models.py &
 
 # Start Kokoro TTS server in the background
 cd /app/kokoro-tts

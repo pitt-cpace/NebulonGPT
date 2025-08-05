@@ -12,7 +12,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 const CHATS_FILE = path.join(DATA_DIR, 'chats.json');
 
 // Vosk models directory - this should match the Docker volume mount
-const VOSK_MODELS_DIR = path.join(__dirname, 'vosk-models');
+const VOSK_MODELS_DIR = path.join(__dirname, 'vosk-server', 'models');
 
 
 // Configure multer for file uploads
