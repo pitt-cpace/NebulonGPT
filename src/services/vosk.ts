@@ -38,7 +38,7 @@ export class VoskRecognitionService {
   
   // Voice detection threshold to reduce background noise sensitivity
   private voiceDetectionEnabled = true;
-  private voiceDetectionThreshold = 0.003; // Minimum audio level to send to Vosk (higher = less sensitive to background noise)
+  private voiceDetectionThreshold = 0.001; // Minimum audio level to send to Vosk (higher = less sensitive to background noise)
   
   // Event callbacks
   private onResultCallback: ((result: VoskResult) => void) | null = null;

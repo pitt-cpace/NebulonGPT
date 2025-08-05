@@ -165,6 +165,12 @@ export class TTSService {
       return;
     }
 
+    // Only process English text for TTS - skip other languages
+    if (!this.isEnglishLanguage()) {
+      console.log(`🚫 Skipping TTS for non-English language: ${this.settings.language}`);
+      return;
+    }
+
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.connect();
     }
@@ -407,6 +413,12 @@ export class TTSService {
       return null;
     }
 
+    // Only process English text for TTS streaming - skip other languages
+    if (!this.isEnglishLanguage()) {
+      console.log(`🚫 Skipping TTS streaming for non-English language: ${this.settings.language}`);
+      return null;
+    }
+
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.connect();
     }
@@ -433,6 +445,12 @@ export class TTSService {
   }
 
   public sendTextChunk(textChunk: string) {
+    // Only send text chunks for English language
+    if (!this.isEnglishLanguage()) {
+      console.log(`🚫 Skipping TTS text chunk for non-English language: ${this.settings.language}`);
+      return;
+    }
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.currentSession) {
       const message = {
         text_chunk: textChunk
@@ -456,6 +474,60 @@ export class TTSService {
 
   public isPausedState(): boolean {
     return this.isPaused;
+  }
+
+  /**
+   * Check if current Vosk model is English
+   */
+  private isEnglishLanguage(): boolean {
+    // Import voskRecognition to check current model
+    const { voskRecognition } = require('./vosk');
+    
+    // Get current Vosk model
+    const currentModel = voskRecognition.getCurrentModel();
+    
+    if (!currentModel) {
+      console.log(`🌐 No Vosk model selected - TTS will be skipped`);
+      return false;
+    }
+    
+    // Check if the Vosk model is English based on model name
+    const isEnglishModel = this.isEnglishVoskModel(currentModel);
+    
+    if (!isEnglishModel) {
+      console.log(`🌐 Current Vosk model "${currentModel}" is not English - TTS will be skipped`);
+    }
+    
+    return isEnglishModel;
+  }
+
+  /**
+   * Check if a Vosk model name indicates English language
+   */
+  private isEnglishVoskModel(modelName: string): boolean {
+    if (!modelName) {
+      return false;
+    }
+    
+    // Convert to lowercase for case-insensitive matching
+    const lowerModelName = modelName.toLowerCase();
+    
+    // English model patterns
+    const englishPatterns = [
+      /^vosk-model-en/,           // vosk-model-en-us-0.22, vosk-model-en-gb-0.22
+      /^vosk-model-small-en/,     // vosk-model-small-en-us-0.15
+      /^en-/,                     // en-us-0.22, en-gb-0.22
+      /^small-en/,                // small-en-us-0.15
+      /-en-/,                     // any model with -en- in the name
+      /english/,                  // any model with "english" in the name
+    ];
+    
+    // Check if any English pattern matches
+    const isEnglish = englishPatterns.some(pattern => pattern.test(lowerModelName));
+    
+    console.log(`🔍 Checking Vosk model "${modelName}" for English: ${isEnglish ? 'YES' : 'NO'}`);
+    
+    return isEnglish;
   }
 
   private cleanTextForTTS(text: string): string {
