@@ -32,23 +32,71 @@ mkdir -p export/nebulon-gpt-export-temp/nebulon-gpt-volumes
 
 # Export each volume using the NebulonGPT container (no internet download needed)
 echo "  📁 Exporting vosk-models volume..."
-docker run --rm -v nebulongpt_vosk-models:/data -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/vosk-models.tar.gz -C /data .
+docker run --rm -v nebulongpt_vosk-models:/app/vosk-server/models -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/vosk-models.tar.gz -C /app/vosk-server/models .
 
 echo "  📁 Exporting chat-data volume..."
-docker run --rm -v nebulongpt_chat-data:/data -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/chat-data.tar.gz -C /data .
+docker run --rm -v nebulongpt_chat-data:/app/data -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/chat-data.tar.gz -C /app/data .
 
 echo "  📁 Exporting huggingface-cache volume..."
-docker run --rm -v nebulongpt_huggingface-cache:/data -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/huggingface-cache.tar.gz -C /data .
+docker run --rm -v nebulongpt_huggingface-cache:/app/.cache/huggingface -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/huggingface-cache.tar.gz -C /app/.cache/huggingface .
 
 echo "📦 Preparing import script and configuration..."
 # Copy the import script to the export directory
 cp export/import-docker-image.sh export/nebulon-gpt-export-temp/import-docker-image.sh
 chmod +x export/nebulon-gpt-export-temp/import-docker-image.sh
 
-# Copy docker-compose.yml if it exists
+# Create a modified docker-compose.yml for import (without build context)
 if [ -f "docker-compose.yml" ]; then
-    cp docker-compose.yml export/nebulon-gpt-export-temp/docker-compose.yml
-    echo "  ✅ docker-compose.yml included in export package"
+    echo "  📝 Creating import-ready docker-compose.yml..."
+    cat > export/nebulon-gpt-export-temp/docker-compose.yml << 'EOF'
+name: nebulongpt
+
+services:
+  nebulon-gpt-integrated:
+    image: nebulongpt-nebulon-gpt-integrated:latest
+    container_name: nebulon-gpt-integrated
+    ports:
+      - "3000:3000"    # Nginx frontend
+      - "2700:2700"    # Vosk ASR server
+      - "2701:2701"    # Kokoro TTS server
+    restart: unless-stopped
+    networks:
+      - nebulon-network
+    volumes:
+      - chat-data:/app/data
+      - vosk-models:/app/vosk-server/models
+      - huggingface-cache:/app/.cache/huggingface
+    environment:
+      - NODE_ENV=production
+      # Frontend build-time environment variables
+      - REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434
+      - REACT_APP_VOSK_SERVER_URL=ws://localhost:2700
+      - REACT_APP_TTS_SERVER_URL=ws://localhost:2701
+      # Python services environment variables
+      - PYTHONUNBUFFERED=1
+      - HF_HOME=/app/.cache/huggingface
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
+      - HF_DATASETS_CACHE=/app/.cache/huggingface/datasets
+      - HF_HUB_OFFLINE=0
+      - KOKORO_SERVER_HOST=0.0.0.0
+      - KOKORO_SERVER_PORT=2701
+
+networks:
+  nebulon-network:
+    driver: bridge
+
+volumes:
+  chat-data:
+    name: nebulongpt_chat-data
+    external: false  # Use existing volume and create if it does not exist
+  vosk-models:
+    name: nebulongpt_vosk-models
+    external: false  # Use existing volume and create if it does not exist
+  huggingface-cache:
+    name: nebulongpt_huggingface-cache
+    external: false  # Cache for Kokoro TTS models
+EOF
+    echo "  ✅ Import-ready docker-compose.yml created"
 else
     echo "  ⚠️  docker-compose.yml not found, skipping..."
 fi

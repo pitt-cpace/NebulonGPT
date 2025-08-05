@@ -37,41 +37,54 @@ else
     exit 1
 fi
 
-echo "📦 Creating Docker volumes..."
-docker volume create nebulongpt_vosk-models
-docker volume create nebulongpt_chat-data  
-docker volume create nebulongpt_huggingface-cache
-echo "✅ Docker volumes created successfully!"
+echo "📦 Checking for existing Docker volumes..."
 
-echo "📦 Restoring volume data..."
-
-if [ -f "nebulon-gpt-volumes/vosk-models.tar.gz" ]; then
-    echo "  📁 Restoring vosk-models volume..."
-    docker run --rm -v nebulongpt_vosk-models:/data -v $(pwd)/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar xzf /backup/vosk-models.tar.gz -C /data
-    echo "  ✅ Vosk models restored!"
+# Check and handle vosk-models volume
+if docker volume inspect nebulongpt_vosk-models >/dev/null 2>&1; then
+    echo "  ✅ Vosk models volume already exists, using existing data"
 else
-    echo "  ⚠️  Vosk models backup not found, skipping..."
+    echo "  📁 Creating vosk-models volume..."
+    docker volume create nebulongpt_vosk-models
+    if [ -f "nebulon-gpt-volumes/vosk-models.tar.gz" ]; then
+        echo "  📁 Restoring vosk-models volume..."
+        docker run --rm -v nebulongpt_vosk-models:/app/vosk-server/models -v $(pwd)/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar xzf /backup/vosk-models.tar.gz -C /app/vosk-server/models
+        echo "  ✅ Vosk models restored!"
+    else
+        echo "  ⚠️  Vosk models backup not found, volume created empty"
+    fi
 fi
 
-if [ -f "nebulon-gpt-volumes/chat-data.tar.gz" ]; then
-    echo "  📁 Restoring chat-data volume..."
-    docker run --rm -v nebulongpt_chat-data:/data -v $(pwd)/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar xzf /backup/chat-data.tar.gz -C /data
-    echo "  ✅ Chat data restored!"
+# Check and handle chat-data volume
+if docker volume inspect nebulongpt_chat-data >/dev/null 2>&1; then
+    echo "  ✅ Chat data volume already exists, using existing data"
 else
-    echo "  ⚠️  Chat data backup not found, skipping..."
+    echo "  📁 Creating chat-data volume..."
+    docker volume create nebulongpt_chat-data
+    if [ -f "nebulon-gpt-volumes/chat-data.tar.gz" ]; then
+        echo "  📁 Restoring chat-data volume..."
+        docker run --rm -v nebulongpt_chat-data:/app/data -v $(pwd)/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar xzf /backup/chat-data.tar.gz -C /app/data
+        echo "  ✅ Chat data restored!"
+    else
+        echo "  ⚠️  Chat data backup not found, volume created empty"
+    fi
 fi
 
-if [ -f "nebulon-gpt-volumes/huggingface-cache.tar.gz" ]; then
-    echo "  📁 Restoring huggingface-cache volume..."
-    docker run --rm -v nebulongpt_huggingface-cache:/data -v $(pwd)/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar xzf /backup/huggingface-cache.tar.gz -C /data
-    echo "  ✅ Hugging Face cache restored!"
+# Check and handle huggingface-cache volume
+if docker volume inspect nebulongpt_huggingface-cache >/dev/null 2>&1; then
+    echo "  ✅ Hugging Face cache volume already exists, using existing data"
 else
-    echo "  ⚠️  Hugging Face cache backup not found, skipping..."
+    echo "  📁 Creating huggingface-cache volume..."
+    docker volume create nebulongpt_huggingface-cache
+    if [ -f "nebulon-gpt-volumes/huggingface-cache.tar.gz" ]; then
+        echo "  📁 Restoring huggingface-cache volume..."
+        docker run --rm -v nebulongpt_huggingface-cache:/app/.cache/huggingface -v $(pwd)/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar xzf /backup/huggingface-cache.tar.gz -C /app/.cache/huggingface
+        echo "  ✅ Hugging Face cache restored!"
+    else
+        echo "  ⚠️  Hugging Face cache backup not found, volume created empty"
+    fi
 fi
 
-echo "🧹 Cleaning up temporary files..."
-rm -f nebulon-gpt-integrated.tar.gz
-rm -rf nebulon-gpt-volumes
+echo "✅ Volume setup completed!"
 
 echo ""
 echo "✅ Import completed successfully!"
