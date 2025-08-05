@@ -70,7 +70,6 @@ RUN mkdir -p /app/vosk-server/models
 COPY Vosk-Server/websocket/models/vosk-model-small-en-us-0.15.zip /tmp/vosk-model-small-en-us-0.15.zip
 RUN cd /app/vosk-server/models && \
     unzip -o /tmp/vosk-model-small-en-us-0.15.zip && \
-    mv vosk-model-small-en-us-0.15 vosk-model-small-en-us && \
     rm /tmp/vosk-model-small-en-us-0.15.zip && \
     echo "Vosk model extracted successfully"
 
