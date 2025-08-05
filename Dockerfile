@@ -99,7 +99,7 @@ ENV HF_DATASETS_CACHE=/app/.cache/huggingface/datasets
 ENV HF_HUB_OFFLINE=0
 
 # Expose ports for all services
-EXPOSE 80 2700 2701
+EXPOSE 3000 2700 2701
 
 # Use the startup script
 CMD ["/app/start-services.sh"]
