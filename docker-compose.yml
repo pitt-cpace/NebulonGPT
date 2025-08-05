@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: nebulon-gpt-integrated
     ports:
-      - "3000:80"      # Nginx frontend
+      - "3000:3000"    # Nginx frontend
       - "2700:2700"    # Vosk ASR server
       - "2701:2701"    # Kokoro TTS server
     restart: unless-stopped

@@ -48,7 +48,7 @@ docker-compose logs --tail=20
 echo ""
 echo "🎉 Build complete!"
 echo "================================================"
-echo "🌐 Web Interface: http://localhost:80"
+echo "🌐 Web Interface: http://localhost:3000"
 echo "🎤 Vosk ASR Server: ws://localhost:2700"
 echo "🔊 Kokoro TTS Server: ws://localhost:2701"
 echo ""
