@@ -20,7 +20,7 @@ const App: React.FC = () => {
   
   // Model settings
   const [contextLength, setContextLength] = useState(4096); // Default context length
-  const [temperature, setTemperature] = useState(0.8); // Default temperature
+  const [temperature, setTemperature] = useState(0.1); // Default temperature
   const [maxContextLength, setMaxContextLength] = useState(32768); // Default max context length for modern models
 
   // Load saved settings from localStorage on app start
