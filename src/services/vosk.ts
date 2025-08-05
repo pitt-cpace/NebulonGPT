@@ -170,13 +170,21 @@ export class VoskRecognitionService {
                 
               case 'result':
                 if (this.onResultCallback) {
-                  this.onResultCallback({ text: msg.text });
+                  // Filter out single meaningless words
+                  const filteredText = this.filterMeaninglessWords(msg.text);
+                  if (filteredText) {
+                    this.onResultCallback({ text: filteredText });
+                  }
                 }
                 break;
                 
               case 'partial':
                 if (this.onResultCallback) {
-                  this.onResultCallback({ partial: msg.partial });
+                  // Filter out single meaningless words from partial results too
+                  const filteredPartial = this.filterMeaninglessWords(msg.partial);
+                  if (filteredPartial) {
+                    this.onResultCallback({ partial: filteredPartial });
+                  }
                 }
                 break;
                 
@@ -917,6 +925,52 @@ export class VoskRecognitionService {
 
 
   // ========================================
+  // TEXT FILTERING METHODS
+  // ========================================
+
+  /**
+   * Filter out single meaningless words that are not useful on their own
+   */
+  private filterMeaninglessWords(text: string): string {
+    if (!text || typeof text !== 'string') {
+      return '';
+    }
+
+    // Clean and normalize the text
+    const cleanedText = text.trim().toLowerCase();
+    
+    // If it's empty after cleaning, return empty
+    if (!cleanedText) {
+      return '';
+    }
+
+    // List of single words that are meaningless on their own
+    const meaninglessWords = [
+      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+      'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+      'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must', 'shall',
+      'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
+      'my', 'your', 'his', 'her', 'its', 'our', 'their', 'mine', 'yours', 'ours', 'theirs',
+      'this', 'that', 'these', 'those', 'here', 'there', 'where', 'when', 'why', 'how',
+      'up', 'down', 'out', 'off', 'over', 'under', 'again', 'further', 'then', 'once',
+      'so', 'than', 'too', 'very', 'just', 'now', 'only', 'also', 'back', 'still', 'well',
+      'oh', 'ah', 'um', 'uh', 'hmm', 'yeah', 'yes', 'no', 'ok', 'okay'
+    ];
+
+    // Split into words and check if it's a single meaningless word
+    const words = cleanedText.split(/\s+/).filter(word => word.length > 0);
+    
+    // If it's a single word and it's in our meaningless list, filter it out
+    if (words.length === 1 && meaninglessWords.includes(words[0])) {
+      console.log(`🚫 Filtered out meaningless single word: "${text}"`);
+      return '';
+    }
+
+    // If it's multiple words or a meaningful single word, keep the original text
+    return text;
+  }
+
+  // ========================================
   // SILENCE DETECTION METHODS
   // ========================================
 
@@ -950,7 +1004,6 @@ export class VoskRecognitionService {
         // Pause TTS if full voice mode is enabled and user starts speaking (above threshold)
         const ttsSettings = ttsService.getSettings();
         if (ttsSettings.fullVoiceMode) {
-          //console.log('🔇 User speaking detected (above threshold) - pausing TTS in full voice mode');
           ttsService.pause();
         }
         
@@ -962,7 +1015,6 @@ export class VoskRecognitionService {
         // Resume TTS if full voice mode is enabled and user stops speaking (below threshold)
         const ttsSettings = ttsService.getSettings();
         if (ttsSettings.fullVoiceMode && silenceDuration > 200) { // Wait 200ms to avoid rapid pause/resume
-          //console.log('🔊 User stopped speaking (below threshold) - resuming TTS in full voice mode');
           ttsService.resume();
         }
         
@@ -1029,6 +1081,128 @@ export class VoskRecognitionService {
     }
   }
 
+  // ========================================
+  // VOICE DETECTION METHODS
+  // ========================================
+
+  /**
+   * Check if audio should be sent to Vosk based on voice detection threshold
+   */
+  private shouldSendAudioToVosk(audioData: ArrayBuffer): boolean {
+    if (!this.voiceDetectionEnabled) {
+      return true; // Always send if voice detection is disabled
+    }
+
+    try {
+      // Convert ArrayBuffer to Float32Array for analysis
+      const int16Array = new Int16Array(audioData);
+      
+      // Convert int16 to float32 and calculate RMS (Root Mean Square) for audio level
+      let sum = 0;
+      for (let i = 0; i < int16Array.length; i++) {
+        const sample = int16Array[i] / 32768.0; // Convert to -1.0 to 1.0 range
+        sum += sample * sample;
+      }
+      
+      const rms = Math.sqrt(sum / int16Array.length);
+      
+      // Only send to Vosk if audio level is above voice detection threshold
+      const shouldSend = rms > this.voiceDetectionThreshold;
+      
+      return shouldSend;
+      
+    } catch (error) {
+      console.error('❌ Error processing audio for voice detection:', error);
+      return true; // Send anyway if there's an error
+    }
+  }
+
+  // ========================================
+  // SETTINGS MANAGEMENT METHODS
+  // ========================================
+
+  /**
+   * Get all Vosk settings
+   */
+  public getSettings(): {
+    silenceThreshold: number;
+    voiceDetectionThreshold: number;
+    silenceDetectionEnabled: boolean;
+    voiceDetectionEnabled: boolean;
+    silenceTimeout: number;
+  } {
+    return {
+      silenceThreshold: this.silenceThreshold,
+      voiceDetectionThreshold: this.voiceDetectionThreshold,
+      silenceDetectionEnabled: this.silenceDetectionEnabled,
+      voiceDetectionEnabled: this.voiceDetectionEnabled,
+      silenceTimeout: this.silenceTimeout,
+    };
+  }
+
+  /**
+   * Update Vosk settings
+   */
+  public updateSettings(settings: {
+    silenceThreshold?: number;
+    voiceDetectionThreshold?: number;
+    silenceDetectionEnabled?: boolean;
+    voiceDetectionEnabled?: boolean;
+    silenceTimeout?: number;
+  }): void {
+    if (settings.silenceThreshold !== undefined) {
+      this.silenceThreshold = Math.max(0.001, Math.min(1.0, settings.silenceThreshold));
+      console.log(`🔇 Silence threshold updated: ${this.silenceThreshold}`);
+    }
+    
+    if (settings.voiceDetectionThreshold !== undefined) {
+      this.voiceDetectionThreshold = Math.max(0, Math.min(0.05, settings.voiceDetectionThreshold));
+      console.log(`🎤 Voice detection threshold updated: ${this.voiceDetectionThreshold}`);
+    }
+    
+    if (settings.silenceDetectionEnabled !== undefined) {
+      this.setSilenceDetectionEnabled(settings.silenceDetectionEnabled);
+    }
+    
+    if (settings.voiceDetectionEnabled !== undefined) {
+      this.setVoiceDetectionEnabled(settings.voiceDetectionEnabled);
+    }
+    
+    if (settings.silenceTimeout !== undefined) {
+      this.silenceTimeout = Math.max(500, Math.min(10000, settings.silenceTimeout));
+      console.log(`🔇 Silence timeout updated: ${this.silenceTimeout}ms`);
+    }
+  }
+
+  /**
+   * Save settings to localStorage
+   */
+  public saveSettings(): void {
+    try {
+      const settings = this.getSettings();
+      localStorage.setItem('nebulongpt_vosk_settings', JSON.stringify(settings));
+      console.log('💾 Vosk settings saved to localStorage');
+    } catch (error) {
+      console.error('❌ Failed to save Vosk settings:', error);
+    }
+  }
+
+  /**
+   * Load settings from localStorage
+   */
+  public loadSettings(): void {
+    try {
+      const savedSettings = localStorage.getItem('nebulongpt_vosk_settings');
+      if (savedSettings) {
+        const settings = JSON.parse(savedSettings);
+        this.updateSettings(settings);
+        console.log('📂 Vosk settings loaded from localStorage');
+      }
+    } catch (error) {
+      console.error('❌ Failed to load Vosk settings:', error);
+    }
+  }
+
   /**
    * Enable or disable silence detection
    */
@@ -1070,46 +1244,6 @@ export class VoskRecognitionService {
       silenceDuration: silenceDuration,
       isTimerActive: this.silenceTimer !== null,
     };
-  }
-
-  // ========================================
-  // VOICE DETECTION METHODS
-  // ========================================
-
-  /**
-   * Check if audio should be sent to Vosk based on voice detection threshold
-   */
-  private shouldSendAudioToVosk(audioData: ArrayBuffer): boolean {
-    if (!this.voiceDetectionEnabled) {
-      return true; // Always send if voice detection is disabled
-    }
-
-    try {
-      // Convert ArrayBuffer to Float32Array for analysis
-      const int16Array = new Int16Array(audioData);
-      
-      // Convert int16 to float32 and calculate RMS (Root Mean Square) for audio level
-      let sum = 0;
-      for (let i = 0; i < int16Array.length; i++) {
-        const sample = int16Array[i] / 32768.0; // Convert to -1.0 to 1.0 range
-        sum += sample * sample;
-      }
-      
-      const rms = Math.sqrt(sum / int16Array.length);
-      
-      // Only send to Vosk if audio level is above voice detection threshold
-      const shouldSend = rms > this.voiceDetectionThreshold;
-      
-      if (!shouldSend) {
-        //console.log(`🔇 Audio below voice threshold (${rms.toFixed(4)} < ${this.voiceDetectionThreshold}) - not sending to Vosk`);
-      }
-      
-      return shouldSend;
-      
-    } catch (error) {
-      console.error('❌ Error processing audio for voice detection:', error);
-      return true; // Send anyway if there's an error
-    }
   }
 
   /**
