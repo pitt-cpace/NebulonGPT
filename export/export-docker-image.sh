@@ -21,42 +21,61 @@ if ! docker images nebulongpt-nebulon-gpt-integrated:latest | grep -q nebulongpt
     exit 1
 fi
 
-echo "📦 Exporting Docker image to export directory..."
-docker save nebulongpt-nebulon-gpt-integrated:latest | gzip > nebulon-gpt-integrated.tar.gz
+echo "📦 Creating temporary export directory in export folder..."
+mkdir -p export/nebulon-gpt-export-temp
+
+echo "📦 Exporting Docker image..."
+docker save nebulongpt-nebulon-gpt-integrated:latest | gzip > export/nebulon-gpt-export-temp/nebulon-gpt-integrated.tar.gz
 
 echo "📦 Exporting Docker volumes..."
-mkdir -p nebulon-gpt-volumes
+mkdir -p export/nebulon-gpt-export-temp/nebulon-gpt-volumes
 
-# Export each volume
+# Export each volume using the NebulonGPT container (no internet download needed)
 echo "  📁 Exporting vosk-models volume..."
-docker run --rm -v nebulongpt_vosk-models:/data -v $(pwd)/nebulon-gpt-volumes:/backup alpine tar czf /backup/vosk-models.tar.gz -C /data .
+docker run --rm -v nebulongpt_vosk-models:/data -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/vosk-models.tar.gz -C /data .
 
 echo "  📁 Exporting chat-data volume..."
-docker run --rm -v nebulongpt_chat-data:/data -v $(pwd)/nebulon-gpt-volumes:/backup alpine tar czf /backup/chat-data.tar.gz -C /data .
+docker run --rm -v nebulongpt_chat-data:/data -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/chat-data.tar.gz -C /data .
 
 echo "  📁 Exporting huggingface-cache volume..."
-docker run --rm -v nebulongpt_huggingface-cache:/data -v $(pwd)/nebulon-gpt-volumes:/backup alpine tar czf /backup/huggingface-cache.tar.gz -C /data .
+docker run --rm -v nebulongpt_huggingface-cache:/data -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/huggingface-cache.tar.gz -C /data .
 
-echo "📦 Creating complete export package..."
-tar czf nebulon-gpt-complete.tar.gz nebulon-gpt-integrated.tar.gz nebulon-gpt-volumes/
+echo "📦 Preparing import script and configuration..."
+# Copy the import script to the export directory
+cp export/import-docker-image.sh export/nebulon-gpt-export-temp/import-docker-image.sh
+chmod +x export/nebulon-gpt-export-temp/import-docker-image.sh
 
-# Clean up temporary files
-rm nebulon-gpt-integrated.tar.gz
-rm -rf nebulon-gpt-volumes
+# Copy docker-compose.yml if it exists
+if [ -f "docker-compose.yml" ]; then
+    cp docker-compose.yml export/nebulon-gpt-export-temp/docker-compose.yml
+    echo "  ✅ docker-compose.yml included in export package"
+else
+    echo "  ⚠️  docker-compose.yml not found, skipping..."
+fi
+
+echo "📦 Creating complete export ZIP package..."
+cd export/nebulon-gpt-export-temp
+if [ -f "docker-compose.yml" ]; then
+    zip -r ../nebulon-gpt-complete.zip nebulon-gpt-integrated.tar.gz nebulon-gpt-volumes/ import-docker-image.sh docker-compose.yml
+else
+    zip -r ../nebulon-gpt-complete.zip nebulon-gpt-integrated.tar.gz nebulon-gpt-volumes/ import-docker-image.sh
+fi
+cd ../..
+
+# Clean up temporary directory
+rm -rf export/nebulon-gpt-export-temp
 
 echo "✅ Export completed successfully!"
-echo "📁 Complete package saved to: ./nebulon-gpt-complete.tar.gz"
-echo "📊 Package size: $(du -sh ./nebulon-gpt-complete.tar.gz | cut -f1)"
+echo "📁 Complete package saved to: ./export/nebulon-gpt-complete.zip"
+echo "📊 Package size: $(du -sh ./export/nebulon-gpt-complete.zip | cut -f1)"
 echo ""
 echo "📋 To import on another machine:"
-echo "   1. Extract: tar xzf nebulon-gpt-complete.tar.gz"
-echo "   2. Load image: gunzip -c nebulon-gpt-integrated.tar.gz | docker load"
-echo "   3. Create volumes:"
-echo "      docker volume create nebulongpt_vosk-models"
-echo "      docker volume create nebulongpt_chat-data"
-echo "      docker volume create nebulongpt_huggingface-cache"
-echo "   4. Restore volumes:"
-echo "      docker run --rm -v nebulongpt_vosk-models:/data -v \$(pwd)/nebulon-gpt-volumes:/backup alpine tar xzf /backup/vosk-models.tar.gz -C /data"
-echo "      docker run --rm -v nebulongpt_chat-data:/data -v \$(pwd)/nebulon-gpt-volumes:/backup alpine tar xzf /backup/chat-data.tar.gz -C /data"
-echo "      docker run --rm -v nebulongpt_huggingface-cache:/data -v \$(pwd)/nebulon-gpt-volumes:/backup alpine tar xzf /backup/huggingface-cache.tar.gz -C /data"
-echo "   5. Start: docker-compose up -d"
+echo "   1. Extract the ZIP package: unzip nebulon-gpt-complete.zip"
+echo "   2. Run the import script: ./import-docker-image.sh"
+echo "   3. The script will automatically:"
+echo "      • Load the Docker image"
+echo "      • Create and restore all volumes"
+echo "      • Check for docker-compose.yml"
+echo "      • Optionally start NebulonGPT"
+echo ""
+echo "🎉 That's it! The import script handles everything automatically."
