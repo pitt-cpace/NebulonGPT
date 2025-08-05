@@ -226,24 +226,68 @@ export class TTSService {
   }
 
   public async clear(): Promise<boolean> {
-    // End streaming session first if active
+    console.log('🧹 STARTING COMPLETE TTS BUFFER CLEARING (SERVER + CLIENT)...');
+    
+    // STEP 1: End streaming session first if active
     if (this.currentSession) {
+      console.log('🛑 Ending active streaming session...');
       this.endStreaming();
+      await new Promise(resolve => setTimeout(resolve, 50)); // Wait for server to process
     }
     
+    // STEP 2: Send multiple clear commands to server to ensure buffer clearing
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const message = { action: 'clear' };
-      this.ws.send(JSON.stringify(message));
+      console.log('📤 Sending aggressive server buffer clear commands...');
+      
+      // Send stop command first
+      this.ws.send(JSON.stringify({ action: 'stop' }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Send clear command
+      this.ws.send(JSON.stringify({ action: 'clear' }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Send additional clear command to ensure server buffer is empty
+      this.ws.send(JSON.stringify({ action: 'clear' }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Send force clear command (if server supports it)
+      this.ws.send(JSON.stringify({ action: 'force_clear' }));
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
     
-    // Reset paused state when clearing (important for new conversations)
+    // STEP 3: Reset all client state immediately
     this.isPaused = false;
+    this.currentSession = null;
     
-    // Clear the local audio queue to prevent overlapping
+    // STEP 4: Aggressively clear client-side audio buffers
+    console.log('🧹 Clearing client-side audio buffers...');
     this.clearAudioQueue();
     
-    // Client-side verification loop - wait until everything is cleared (max 1 second)
-    const maxAttempts = 10; // Maximum 1 second (10 * 100ms)
+    // STEP 5: Additional client-side buffer clearing
+    console.log('🧹 Additional client-side buffer clearing...');
+    
+    // Clear any pending audio that might be in browser's audio pipeline
+    try {
+      // Stop all audio contexts that might be playing TTS audio
+      const allAudioElements = document.querySelectorAll('audio');
+      allAudioElements.forEach((audio) => {
+        if (audio.src && audio.src.startsWith('blob:')) {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.volume = 0;
+          audio.src = '';
+          audio.load();
+        }
+      });
+    } catch (error) {
+      console.warn('⚠️ Error during additional audio clearing:', error);
+    }
+    
+    // STEP 6: Wait for server confirmation and verify clearing
+    console.log('⏳ Waiting for server and client buffer clearing confirmation...');
+    
+    const maxAttempts = 20; // Maximum 2 seconds (20 * 100ms)
     let attempt = 0;
     let cleared = false;
     
@@ -258,21 +302,52 @@ export class TTSService {
       
       // Check if all audio elements are stopped
       const allAudioStopped = this.audioQueue.every(audio => 
-        audio.paused && audio.currentTime === 0
+        audio.paused && audio.currentTime === 0 && audio.volume === 0
       );
       
-      cleared = audioQueueEmpty && notPaused && noActiveSession && allAudioStopped;
+      // Additional check: ensure no audio is currently playing in the browser
+      let noAudioPlaying = true;
+      try {
+        const allAudio = Array.from(document.querySelectorAll('audio'));
+        for (const audio of allAudio) {
+          if (!audio.paused && audio.src.startsWith('blob:')) {
+            noAudioPlaying = false;
+            console.log('🔊 Found still playing audio, forcing stop...');
+            audio.pause();
+            audio.currentTime = 0;
+            audio.volume = 0;
+            break;
+          }
+        }
+      } catch (error) {
+        // Ignore errors in audio checking
+      }
+      
+      cleared = audioQueueEmpty && notPaused && noActiveSession && allAudioStopped && noAudioPlaying;
       
       if (cleared) {
-        console.log(`✅ Client TTS completely cleared after ${attempt * 100}ms`);
+        console.log(`✅ COMPLETE TTS BUFFER CLEARING SUCCESSFUL after ${attempt * 100}ms`);
         break;
+      } else {
+        console.log(`⏳ Clearing verification attempt ${attempt}/${maxAttempts}...`);
       }
     }
     
     if (!cleared) {
-      console.warn(`⚠️ Client TTS clearing verification timeout after 1 second`);
+      console.warn(`⚠️ TTS buffer clearing verification timeout after ${maxAttempts * 100}ms`);
+      // Force final cleanup even if verification failed
+      this.audioQueue = [];
+      this.currentSession = null;
+      this.isPaused = false;
     }
     
+    // STEP 7: Force garbage collection
+    if (window.gc) {
+      window.gc();
+      console.log('🧹 Forced garbage collection after buffer clearing');
+    }
+    
+    console.log('🏁 TTS BUFFER CLEARING PROCESS COMPLETED');
     return cleared;
   }
 

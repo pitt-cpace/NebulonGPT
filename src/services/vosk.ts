@@ -38,7 +38,7 @@ export class VoskRecognitionService {
   
   // Voice detection threshold to reduce background noise sensitivity
   private voiceDetectionEnabled = true;
-  private voiceDetectionThreshold = 0.01; // Minimum audio level to send to Vosk (higher = less sensitive to background noise)
+  private voiceDetectionThreshold = 0.003; // Minimum audio level to send to Vosk (higher = less sensitive to background noise)
   
   // Event callbacks
   private onResultCallback: ((result: VoskResult) => void) | null = null;
@@ -1101,7 +1101,7 @@ export class VoskRecognitionService {
       const shouldSend = rms > this.voiceDetectionThreshold;
       
       if (!shouldSend) {
-        console.log(`🔇 Audio below voice threshold (${rms.toFixed(4)} < ${this.voiceDetectionThreshold}) - not sending to Vosk`);
+        //console.log(`🔇 Audio below voice threshold (${rms.toFixed(4)} < ${this.voiceDetectionThreshold}) - not sending to Vosk`);
       }
       
       return shouldSend;
