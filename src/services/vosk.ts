@@ -31,14 +31,14 @@ export class VoskRecognitionService {
   
   // Silence detection for auto-stop
   private silenceDetectionEnabled = true;
-  private silenceThreshold = 0.15; // Audio level threshold for silence detection (increased to avoid background noise)
-  private silenceTimeout = 1000; // 1 second of silence before auto-stop
+  private silenceThreshold = 0.06; // Root Mean Square (RMS) audio level 0.0-1.0 (0.05 = 5% of max volume, roughly normal conversation ~65-70dB equivalent) - Audio below this is considered silence
+  private silenceTimeout = 1500; // 1.5 seconds of silence before auto-stop
   private lastAudioTime = 0;
   private silenceTimer: number | null = null;
   
   // Voice detection threshold to reduce background noise sensitivity
   private voiceDetectionEnabled = true;
-  private voiceDetectionThreshold = 0.001; // Minimum audio level to send to Vosk (higher = less sensitive to background noise)
+  private voiceDetectionThreshold = 0.0015; // Root Mean Square (RMS) audio level 0.0-1.0 (0.0015 = 0.15% of max volume, roughly quiet room noise ~30-40dB equivalent) - Audio below this won't be sent to Vosk server
   
   // Event callbacks
   private onResultCallback: ((result: VoskResult) => void) | null = null;
