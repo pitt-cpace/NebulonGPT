@@ -954,7 +954,7 @@ export class VoskRecognitionService {
       'this', 'that', 'these', 'those', 'here', 'there', 'where', 'when', 'why', 'how',
       'up', 'down', 'out', 'off', 'over', 'under', 'again', 'further', 'then', 'once',
       'so', 'than', 'too', 'very', 'just', 'now', 'only', 'also', 'back', 'still', 'well',
-      'oh', 'ah', 'um', 'uh', 'hmm', 'yeah', 'yes', 'no', 'ok', 'okay'
+      'oh', 'ah', 'um', 'uh', 'hmm', 'huh', 'yeah', 'yes', 'no', 'ok', 'okay'
     ];
 
     // Split into words and check if it's a single meaningless word
