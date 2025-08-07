@@ -110,6 +110,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   };
 
   const handleOpen = () => {
+    // Refresh TTS settings from service when opening dialog
+    const currentSettings = ttsService.getSettings();
+    setFullVoiceMode(currentSettings.fullVoiceMode);
+    setVoiceGender(currentSettings.voiceGender);
+    setOriginalTtsSettings(currentSettings);
+    
     setOpen(true);
   };
 
