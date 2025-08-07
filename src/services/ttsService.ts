@@ -53,13 +53,29 @@ export class TTSService {
   private pausedAudioTime: number = 0; // Store paused position for resume
 
   constructor(serverUrl?: string) {
-    // Use environment variable if available, otherwise fallback to localhost
+    // Use environment variable if available, otherwise detect current port dynamically
     this.serverUrl = serverUrl || 
       process.env.REACT_APP_TTS_SERVER_URL || 
-      'ws://localhost:3000/tts';
+      this.getDefaultTTSUrl();
     
     // Load settings from localStorage
     this.loadSettings();
+  }
+
+  /**
+   * Get default TTS URL based on current window location
+   */
+  private getDefaultTTSUrl(): string {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const port = window.location.port;
+    
+    // Use current port if available, otherwise default to 3000
+    const targetPort = port || '3000';
+    
+    const url = `${protocol}//${host}:${targetPort}/tts`;
+    console.log(`🔗 TTS Service auto-detected URL: ${url}`);
+    return url;
   }
 
   public setStatusCallback(callback: (status: TTSStatus) => void) {

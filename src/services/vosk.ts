@@ -51,11 +51,27 @@ export class VoskRecognitionService {
     // Initialize with default settings
   }
 
+  /**
+   * Get default Vosk URL based on current window location
+   */
+  private getDefaultVoskUrl(): string {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const port = window.location.port;
+    
+    // Use current port if available, otherwise default to 3000
+    const targetPort = port || '3000';
+    
+    const url = `${protocol}//${host}:${targetPort}/vosk`;
+    console.log(`🔗 Vosk Service auto-detected URL: ${url}`);
+    return url;
+  }
+
   private async initializeWebSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        // Use environment variable for Docker or localhost for development
-        const voskServerUrl = (window as any).REACT_APP_VOSK_SERVER_URL || 'ws://localhost:3000/vosk';
+        // Use environment variable for Docker or detect current port dynamically
+        const voskServerUrl = (window as any).REACT_APP_VOSK_SERVER_URL || this.getDefaultVoskUrl();
         this.socket = new WebSocket(voskServerUrl);
         
         this.socket.onopen = () => {
