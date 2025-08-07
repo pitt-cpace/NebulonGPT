@@ -369,11 +369,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       await ttsService.speak('', null); // Pass null to trigger DESTROY_ALL mode
       await ttsService.stop(); // This includes the 500ms delay and aggressive cleanup
       
-      // STEP 2: PERSISTENT LOOP - Keep trying until everything is destroyed
-      console.log('💥 Starting persistent TTS clearing loop...');
+      // STEP 2: PERSISTENT LOOP - Keep trying until everything is destroyed (minimum 3 seconds)
+      console.log('💥 Starting persistent TTS clearing loop (minimum 3 seconds)...');
       let clearAttempt = 0;
       const maxClearAttempts = 10; // Maximum 10 attempts
       let allCleared = false;
+      const startTime = Date.now(); // Track start time
+      const minimumDuration = 3000; // Minimum 3 seconds
       
       while (!allCleared && clearAttempt < maxClearAttempts) {
         clearAttempt++;
@@ -384,8 +386,19 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           
           if (cleared) {
             console.log(`✅ TTS clearing attempt ${clearAttempt} SUCCESSFUL - All threads and buffers destroyed`);
-            allCleared = true;
-            break;
+            
+            // Check if we've been running for at least 3 seconds
+            const elapsedTime = Date.now() - startTime;
+            if (elapsedTime >= minimumDuration) {
+              console.log(`⏰ Minimum 3 seconds elapsed (${elapsedTime}ms) - stopping loop`);
+              allCleared = true;
+              break;
+            } else {
+              const remainingTime = minimumDuration - elapsedTime;
+              console.log(`⏰ Only ${elapsedTime}ms elapsed, continuing for ${remainingTime}ms more...`);
+              // Continue the loop even though clearing was successful
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
           } else {
             console.warn(`⚠️ TTS clearing attempt ${clearAttempt} verification timeout - retrying...`);
             
@@ -397,6 +410,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           
           // Wait 500ms before next attempt even on error
           await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        // Additional check: if we've reached minimum time and had at least one successful clear
+        const elapsedTime = Date.now() - startTime;
+        if (elapsedTime >= minimumDuration && clearAttempt > 0) {
+          console.log(`⏰ Minimum 3 seconds completed (${elapsedTime}ms) after ${clearAttempt} attempts - finishing`);
+          allCleared = true;
+          break;
         }
       }
       
@@ -1572,6 +1593,124 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <Box
             sx={styles.messagesContainer}
           >
+            {/* Full Voice Mode Indicator */}
+            {(() => {
+              const ttsSettings = ttsService.getSettings();
+              const isFullVoiceMode = ttsSettings.fullVoiceMode;
+              
+              if (isFullVoiceMode && isListening) {
+                return (
+                  <Box
+                    onClick={() => {
+                      console.log('🔇 User clicked to disable full voice mode');
+                      ttsService.updateSettings({ fullVoiceMode: false });
+                      ttsService.saveSettings();
+                      
+                      // Stop mic listening when disabling full voice mode
+                      if (onMicStop && onMicStop.current) {
+                        onMicStop.current();
+                      }
+                    }}
+                    sx={{
+                      position: 'fixed',
+                      top: '80px',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      zIndex: 1000,
+                      backgroundColor: 'rgba(76, 175, 80, 0.95)',
+                      color: 'white',
+                      padding: '12px 20px',
+                      borderRadius: '25px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                      backdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      animation: 'pulse 2s infinite',
+                      '@keyframes pulse': {
+                        '0%': {
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(76, 175, 80, 0.7)',
+                        },
+                        '70%': {
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 10px rgba(76, 175, 80, 0)',
+                        },
+                        '100%': {
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(76, 175, 80, 0)',
+                        },
+                      },
+                      '&:hover': {
+                        backgroundColor: 'rgba(76, 175, 80, 1)',
+                        transform: 'translateX(-50%) scale(1.05)',
+                        transition: 'all 0.2s ease-in-out',
+                      },
+                    }}
+                  >
+                    {/* Animated microphone icon */}
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        animation: 'bounce 1s infinite',
+                        '@keyframes bounce': {
+                          '0%, 20%, 50%, 80%, 100%': {
+                            transform: 'translateY(0)',
+                          },
+                          '40%': {
+                            transform: 'translateY(-3px)',
+                          },
+                          '60%': {
+                            transform: 'translateY(-1px)',
+                          },
+                        },
+                      }}
+                    >
+                      <MicIcon sx={{ fontSize: 20 }} />
+                    </Box>
+                    
+                    {/* Text content */}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 'bold', fontSize: '0.85rem' }}>
+                        Full Voice Mode
+                      </Typography>
+                      <Typography variant="caption" sx={{ fontSize: '0.7rem', opacity: 0.9 }}>
+                        Listening... Click to disable
+                      </Typography>
+                    </Box>
+                    
+                    {/* Animated sound waves */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3, ml: 1 }}>
+                      {[1, 2, 3].map((i) => (
+                        <Box
+                          key={i}
+                          sx={{
+                            width: '3px',
+                            backgroundColor: 'white',
+                            borderRadius: '2px',
+                            animation: `wave${i} 1.5s infinite`,
+                            [`@keyframes wave${i}`]: {
+                              '0%, 100%': {
+                                height: '8px',
+                                opacity: 0.5,
+                              },
+                              '50%': {
+                                height: '16px',
+                                opacity: 1,
+                              },
+                            },
+                            animationDelay: `${i * 0.1}s`,
+                          }}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                );
+              }
+              
+              return null;
+            })()}
+            
             {chat.messages.map(renderMessage)}
             <div ref={messagesEndRef} />
           </Box>
