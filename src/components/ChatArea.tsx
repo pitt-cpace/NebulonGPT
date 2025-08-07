@@ -349,27 +349,84 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
     }
     
-    // Stop TTS and LLM if full voice mode is enabled and user manually stops mic
+    // FORCEFULLY STOP AND DESTROY ALL TTS THREADS AND PROCESSES
     const ttsSettings = ttsService.getSettings();
-    if (ttsSettings.fullVoiceMode) {
-      console.log('🔇 User stopped microphone - stopping LLM and clearing TTS in full voice mode');
+    console.log('💥 FORCEFULLY STOPPING AND DESTROYING ALL TTS THREADS due to mic stop...');
+    
+    // Stop LLM generation if it's currently running
+    if (loading) {
+      console.log('🛑 Stopping LLM generation due to manual mic stop');
+      onStopResponse();
+    }
+    
+    // Use the enhanced forceful TTS destruction methods with DESTROY_ALL mode
+    try {
+      // STEP 1: Use DESTROY_ALL mode to forcefully destroy all threads regardless of message ID
+      console.log('💥 Using DESTROY_ALL mode to destroy all TTS threads...');
+      await ttsService.speak('', null); // Pass null to trigger DESTROY_ALL mode
+      await ttsService.stop(); // This includes the 500ms delay and aggressive cleanup
       
-      // Stop LLM generation if it's currently running
-      if (loading) {
-        console.log('🛑 Stopping LLM generation due to manual mic stop');
-        onStopResponse();
+      // STEP 2: PERSISTENT LOOP - Keep trying until everything is destroyed
+      console.log('💥 Starting persistent TTS clearing loop...');
+      let clearAttempt = 0;
+      const maxClearAttempts = 10; // Maximum 10 attempts
+      let allCleared = false;
+      
+      while (!allCleared && clearAttempt < maxClearAttempts) {
+        clearAttempt++;
+        console.log(`💥 TTS clearing attempt ${clearAttempt}/${maxClearAttempts}...`);
+        
+        try {
+          const cleared = await ttsService.clear(); // This includes server + client clearing with verification
+          
+          if (cleared) {
+            console.log(`✅ TTS clearing attempt ${clearAttempt} SUCCESSFUL - All threads and buffers destroyed`);
+            allCleared = true;
+            break;
+          } else {
+            console.warn(`⚠️ TTS clearing attempt ${clearAttempt} verification timeout - retrying...`);
+            
+            // Wait 500ms before next attempt
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } catch (clearError) {
+          console.error(`❌ Error in TTS clearing attempt ${clearAttempt}:`, clearError);
+          
+          // Wait 500ms before next attempt even on error
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
       
-      // Stop and clear TTS
-      ttsService.stop();
-      ttsService.clear();
+      if (allCleared) {
+        console.log('🎉 PERSISTENT TTS CLEARING SUCCESSFUL - All threads completely destroyed');
+      } else {
+        console.warn(`⚠️ PERSISTENT TTS CLEARING TIMEOUT after ${maxClearAttempts} attempts - forcing completion`);
+        
+        // Force one final aggressive cleanup attempt
+        console.log('💥 Final aggressive TTS cleanup attempt...');
+        try {
+          await ttsService.stop(); // One more aggressive stop
+          console.log('💥 Final aggressive cleanup completed');
+        } catch (finalError) {
+          console.error('❌ Error in final aggressive cleanup:', finalError);
+        }
+      }
+      
+      // STEP 3: Additional safety - wait a bit more for complete cleanup
+      console.log('⏳ Additional 1000ms wait for complete TTS cleanup...');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+    } catch (error) {
+      console.error('❌ Error during forceful TTS destruction:', error);
+      // Continue with UI updates even if TTS cleanup fails
     }
     
     // Update all UI states
     setIsListening(false);
     setInterimTranscript('');
     console.log('✅ UI state updated - isListening set to false, interimTranscript cleared');
-  }, [voskRecognition, isListening, message]);
+    console.log('🏁 MIC STOP COMPLETED - All TTS threads destroyed, ready for next interaction');
+  }, [voskRecognition, isListening, loading, onStopResponse]);
 
   // Toggle speech recognition with debounce protection
   const toggleListening = useCallback(async () => {

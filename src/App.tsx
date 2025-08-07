@@ -386,13 +386,61 @@ const App: React.FC = () => {
     
     // Add AI response using the actual API with streaming
     try {
-      // ADD YOUR ENHANCED TTS STOP HERE
+      // ADD YOUR ENHANCED TTS STOP HERE WITH PERSISTENT LOOP
+      console.log('💥 ENHANCED TTS STOP WITH PERSISTENT LOOP - Before LLM Response...');
+      await ttsService.clear();
+      await ttsService.speak('', null); // Pass null to trigger DESTROY_ALL mode
       await ttsService.stop(); // Your enhanced stop with 500ms delay
-      //Wait 500ms for server and processes to respond properly
-      console.log('⏳ Waiting 500ms for server and processes to respond...');
+      
+      // PERSISTENT LOOP - Keep trying until everything is destroyed before LLM starts
+      console.log('💥 Starting persistent TTS clearing loop before LLM response...');
+      let clearAttempt = 0;
+      const maxClearAttempts = 10; // Maximum 10 attempts
+      let allCleared = false;
+      
+      while (!allCleared && clearAttempt < maxClearAttempts) {
+        clearAttempt++;
+        console.log(`💥 Pre-LLM TTS clearing attempt ${clearAttempt}/${maxClearAttempts}...`);
+        
+        try {
+          const cleared = await ttsService.clear(); // This includes server + client clearing with verification
+          
+          if (cleared) {
+            console.log(`✅ Pre-LLM TTS clearing attempt ${clearAttempt} SUCCESSFUL - All threads destroyed before LLM`);
+            allCleared = true;
+            break;
+          } else {
+            console.warn(`⚠️ Pre-LLM TTS clearing attempt ${clearAttempt} verification timeout - retrying...`);
+            
+            // Wait 500ms before next attempt (shorter for LLM start)
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } catch (clearError) {
+          console.error(`❌ Error in pre-LLM TTS clearing attempt ${clearAttempt}:`, clearError);
+          
+          // Wait 300ms before next attempt even on error
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+      
+      if (allCleared) {
+        console.log('🎉 PERSISTENT PRE-LLM TTS CLEARING SUCCESSFUL - Ready for clean LLM response');
+      } else {
+        console.warn(`⚠️ PERSISTENT PRE-LLM TTS CLEARING TIMEOUT after ${maxClearAttempts} attempts - forcing LLM start`);
+        
+        // Force one final aggressive cleanup attempt before LLM
+        console.log('💥 Final aggressive TTS cleanup before LLM...');
+        try {
+          await ttsService.stop(); // One more aggressive stop
+          console.log('💥 Final aggressive cleanup before LLM completed');
+        } catch (finalError) {
+          console.error('❌ Error in final aggressive cleanup before LLM:', finalError);
+        }
+      }
+      
+      //Wait additional 500ms for server and processes to respond properly
+      console.log('⏳ Waiting additional 500ms for server and processes to respond...');
       await new Promise(resolve => setTimeout(resolve, 500));
-      // ADD YOUR ENHANCED TTS STOP HERE
-      await ttsService.stop(); // Your enhanced stop with 500ms delay
       setLoading(true); // ← LLM response writing starts here
       
       // Import the sendMessage function from our API service
@@ -450,7 +498,7 @@ const App: React.FC = () => {
             const sentence = ttsBuffer.substring(lastIndex, match.index + match[0].length).trim();
             if (sentence) {
               console.log('🔊 Sending sentence to TTS (mic is listening):', sentence);
-              ttsService.speak(sentence);
+              ttsService.speak(sentence, aiMessageId); // Pass assistant message ID
             }
             lastIndex = match.index + match[0].length;
           }
@@ -465,7 +513,7 @@ const App: React.FC = () => {
               const chunk = ttsBuffer.substring(0, lineBreakIndex).trim();
               if (chunk) {
                 console.log('🔊 Sending line chunk (no punctuation, using line break, mic is listening):', chunk);
-                ttsService.speak(chunk);
+                ttsService.speak(chunk, aiMessageId); // Pass assistant message ID
               }
               // Update buffer to remove sent chunk including the line break
               ttsBuffer = ttsBuffer.substring(lineBreakIndex + 1);
@@ -478,7 +526,7 @@ const App: React.FC = () => {
                 // Send first 15 words as a chunk
                 const chunk = words.slice(0, 15).join(' ');
                 console.log('🔊 Sending word chunk (no punctuation/line breaks found, mic is listening):', chunk);
-                ttsService.speak(chunk);
+                ttsService.speak(chunk, aiMessageId); // Pass assistant message ID
                 
                 // Update buffer to remove sent chunk
                 ttsBuffer = words.slice(15).join(' ');
@@ -511,7 +559,7 @@ const App: React.FC = () => {
       // Send any remaining text in the TTS buffer after streaming is complete
       if (isFullVoiceMode && isListening && ttsBuffer.trim()) {
         console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
-        ttsService.speak(ttsBuffer.trim());
+        ttsService.speak(ttsBuffer.trim(), aiMessageId); // Pass assistant message ID
       }
       
     } catch (error) {
