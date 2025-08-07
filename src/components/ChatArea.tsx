@@ -62,6 +62,7 @@ interface ChatAreaProps {
   onMicStart?: React.MutableRefObject<(() => Promise<void>) | null>;
   onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
   onListeningStateChange?: (listening: boolean) => void;
+  onClearChatInput?: React.MutableRefObject<(() => void) | null>;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -79,6 +80,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onMicStart,
   onMicStop,
   onListeningStateChange,
+  onClearChatInput,
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
@@ -363,6 +365,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     try {
       // STEP 1: Use DESTROY_ALL mode to forcefully destroy all threads regardless of message ID
       console.log('💥 Using DESTROY_ALL mode to destroy all TTS threads...');
+      await ttsService.clear();
       await ttsService.speak('', null); // Pass null to trigger DESTROY_ALL mode
       await ttsService.stop(); // This includes the 500ms delay and aggressive cleanup
       
@@ -461,7 +464,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [isListening, isProcessingMic, startMicListening, stopMicListening]);
 
-  // Expose mic functions to parent components
+  // Function to clear chat input
+  const clearChatInput = useCallback(() => {
+    console.log('🧹 Clearing chat input box...');
+    setMessage('');
+    setAttachments([]);
+    setInterimTranscript('');
+    finalTranscriptRef.current = '';
+    console.log('✅ Chat input box cleared');
+  }, []);
+
+  // Expose mic functions and clear function to parent components
   useEffect(() => {
     if (onMicStart) {
       onMicStart.current = startMicListening;
@@ -469,7 +482,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if (onMicStop) {
       onMicStop.current = stopMicListening;
     }
-  }, [startMicListening, stopMicListening, onMicStart, onMicStop]);
+    if (onClearChatInput) {
+      onClearChatInput.current = clearChatInput;
+    }
+  }, [startMicListening, stopMicListening, clearChatInput, onMicStart, onMicStop, onClearChatInput]);
 
   // Notify parent component when listening state changes
   useEffect(() => {

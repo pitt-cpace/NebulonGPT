@@ -52,6 +52,7 @@ const App: React.FC = () => {
   const [isListening, setIsListening] = useState(false);
   const onMicStartRef = useRef<(() => Promise<void>) | null>(null);
   const onMicStopRef = useRef<(() => Promise<void>) | null>(null);
+  const onClearChatInput = useRef<(() => void) | null>(null);
 
   // Handle mic stopped from settings
   const handleMicStopped = () => {
@@ -235,6 +236,12 @@ const App: React.FC = () => {
     
     setChats([newChat, ...chats]);
     setCurrentChat(newChat);
+    
+    // Clear the chat input box when creating a new chat
+    // This is handled by passing a callback to ChatArea that can clear the input
+    if (onClearChatInput.current) {
+      onClearChatInput.current();
+    }
   };
 
   const handleSelectChat = (chatId: string) => {
@@ -693,6 +700,7 @@ const App: React.FC = () => {
         onMicStart={onMicStartRef}
         onMicStop={onMicStopRef}
         onListeningStateChange={handleListeningStateChange}
+        onClearChatInput={onClearChatInput}
       />
     </Box>
   );
