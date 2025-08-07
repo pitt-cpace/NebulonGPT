@@ -69,16 +69,14 @@ RUN test -d /app/vosk-server/models/vosk-model-small-en-us-0.15 || ( \
     rm /tmp/model.zip \
 )
 
-# Kokoro
+# Kokoro - Copy everything except the zip parts first
 COPY Kokoro-TTS-Server/ /app/kokoro-tts/
 
-# Hugging Face model cache (from split archive files)
-COPY Kokoro-TTS-Server/huggingface-cache.tar.gz.part* /tmp/
-RUN cd /tmp && \
-    cat huggingface-cache.tar.gz.part* > huggingface-cache.tar.gz && \
-    tar -xzf huggingface-cache.tar.gz && \
-    cp -r huggingface-cache/* /app/.cache/huggingface/ && \
-    rm -rf /tmp/huggingface-cache* /tmp/huggingface-cache.tar.gz.part*
+# Hugging Face model cache (from split zip archive files) - extract directly to /app/kokoro-tts/
+#RUN cd /app/kokoro-tts && \
+#    cat huggingface-cache.zip.001 huggingface-cache.zip.002 huggingface-cache.zip.003 huggingface-cache.zip.004 > huggingface-cache.zip && \
+#    unzip -o -q huggingface-cache.zip && \
+#    rm -rf huggingface-cache.zip huggingface-cache.zip.00*
 
 # Data & nginx
 RUN mkdir -p /app/data
