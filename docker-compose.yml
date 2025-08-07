@@ -15,7 +15,7 @@ services:
       - ./nginx.conf:/etc/nginx/http.d/default.conf
       - chat-data:/app/data
       - vosk-models:/app/vosk-server/models
-      - huggingface-cache:/app/.cache/huggingface
+      - ./Kokoro-TTS-Server/huggingface-cache:/app/.cache/huggingface
     environment:
       - NODE_ENV=production
       # Frontend build-time environment variables
@@ -42,6 +42,3 @@ volumes:
   vosk-models:
     name: nebulongpt_vosk-models
     external: false  # Use existing volume and create if it does not exist
-  huggingface-cache:
-    name: nebulongpt_huggingface-cache
-    external: false  # Cache for Kokoro TTS models

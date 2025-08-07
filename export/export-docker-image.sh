@@ -37,8 +37,12 @@ docker run --rm -v nebulongpt_vosk-models:/app/vosk-server/models -v $(pwd)/expo
 echo "  📁 Exporting chat-data volume..."
 docker run --rm -v nebulongpt_chat-data:/app/data -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/chat-data.tar.gz -C /app/data .
 
-echo "  📁 Exporting huggingface-cache volume..."
-docker run --rm -v nebulongpt_huggingface-cache:/app/.cache/huggingface -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/huggingface-cache.tar.gz -C /app/.cache/huggingface .
+echo "  📁 Copying huggingface-cache directory..."
+if [ -d "Kokoro-TTS-Server/huggingface-cache" ]; then
+    tar czf export/nebulon-gpt-export-temp/nebulon-gpt-volumes/huggingface-cache.tar.gz -C Kokoro-TTS-Server/huggingface-cache .
+else
+    echo "  ⚠️  Kokoro-TTS-Server/huggingface-cache directory not found, skipping..."
+fi
 
 echo "📦 Preparing import script and configuration..."
 # Copy the import script to the export directory
@@ -64,7 +68,7 @@ services:
     volumes:
       - chat-data:/app/data
       - vosk-models:/app/vosk-server/models
-      - huggingface-cache:/app/.cache/huggingface
+      - ./Kokoro-TTS-Server/huggingface-cache:/app/.cache/huggingface
     environment:
       - NODE_ENV=production
       # Frontend build-time environment variables
@@ -91,9 +95,6 @@ volumes:
   vosk-models:
     name: nebulongpt_vosk-models
     external: false  # Use existing volume and create if it does not exist
-  huggingface-cache:
-    name: nebulongpt_huggingface-cache
-    external: false  # Cache for Kokoro TTS models
 EOF
     echo "  ✅ Import-ready docker-compose.yml created"
 else

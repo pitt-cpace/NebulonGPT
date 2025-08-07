@@ -4,102 +4,85 @@ FROM node:18-alpine AS frontend-build
 
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Only copy package files for better cache use
 COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
-# Copy the rest of the application code
+# Now copy rest and build
 COPY . .
-
-# Build the application
 RUN npm run build
 
-# Stage 2: Final production image with Python 3.9-slim (matching Vosk and Kokoro requirements)
+# --------------------------------------------
+# Stage 2: Final production image
 FROM python:3.9-slim AS production
-
-# Install system dependencies for all services
-RUN apt-get update && apt-get install -y \
-    wget \
-    unzip \
-    libatomic1 \
-    build-essential \
-    git \
-    curl \
-    nginx \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js on the Python base image
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs
 
 WORKDIR /app
 
-# Copy Node.js dependencies and server
+# Install system dependencies (no interactive output)
+RUN apt-get update && apt-get install -y \
+    wget unzip libatomic1 build-essential \
+    git curl nginx \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs
+
+# Set environment early
+ENV HF_HOME=/app/.cache/huggingface \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers \
+    HF_DATASETS_CACHE=/app/.cache/huggingface/datasets \
+    HF_HUB_OFFLINE=0 \
+    NODE_ENV=production \
+    PYTHONUNBUFFERED=1
+
+RUN mkdir -p $HF_HOME
+
+# ----- Better pip caching setup -----
+# Copy only requirements first to preserve layer cache
+COPY Vosk-Server/websocket/requirements.txt /app/vosk-requirements.txt
+COPY Kokoro-TTS-Server/requirements.txt /app/kokoro-requirements.txt
+
+# Install all Python dependencies first (with BuildKit cache mount if available)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir --progress-bar on -v -r vosk-requirements.txt && \
+    pip install --no-cache-dir --progress-bar on -v -r kokoro-requirements.txt
+
+# ---- Node server install ----
 COPY package*.json ./
 RUN npm install --production
-COPY server.js ./
 
-# Copy the built frontend from the first stage
+# ---- Copy application files ----
+COPY server.js ./
 COPY --from=frontend-build /app/build ./build
 
-# Set Hugging Face cache directory for Kokoro
-ENV HF_HOME=/app/.cache/huggingface
-ENV TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
-ENV HF_DATASETS_CACHE=/app/.cache/huggingface/datasets
-ENV HF_HUB_OFFLINE=0
-RUN mkdir -p /app/.cache/huggingface
-
-# Copy and install Vosk requirements
-COPY Vosk-Server/websocket/requirements.txt /app/vosk-requirements.txt
-RUN pip install --no-cache-dir -r vosk-requirements.txt
-
-# Copy and install Kokoro requirements
-COPY Kokoro-TTS-Server/requirements.txt /app/kokoro-requirements.txt
-RUN pip install --no-cache-dir -r kokoro-requirements.txt
-
-# Download spaCy English model for Kokoro
-RUN python -m spacy download en_core_web_sm || echo "SpaCy model download failed, continuing..."
-
-# Copy Vosk server files
+# Vosk
 COPY Vosk-Server/ /app/vosk-server/
 RUN mkdir -p /app/vosk-server/models
 
-# Copy and extract Vosk model
-COPY Vosk-Server/websocket/models/vosk-model-small-en-us-0.15.zip /tmp/vosk-model-small-en-us-0.15.zip
-RUN cd /app/vosk-server/models && \
-    unzip -o /tmp/vosk-model-small-en-us-0.15.zip && \
-    rm /tmp/vosk-model-small-en-us-0.15.zip && \
-    echo "Vosk model extracted successfully"
+# If model already extracted before, skip re-extracting (cache layer)
+COPY Vosk-Server/websocket/models/vosk-model-small-en-us-0.15.zip /tmp/model.zip
+RUN test -d /app/vosk-server/models/vosk-model-small-en-us-0.15 || ( \
+    unzip -o /tmp/model.zip -d /app/vosk-server/models && \
+    rm /tmp/model.zip \
+)
 
-# Copy Kokoro TTS server files
+# Kokoro
 COPY Kokoro-TTS-Server/ /app/kokoro-tts/
 
-# Pre-download Kokoro models
-COPY preload_kokoro_models.py /tmp/preload_kokoro_models.py
-RUN python /tmp/preload_kokoro_models.py && rm /tmp/preload_kokoro_models.py
+# Hugging Face model cache (cached locally beforehand)
+COPY Kokoro-TTS-Server/huggingface-cache/ /app/.cache/huggingface/
 
-# Create necessary directories
+# Data & nginx
 RUN mkdir -p /app/data
-
-# Copy nginx configuration
 COPY nginx.conf /etc/nginx/sites-available/default
-
-# Copy the startup script
 COPY start-services.sh /app/start-services.sh
 RUN chmod +x /app/start-services.sh
 
-# Set environment variables
-ENV NODE_ENV=production
-ENV PYTHONUNBUFFERED=1
-ENV HF_HOME=/app/.cache/huggingface
-ENV TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
-ENV HF_DATASETS_CACHE=/app/.cache/huggingface/datasets
-ENV HF_HUB_OFFLINE=0
-
-# Expose ports for all services
+# Expose ports
 EXPOSE 3000 2700 2701
 
-# Use the startup script
+# Entrypoint
 CMD ["/app/start-services.sh"]

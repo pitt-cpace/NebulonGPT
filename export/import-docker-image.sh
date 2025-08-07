@@ -69,18 +69,18 @@ else
     fi
 fi
 
-# Check and handle huggingface-cache volume
-if docker volume inspect nebulongpt_huggingface-cache >/dev/null 2>&1; then
-    echo "  ✅ Hugging Face cache volume already exists, using existing data"
+# Check and handle huggingface-cache directory (now using local directory instead of volume)
+if [ -d "Kokoro-TTS-Server/huggingface-cache" ]; then
+    echo "  ✅ Hugging Face cache directory already exists, using existing data"
 else
-    echo "  📁 Creating huggingface-cache volume..."
-    docker volume create nebulongpt_huggingface-cache
+    echo "  📁 Creating huggingface-cache directory..."
+    mkdir -p Kokoro-TTS-Server/huggingface-cache
     if [ -f "nebulon-gpt-volumes/huggingface-cache.tar.gz" ]; then
-        echo "  📁 Restoring huggingface-cache volume..."
-        docker run --rm -v nebulongpt_huggingface-cache:/app/.cache/huggingface -v $(pwd)/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar xzf /backup/huggingface-cache.tar.gz -C /app/.cache/huggingface
+        echo "  📁 Restoring huggingface-cache directory..."
+        tar xzf nebulon-gpt-volumes/huggingface-cache.tar.gz -C Kokoro-TTS-Server/huggingface-cache
         echo "  ✅ Hugging Face cache restored!"
     else
-        echo "  ⚠️  Hugging Face cache backup not found, volume created empty"
+        echo "  ⚠️  Hugging Face cache backup not found, directory created empty"
     fi
 fi
 
@@ -119,7 +119,7 @@ else
 fi
 
 echo ""
-echo "📊 Imported volumes:"
+echo "📊 Imported data:"
 echo "   • Vosk Models: $(docker volume inspect nebulongpt_vosk-models --format '{{.Mountpoint}}' 2>/dev/null || echo 'Volume created')"
 echo "   • Chat Data: $(docker volume inspect nebulongpt_chat-data --format '{{.Mountpoint}}' 2>/dev/null || echo 'Volume created')"
-echo "   • HuggingFace Cache: $(docker volume inspect nebulongpt_huggingface-cache --format '{{.Mountpoint}}' 2>/dev/null || echo 'Volume created')"
+echo "   • HuggingFace Cache: $(pwd)/Kokoro-TTS-Server/huggingface-cache (local directory)"

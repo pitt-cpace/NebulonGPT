@@ -62,19 +62,15 @@ python3 websocket/browser_tts_server.py \
 ### English (Language code: `a` or `en`)
 - **Male voices**: `am_adam`, `am_michael`, `bm_george`, `bm_lewis`
 - **Female voices**: `af_heart`, `af_bella`, `af_sarah`, `bf_emma`, `bf_isabella`
-- **Dependencies**: spaCy, phonemizer-fork, en-core-web-sm model
 
 ### Chinese (Language code: `zh`)
 - **Male/Female voices**: Available through Kokoro TTS
-- **Dependencies**: jieba, pypinyin, cn2an, ordered-set
 
 ### Japanese (Language code: `ja`)
 - **Male/Female voices**: Available through Kokoro TTS
-- **Dependencies**: fugashi, pyopenjtalk, unidic, jaconv, mojimoji
 
 ### Korean (Language code: `ko`)
 - **Male/Female voices**: Available through Kokoro TTS
-- **Dependencies**: jamo, nltk
 
 ## API Usage
 
@@ -167,33 +163,11 @@ Models are cached locally to avoid repeated downloads.
 - `websockets>=10.0` - WebSocket server
 - `torch>=1.9.0` - PyTorch for neural networks
 - `soundfile>=0.12.1` - Audio file handling
-- `huggingface_hub` - Model downloading
+- `numpy` - Numerical operations
 
 ### Language-Specific Dependencies
 
-#### English
-- `spacy>=3.7.0` - NLP processing
-- `en-core-web-sm` - English language model
-- `phonemizer-fork` - Text to phoneme conversion
-- `num2words` - Number to word conversion
-- `espeakng-loader` - eSpeak-ng integration
-
-#### Chinese
-- `jieba` - Chinese text segmentation
-- `pypinyin` - Pinyin conversion
-- `cn2an` - Chinese number conversion
-- `ordered-set` - Set operations
-
-#### Japanese
-- `fugashi` - Morphological analysis
-- `pyopenjtalk` - Japanese TTS
-- `unidic` - Japanese dictionary
-- `jaconv` - Character conversion
-- `mojimoji` - Text normalization
-
-#### Korean
-- `jamo` - Korean character processing
-- `nltk` - Natural language toolkit
+Language-specific dependencies and models are pre-cached in the `huggingface-cache/` directory and loaded at runtime. No additional language packages need to be installed.
 
 ## Troubleshooting
 
