@@ -62,12 +62,16 @@ COPY --from=frontend-build /app/build ./build
 COPY Vosk-Server/ /app/vosk-server/
 RUN mkdir -p /app/vosk-server/models
 
-# If model already extracted before, skip re-extracting (cache layer)
-COPY Vosk-Server/websocket/models/vosk-model-small-en-us-0.15.zip /tmp/model.zip
-RUN test -d /app/vosk-server/models/vosk-model-small-en-us-0.15 || ( \
-    unzip -o /tmp/model.zip -d /app/vosk-server/models && \
-    rm /tmp/model.zip \
-)
+# Extract all available Vosk models directly into the image
+COPY Vosk-Server/websocket/models/*.zip /tmp/
+RUN cd /tmp && \
+    for zipfile in *.zip; do \
+        if [ -f "$zipfile" ]; then \
+            echo "Extracting $zipfile..."; \
+            unzip -o "$zipfile" -d /app/vosk-server/models; \
+        fi; \
+    done && \
+    rm -f /tmp/*.zip
 
 # Kokoro - Copy everything except the zip parts first
 COPY Kokoro-TTS-Server/ /app/kokoro-tts/

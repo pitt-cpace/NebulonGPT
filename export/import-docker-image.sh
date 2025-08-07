@@ -38,21 +38,7 @@ else
 fi
 
 echo "📦 Checking for existing Docker volumes..."
-
-# Check and handle vosk-models volume
-if docker volume inspect nebulongpt_vosk-models >/dev/null 2>&1; then
-    echo "  ✅ Vosk models volume already exists, using existing data"
-else
-    echo "  📁 Creating vosk-models volume..."
-    docker volume create nebulongpt_vosk-models
-    if [ -f "nebulon-gpt-volumes/vosk-models.tar.gz" ]; then
-        echo "  📁 Restoring vosk-models volume..."
-        docker run --rm -v nebulongpt_vosk-models:/app/vosk-server/models -v $(pwd)/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar xzf /backup/vosk-models.tar.gz -C /app/vosk-server/models
-        echo "  ✅ Vosk models restored!"
-    else
-        echo "  ⚠️  Vosk models backup not found, volume created empty"
-    fi
-fi
+echo "  ℹ️  Vosk models are now embedded in the Docker image, no volume needed"
 
 # Check and handle chat-data volume
 if docker volume inspect nebulongpt_chat-data >/dev/null 2>&1; then
@@ -120,6 +106,6 @@ fi
 
 echo ""
 echo "📊 Imported data:"
-echo "   • Vosk Models: $(docker volume inspect nebulongpt_vosk-models --format '{{.Mountpoint}}' 2>/dev/null || echo 'Volume created')"
+echo "   • Vosk Models: Embedded in Docker image (no volume needed)"
 echo "   • Chat Data: $(docker volume inspect nebulongpt_chat-data --format '{{.Mountpoint}}' 2>/dev/null || echo 'Volume created')"
 echo "   • HuggingFace Cache: $(pwd)/Kokoro-TTS-Server/huggingface-cache (local directory)"

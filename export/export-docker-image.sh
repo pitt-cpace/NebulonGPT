@@ -30,10 +30,7 @@ docker save nebulongpt-nebulon-gpt-integrated:latest | gzip > export/nebulon-gpt
 echo "📦 Exporting Docker volumes..."
 mkdir -p export/nebulon-gpt-export-temp/nebulon-gpt-volumes
 
-# Export each volume using the NebulonGPT container (no internet download needed)
-echo "  📁 Exporting vosk-models volume..."
-docker run --rm -v nebulongpt_vosk-models:/app/vosk-server/models -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/vosk-models.tar.gz -C /app/vosk-server/models .
-
+# Export volumes (vosk models are now embedded in the image, no need to export them)
 echo "  📁 Exporting chat-data volume..."
 docker run --rm -v nebulongpt_chat-data:/app/data -v $(pwd)/export/nebulon-gpt-export-temp/nebulon-gpt-volumes:/backup nebulongpt-nebulon-gpt-integrated:latest tar czf /backup/chat-data.tar.gz -C /app/data .
 
@@ -67,7 +64,6 @@ services:
       - nebulon-network
     volumes:
       - chat-data:/app/data
-      - vosk-models:/app/vosk-server/models
       - ./Kokoro-TTS-Server/huggingface-cache:/app/.cache/huggingface
     environment:
       - NODE_ENV=production
@@ -91,9 +87,6 @@ networks:
 volumes:
   chat-data:
     name: nebulongpt_chat-data
-    external: false  # Use existing volume and create if it does not exist
-  vosk-models:
-    name: nebulongpt_vosk-models
     external: false  # Use existing volume and create if it does not exist
 EOF
     echo "  ✅ Import-ready docker-compose.yml created"

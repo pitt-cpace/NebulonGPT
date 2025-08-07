@@ -14,7 +14,6 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/http.d/default.conf
       - chat-data:/app/data
-      - vosk-models:/app/vosk-server/models
       - ./Kokoro-TTS-Server/huggingface-cache:/app/.cache/huggingface
     environment:
       - NODE_ENV=production
@@ -38,7 +37,4 @@ networks:
 volumes:
   chat-data:
     name: nebulongpt_chat-data
-    external: false  # Use existing volume and create if it does not exist
-  vosk-models:
-    name: nebulongpt_vosk-models
     external: false  # Use existing volume and create if it does not exist
