@@ -34,7 +34,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
 ENV HF_HOME=/app/.cache/huggingface \
     TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers \
     HF_DATASETS_CACHE=/app/.cache/huggingface/datasets \
-    HF_HUB_OFFLINE=0 \
+    HF_HUB_OFFLINE=1 \
     NODE_ENV=production \
     PYTHONUNBUFFERED=1
 
