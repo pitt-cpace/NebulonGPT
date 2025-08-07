@@ -47,8 +47,8 @@ COPY Kokoro-TTS-Server/requirements.txt /app/kokoro-requirements.txt
 
 # Install all Python dependencies first (with BuildKit cache mount if available)
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir --progress-bar on -v -r vosk-requirements.txt && \
-    pip install --no-cache-dir --progress-bar on -v -r kokoro-requirements.txt
+    pip install --no-cache-dir -v -r vosk-requirements.txt && \
+    pip install --no-cache-dir -v -r kokoro-requirements.txt
 
 # ---- Node server install ----
 COPY package*.json ./
