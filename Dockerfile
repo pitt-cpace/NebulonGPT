@@ -72,8 +72,13 @@ RUN test -d /app/vosk-server/models/vosk-model-small-en-us-0.15 || ( \
 # Kokoro
 COPY Kokoro-TTS-Server/ /app/kokoro-tts/
 
-# Hugging Face model cache (cached locally beforehand)
-COPY Kokoro-TTS-Server/huggingface-cache/ /app/.cache/huggingface/
+# Hugging Face model cache (from split archive files)
+COPY Kokoro-TTS-Server/huggingface-cache.tar.gz.part* /tmp/
+RUN cd /tmp && \
+    cat huggingface-cache.tar.gz.part* > huggingface-cache.tar.gz && \
+    tar -xzf huggingface-cache.tar.gz && \
+    cp -r huggingface-cache/* /app/.cache/huggingface/ && \
+    rm -rf /tmp/huggingface-cache* /tmp/huggingface-cache.tar.gz.part*
 
 # Data & nginx
 RUN mkdir -p /app/data
