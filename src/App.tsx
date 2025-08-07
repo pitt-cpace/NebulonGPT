@@ -393,29 +393,41 @@ const App: React.FC = () => {
     
     // Add AI response using the actual API with streaming
     try {
-      // ADD YOUR ENHANCED TTS STOP HERE WITH PERSISTENT LOOP
-      console.log('💥 ENHANCED TTS STOP WITH PERSISTENT LOOP - Before LLM Response...');
-      await ttsService.clear();
-      await ttsService.speak('', null); // Pass null to trigger DESTROY_ALL mode
-      await ttsService.stop(); // Your enhanced stop with 500ms delay
-      
-      // PERSISTENT LOOP - Keep trying until everything is destroyed before LLM starts
-      console.log('💥 Starting persistent TTS clearing loop before LLM response...');
+      // PERSISTENT LOOP - Keep trying until everything is destroyed before LLM starts (minimum 2 seconds)
+      console.log('💥 Starting persistent TTS clearing loop before LLM response (minimum 2 seconds)...');
       let clearAttempt = 0;
       const maxClearAttempts = 10; // Maximum 10 attempts
       let allCleared = false;
+      const startTime = Date.now(); // Track start time
+      const minimumDuration = 2000; // Minimum 2 seconds
       
       while (!allCleared && clearAttempt < maxClearAttempts) {
         clearAttempt++;
         console.log(`💥 Pre-LLM TTS clearing attempt ${clearAttempt}/${maxClearAttempts}...`);
         
         try {
+          // Enhanced TTS stop inside the loop
+          await ttsService.clear();
+          await ttsService.speak('', null); // Pass null to trigger DESTROY_ALL mode
+          await ttsService.stop(); // Your enhanced stop with 500ms delay
+          
           const cleared = await ttsService.clear(); // This includes server + client clearing with verification
           
           if (cleared) {
             console.log(`✅ Pre-LLM TTS clearing attempt ${clearAttempt} SUCCESSFUL - All threads destroyed before LLM`);
-            allCleared = true;
-            break;
+            
+            // Check if we've been running for at least 2 seconds
+            const elapsedTime = Date.now() - startTime;
+            if (elapsedTime >= minimumDuration) {
+              console.log(`⏰ Minimum 2 seconds elapsed (${elapsedTime}ms) - stopping loop`);
+              allCleared = true;
+              break;
+            } else {
+              const remainingTime = minimumDuration - elapsedTime;
+              console.log(`⏰ Only ${elapsedTime}ms elapsed, continuing for ${remainingTime}ms more...`);
+              // Continue the loop even though clearing was successful
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
           } else {
             console.warn(`⚠️ Pre-LLM TTS clearing attempt ${clearAttempt} verification timeout - retrying...`);
             
@@ -427,6 +439,14 @@ const App: React.FC = () => {
           
           // Wait 300ms before next attempt even on error
           await new Promise(resolve => setTimeout(resolve, 300));
+        }
+        
+        // Additional check: if we've reached minimum time and had at least one successful clear
+        const elapsedTime = Date.now() - startTime;
+        if (elapsedTime >= minimumDuration && clearAttempt > 0) {
+          console.log(`⏰ Minimum 2 seconds completed (${elapsedTime}ms) after ${clearAttempt} attempts - finishing`);
+          allCleared = true;
+          break;
         }
       }
       

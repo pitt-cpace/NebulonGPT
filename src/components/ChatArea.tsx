@@ -363,34 +363,33 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     // Use the enhanced forceful TTS destruction methods with DESTROY_ALL mode
     try {
-      // STEP 1: Use DESTROY_ALL mode to forcefully destroy all threads regardless of message ID
-      console.log('💥 Using DESTROY_ALL mode to destroy all TTS threads...');
-      await ttsService.clear();
-      await ttsService.speak('', null); // Pass null to trigger DESTROY_ALL mode
-      await ttsService.stop(); // This includes the 500ms delay and aggressive cleanup
-      
-      // STEP 2: PERSISTENT LOOP - Keep trying until everything is destroyed (minimum 3 seconds)
-      console.log('💥 Starting persistent TTS clearing loop (minimum 3 seconds)...');
+      // PERSISTENT LOOP - Keep trying until everything is destroyed (minimum 5 seconds)
+      console.log('💥 Starting persistent TTS clearing loop (minimum 5 seconds)...');
       let clearAttempt = 0;
       const maxClearAttempts = 10; // Maximum 10 attempts
       let allCleared = false;
       const startTime = Date.now(); // Track start time
-      const minimumDuration = 3000; // Minimum 3 seconds
+      const minimumDuration = 5000; // Minimum 5 seconds
       
       while (!allCleared && clearAttempt < maxClearAttempts) {
         clearAttempt++;
         console.log(`💥 TTS clearing attempt ${clearAttempt}/${maxClearAttempts}...`);
         
         try {
+          // Enhanced TTS stop inside the loop
+          await ttsService.clear();
+          await ttsService.speak('', null); // Pass null to trigger DESTROY_ALL mode
+          await ttsService.stop(); // This includes the 500ms delay and aggressive cleanup
+          
           const cleared = await ttsService.clear(); // This includes server + client clearing with verification
           
           if (cleared) {
             console.log(`✅ TTS clearing attempt ${clearAttempt} SUCCESSFUL - All threads and buffers destroyed`);
             
-            // Check if we've been running for at least 3 seconds
+            // Check if we've been running for at least 5 seconds
             const elapsedTime = Date.now() - startTime;
             if (elapsedTime >= minimumDuration) {
-              console.log(`⏰ Minimum 3 seconds elapsed (${elapsedTime}ms) - stopping loop`);
+              console.log(`⏰ Minimum 5 seconds elapsed (${elapsedTime}ms) - stopping loop`);
               allCleared = true;
               break;
             } else {
@@ -415,7 +414,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Additional check: if we've reached minimum time and had at least one successful clear
         const elapsedTime = Date.now() - startTime;
         if (elapsedTime >= minimumDuration && clearAttempt > 0) {
-          console.log(`⏰ Minimum 3 seconds completed (${elapsedTime}ms) after ${clearAttempt} attempts - finishing`);
+          console.log(`⏰ Minimum 5 seconds completed (${elapsedTime}ms) after ${clearAttempt} attempts - finishing`);
           allCleared = true;
           break;
         }
