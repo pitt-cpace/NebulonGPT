@@ -256,10 +256,6 @@ export class TTSService {
       // Send additional clear command to ensure server buffer is empty
       this.ws.send(JSON.stringify({ action: 'clear' }));
       await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // Send force clear command (if server supports it)
-      this.ws.send(JSON.stringify({ action: 'force_clear' }));
-      await new Promise(resolve => setTimeout(resolve, 50));
     }
     
     // STEP 3: Reset all client state immediately
