@@ -78,7 +78,7 @@ docker build -t ollama-ui .
 
 # Run the container
 docker run -d --name ollama-ui \
-  -p 3000:3000 \
+  -p 3000:80 \
   --add-host=host.docker.internal:host-gateway \
   -v "$(pwd)/nginx.conf:/etc/nginx/conf.d/default.conf" \
   -e NODE_ENV=production \

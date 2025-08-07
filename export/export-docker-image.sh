@@ -50,18 +50,17 @@ chmod +x export/nebulon-gpt-export-temp/import-docker-image.sh
 if [ -f "docker-compose.yml" ]; then
     echo "  📝 Creating import-ready docker-compose.yml..."
     cat > export/nebulon-gpt-export-temp/docker-compose.yml << 'EOF'
-name: nebulongpt
+version: '3.8'
 
 services:
   nebulon-gpt-integrated:
     image: nebulongpt-nebulon-gpt-integrated:latest
     container_name: nebulon-gpt-integrated
     ports:
-      - "3000:3000"    # Nginx frontend
-      # Only expose port 3000 (Nginx handles routing internally)
+      - "3000:80"
     restart: unless-stopped
     networks:
-      - nebulon-network
+      - ollama-network
     volumes:
       - chat-data:/app/data
       - ./Kokoro-TTS-Server/huggingface-cache:/app/.cache/huggingface
@@ -81,13 +80,12 @@ services:
       - KOKORO_SERVER_PORT=2701
 
 networks:
-  nebulon-network:
+  ollama-network:
     driver: bridge
 
 volumes:
   chat-data:
-    name: nebulongpt_chat-data
-    external: false  # Use existing volume and create if it does not exist
+    driver: local
 EOF
     echo "  ✅ Import-ready docker-compose.yml created"
 else
