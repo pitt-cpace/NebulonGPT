@@ -89,7 +89,13 @@ COPY start-services.sh /app/start-services.sh
 RUN chmod +x /app/start-services.sh
 
 # Expose ports
-EXPOSE 3000 2700 2701
+EXPOSE 80
+
+# Default port mapping hint for Docker Desktop
+LABEL com.docker.desktop.default-port-mapping="3000:80"
+
+# Default volume mapping hint for Docker Desktop
+LABEL com.docker.desktop.default-volume-mapping="/app/data"
 
 # Entrypoint
 CMD ["/app/start-services.sh"]
