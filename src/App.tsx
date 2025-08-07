@@ -386,7 +386,14 @@ const App: React.FC = () => {
     
     // Add AI response using the actual API with streaming
     try {
-      setLoading(true);
+      // ADD YOUR ENHANCED TTS STOP HERE
+      await ttsService.stop(); // Your enhanced stop with 500ms delay
+      //Wait 500ms for server and processes to respond properly
+      console.log('⏳ Waiting 500ms for server and processes to respond...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      // ADD YOUR ENHANCED TTS STOP HERE
+      await ttsService.stop(); // Your enhanced stop with 500ms delay
+      setLoading(true); // ← LLM response writing starts here
       
       // Import the sendMessage function from our API service
       const { sendMessage } = await import('./services/api');
