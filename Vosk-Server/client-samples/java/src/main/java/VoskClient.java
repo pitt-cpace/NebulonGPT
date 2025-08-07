@@ -14,7 +14,7 @@ public class VoskClient {
 
     public ArrayList<String> transcribe(String path) throws Exception {
             WebSocketFactory factory = new WebSocketFactory();
-            WebSocket ws = factory.createSocket("ws://localhost:2700");
+            WebSocket ws = factory.createSocket("ws://localhost:3000/vosk");
             ws.addListener(new WebSocketAdapter() {
                 @Override
                 public void onTextMessage(WebSocket websocket, String message) {
@@ -73,4 +73,3 @@ public class VoskClient {
         }
     }
 }
-

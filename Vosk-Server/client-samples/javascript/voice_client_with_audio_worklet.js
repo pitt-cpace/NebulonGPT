@@ -5,7 +5,7 @@ var streamLocal;
 var webSocket;
 var inputArea;
 const sampleRate = 8000;
-const wsURL = 'ws://localhost:2700';
+const wsURL = 'ws://localhost:3000/vosk';
 var initComplete = false;
 
 (function () {
@@ -101,4 +101,3 @@ function initWS() {
         }
     };
 }
-

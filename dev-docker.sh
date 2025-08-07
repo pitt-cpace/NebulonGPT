@@ -93,8 +93,8 @@ show_status() {
     echo ""
     echo "📋 Service Status:"
     echo "  🌐 NebulonGPT Web UI: http://localhost:3000"
-    echo "  🎤 Vosk Speech Server: ws://localhost:2700"
-    echo "  🎵 Kokoro TTS Server: ws://localhost:2701"
+    echo "  🎤 Vosk Speech Server: ws://localhost:3000/vosk"
+    echo "  🎵 Kokoro TTS Server: ws://localhost:3000/tts"
     echo ""
     echo "🐳 Running containers:"
     docker-compose ps

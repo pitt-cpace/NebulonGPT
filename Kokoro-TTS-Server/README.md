@@ -80,7 +80,7 @@ python3 websocket/browser_tts_server.py \
 
 ### WebSocket Connection
 
-Connect to: `ws://localhost:2701`
+Connect to: `ws://localhost:3000/tts` (via Nginx proxy) or `ws://localhost:2701` (direct)
 
 ### Message Formats
 

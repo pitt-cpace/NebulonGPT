@@ -46,4 +46,4 @@ async def run_test(uri):
         print(srt.compose(subs))
 
 
-asyncio.run(run_test('ws://localhost:2700'))
+asyncio.run(run_test('ws://localhost:3000/vosk'))

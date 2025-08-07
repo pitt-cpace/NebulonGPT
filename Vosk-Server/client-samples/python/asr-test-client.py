@@ -6,7 +6,7 @@ import traceback
 
 from websocket import create_connection
 
-ws = create_connection("ws://localhost:2700")
+ws = create_connection("ws://localhost:3000/vosk")
 
 wf = wave.open(sys.argv[1], "rb")
 ws.send('{ "config" : { "sample_rate" : %d } }' % (wf.getframerate()))

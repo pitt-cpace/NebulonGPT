@@ -14,8 +14,8 @@ This document describes the complete TTS integration setup for NebulonGPT using 
 
 2. **Access the application:**
    - **NebulonGPT UI**: http://localhost:3000
-   - **Vosk Speech Server**: ws://localhost:2700
-   - **Kokoro TTS Server**: ws://localhost:2701
+   - **Vosk Speech Server**: ws://localhost:3000/vosk
+   - **Kokoro TTS Server**: ws://localhost:3000/tts
 
 ### Manual Setup
 
@@ -192,7 +192,7 @@ docker-compose logs -f kokoro-tts
 #### **Test TTS Connection**
 ```bash
 # Test WebSocket connection
-wscat -c ws://localhost:2701
+wscat -c ws://localhost:3000/tts
 ```
 
 #### **Browser Console**

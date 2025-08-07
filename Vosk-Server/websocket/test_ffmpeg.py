@@ -28,4 +28,4 @@ async def run_test(uri):
 
         await proc.wait()
 
-asyncio.run(run_test('ws://localhost:2700'))
+asyncio.run(run_test('ws://localhost:3000/vosk'))

@@ -47,7 +47,7 @@ export class TTSService {
     // Use environment variable if available, otherwise fallback to localhost
     this.serverUrl = serverUrl || 
       process.env.REACT_APP_TTS_SERVER_URL || 
-      'ws://localhost:2701';
+      'ws://localhost:3000/tts';
     
     // Load settings from localStorage
     this.loadSettings();

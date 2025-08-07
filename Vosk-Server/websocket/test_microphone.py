@@ -53,7 +53,7 @@ async def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                      parents=[parser])
     parser.add_argument('-u', '--uri', type=str, metavar='URL',
-                        help='Server URL', default='ws://localhost:2700')
+                        help='Server URL', default='ws://localhost:3000/vosk')
     parser.add_argument('-d', '--device', type=int_or_str,
                         help='input device (numeric ID or substring)')
     parser.add_argument('-r', '--samplerate', type=int, help='sampling rate', default=16000)

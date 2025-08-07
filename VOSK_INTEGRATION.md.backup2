@@ -71,7 +71,7 @@ python asr_server.py models\vosk-model-small-en-us-0.15
 
 ### Architecture
 
-1. **Vosk Server**: Runs on `localhost:2700` and provides WebSocket-based speech recognition
+1. **Vosk Server**: Runs internally on `localhost:2700`, accessible via Nginx proxy at `ws://localhost:3000/vosk`
 2. **VoskService**: TypeScript service that manages the WebSocket connection and audio processing
 3. **Audio Worklet**: Processes microphone audio and sends it to the Vosk server
 4. **ChatArea Component**: Updated to use VoskService instead of browser speech recognition
@@ -121,7 +121,7 @@ The VoskService can be configured when initializing:
 
 ```typescript
 const voskService = new VoskService({
-  serverUrl: 'ws://localhost:2700',  // Vosk server URL
+  serverUrl: 'ws://localhost:3000/vosk',  // Vosk server URL (via proxy)
   sampleRate: 16000,                 // Audio sample rate
   showWords: true,                   // Include word-level results
   maxAlternatives: 0,                // Number of alternative results
@@ -133,7 +133,7 @@ const voskService = new VoskService({
 ### Common Issues
 
 1. **"Failed to connect to Vosk server"**
-   - Ensure the Vosk server is running on localhost:2700
+   - Ensure the Vosk server is running (accessible via localhost:3000/vosk)
    - Check that Python and required packages are installed
    - Verify the model path is correct
 

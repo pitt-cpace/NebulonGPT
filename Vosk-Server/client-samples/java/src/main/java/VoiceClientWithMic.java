@@ -27,7 +27,7 @@ public class VoiceClientWithMic {
 
     public ArrayList<String> asr(TargetDataLine line) throws Exception {
         WebSocketFactory factory = new WebSocketFactory();
-        WebSocket ws = factory.createSocket("ws://localhost:2700");
+        WebSocket ws = factory.createSocket("ws://localhost:3000/vosk");
         ws.addListener(new CustomWebSocketAdapter());
         ws.connect();
 

@@ -55,7 +55,7 @@ export class VoskRecognitionService {
     return new Promise((resolve, reject) => {
       try {
         // Use environment variable for Docker or localhost for development
-        const voskServerUrl = (window as any).REACT_APP_VOSK_SERVER_URL || 'ws://localhost:2700';
+        const voskServerUrl = (window as any).REACT_APP_VOSK_SERVER_URL || 'ws://localhost:3000/vosk';
         this.socket = new WebSocket(voskServerUrl);
         
         this.socket.onopen = () => {

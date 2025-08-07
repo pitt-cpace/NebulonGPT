@@ -21,7 +21,7 @@ Your Fully Private Ollama-based Web User Interface - A modern, elegant interface
 - **Multiple language models** support
 - **Real-time transcription** with interim results
 - **Model management interface** for easy switching
-- **WebSocket-based** communication on port 2700
+- **WebSocket-based** communication via Nginx proxy at `/vosk`
 - **Voice caching** - saves up to 2 seconds of voice data for connection recovery
 
 ## Prerequisites

@@ -9,4 +9,4 @@ async def listen(uri):
         while True:
             print (await websocket.recv())
 
-asyncio.run(listen('ws://localhost:2700'))
+asyncio.run(listen('ws://localhost:3000/vosk'))

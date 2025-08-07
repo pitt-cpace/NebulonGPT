@@ -69,7 +69,7 @@ The Docker setup includes two main services:
 After starting the services:
 
 - **Web Application:** http://localhost:3000
-- **Vosk WebSocket:** ws://localhost:2700
+- **Vosk WebSocket:** ws://localhost:3000/vosk
 - **API Backend:** http://localhost:3001 (internal)
 
 ## 📁 Directory Structure
@@ -229,7 +229,7 @@ docker-compose restart vosk-server
 
 #### 4. **WebSocket Connection Failed**
 - Ensure both services are running: `docker-compose ps`
-- Check if Vosk server is accessible: `curl http://localhost:2700`
+- Check if Vosk server is accessible via proxy: `curl http://localhost:3000/vosk`
 - Verify firewall settings
 
 ### Debug Mode

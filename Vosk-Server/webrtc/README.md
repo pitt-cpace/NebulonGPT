@@ -25,7 +25,7 @@ Run the server:
 $ python3 asr_server_webrtc.py
 ```
 
-Now, open a web browser with URL http://localhost:2700/.
+Now, open a web browser with URL http://localhost:3000/vosk (via proxy) or http://localhost:2700/ (direct).
 
 ### Execution in LAN
 
@@ -40,4 +40,3 @@ $ python3 asr_server_webrtc.py
 ```
 
 Now, in the other computer, open a web browser with URL https://SERVER_IP:2700/, replacing `SERVER_IP` with the IP address of your Vosk server.
-

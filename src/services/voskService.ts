@@ -31,7 +31,7 @@ export class VoskService {
 
   constructor(config: VoskServiceConfig = {}) {
     this.config = {
-      serverUrl: config.serverUrl || 'ws://localhost:2700',
+      serverUrl: config.serverUrl || 'ws://localhost:3000/vosk',
       sampleRate: config.sampleRate || 16000,
       showWords: config.showWords !== undefined ? config.showWords : true,
       maxAlternatives: config.maxAlternatives || 0,

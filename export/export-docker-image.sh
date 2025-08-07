@@ -57,8 +57,7 @@ services:
     container_name: nebulon-gpt-integrated
     ports:
       - "3000:3000"    # Nginx frontend
-      - "2700:2700"    # Vosk ASR server
-      - "2701:2701"    # Kokoro TTS server
+      # Only expose port 3000 (Nginx handles routing internally)
     restart: unless-stopped
     networks:
       - nebulon-network
@@ -70,8 +69,8 @@ services:
       - NODE_ENV=production
       # Frontend build-time environment variables
       - REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434
-      - REACT_APP_VOSK_SERVER_URL=ws://localhost:2700
-      - REACT_APP_TTS_SERVER_URL=ws://localhost:2701
+      - REACT_APP_VOSK_SERVER_URL=ws://localhost:3000/vosk
+      - REACT_APP_TTS_SERVER_URL=ws://localhost:3000/tts
       # Python services environment variables
       - PYTHONUNBUFFERED=1
       - HF_HOME=/app/.cache/huggingface

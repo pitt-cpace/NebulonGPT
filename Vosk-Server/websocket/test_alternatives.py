@@ -22,4 +22,4 @@ async def run_test(uri):
         await websocket.send('{"eof" : 1}')
         print (await websocket.recv())
 
-asyncio.run(run_test('ws://localhost:2700'))
+asyncio.run(run_test('ws://localhost:3000/vosk'))

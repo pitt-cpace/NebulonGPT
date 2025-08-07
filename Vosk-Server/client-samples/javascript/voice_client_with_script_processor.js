@@ -6,7 +6,7 @@ var webSocket;
 var inputArea;
 const bufferSize = 8192;
 const sampleRate = 8000;
-const wsURL = 'ws://localhost:2700';
+const wsURL = 'ws://localhost:3000/vosk';
 var initComplete = false;
 
 (function () {

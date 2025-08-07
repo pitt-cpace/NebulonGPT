@@ -29,7 +29,7 @@ def startAGI():
     did = agi.env['agi_extension']
     agi.verbose("Call answered from: %s to %s" % (ani, did))
 
-    ws = create_connection("ws://localhost:2700")
+    ws = create_connection("ws://localhost:3000/vosk")
     ws.send('{ "config" : { "sample_rate" : 8000 } }')
     agi.verbose("Connection created")
 
