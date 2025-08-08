@@ -11,23 +11,208 @@ from pathlib import Path
 import sys
 import os
 
-# Import Kokoro TTS components
+print("🚀 ============================================")
+print("🚀 KOKORO TTS SERVER STARTUP")
+print("🚀 ============================================")
+print(f"🚀 Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+print(f"🚀 Python Version: {sys.version}")
+print(f"🚀 Working Directory: {os.getcwd()}")
+print(f"🚀 Script Path: {__file__}")
+print("🚀 ============================================")
+
+# System Information
+print("")
+print("📊 SYSTEM ENVIRONMENT:")
+print(f"📊 HF_HOME: {os.environ.get('HF_HOME', 'NOT SET')}")
+print(f"📊 TRANSFORMERS_CACHE: {os.environ.get('TRANSFORMERS_CACHE', 'NOT SET')}")
+print(f"📊 HF_DATASETS_CACHE: {os.environ.get('HF_DATASETS_CACHE', 'NOT SET')}")
+print(f"📊 HF_HUB_OFFLINE: {os.environ.get('HF_HUB_OFFLINE', 'NOT SET')}")
+print(f"📊 PYTHONPATH: {os.environ.get('PYTHONPATH', 'NOT SET')}")
+
+# Cache Directory Check
+cache_dir = "/app/.cache/huggingface"
+print("")
+print("📁 CACHE DIRECTORY CHECK:")
+print(f"📁 Cache directory exists: {os.path.exists(cache_dir)}")
+if os.path.exists(cache_dir):
+    try:
+        cache_size = sum(os.path.getsize(os.path.join(dirpath, filename))
+                        for dirpath, dirnames, filenames in os.walk(cache_dir)
+                        for filename in filenames)
+        print(f"📁 Cache directory size: {cache_size / (1024*1024):.2f} MB")
+        print("📁 Cache directory contents:")
+        for item in os.listdir(cache_dir):
+            item_path = os.path.join(cache_dir, item)
+            if os.path.isdir(item_path):
+                print(f"📁   [DIR]  {item}")
+            else:
+                print(f"📁   [FILE] {item}")
+    except Exception as e:
+        print(f"📁 Error checking cache directory: {e}")
+
+# Import Kokoro TTS components with detailed logging
+print("")
+print("🐍 IMPORTING PYTHON DEPENDENCIES:")
+print("🐍 ============================================")
+
 try:
-    from kokoro import KPipeline, KModel
+    print("🐍 Importing asyncio...")
+    import asyncio
+    print("✅ asyncio imported successfully")
+except Exception as e:
+    print(f"❌ Failed to import asyncio: {e}")
+    sys.exit(1)
+
+try:
+    print("🐍 Importing websockets...")
+    import websockets
+    print("✅ websockets imported successfully")
+except Exception as e:
+    print(f"❌ Failed to import websockets: {e}")
+    sys.exit(1)
+
+try:
+    print("🐍 Importing json...")
+    import json
+    print("✅ json imported successfully")
+except Exception as e:
+    print(f"❌ Failed to import json: {e}")
+    sys.exit(1)
+
+try:
+    print("🐍 Importing base64...")
+    import base64
+    print("✅ base64 imported successfully")
+except Exception as e:
+    print(f"❌ Failed to import base64: {e}")
+    sys.exit(1)
+
+try:
+    print("🐍 Importing torch...")
     import torch
+    print(f"✅ torch imported successfully (version: {torch.__version__})")
+    print(f"✅ CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"✅ CUDA device count: {torch.cuda.device_count()}")
+        print(f"✅ Current CUDA device: {torch.cuda.current_device()}")
+except Exception as e:
+    print(f"❌ Failed to import torch: {e}")
+    sys.exit(1)
+
+try:
+    print("🐍 Importing soundfile...")
     import soundfile as sf
+    print("✅ soundfile imported successfully")
+except Exception as e:
+    print(f"❌ Failed to import soundfile: {e}")
+    sys.exit(1)
+
+try:
+    print("🐍 Importing io...")
     import io
-except ImportError:
-    print("Error: Could not import Kokoro TTS components.")
-    print("Make sure Kokoro TTS is properly installed with: pip install kokoro-tts")
+    print("✅ io imported successfully")
+except Exception as e:
+    print(f"❌ Failed to import io: {e}")
+    sys.exit(1)
+
+# Critical Kokoro TTS import with detailed error handling
+print("")
+print("🔊 IMPORTING KOKORO TTS COMPONENTS:")
+print("🔊 ============================================")
+
+try:
+    print("🔊 Attempting to import Kokoro TTS...")
+    print("🔊 Import path being used:")
+    for path in sys.path:
+        print(f"🔊   {path}")
+    
+    print("🔊 Importing KPipeline...")
+    from kokoro import KPipeline
+    print("✅ KPipeline imported successfully")
+    
+    print("🔊 Importing KModel...")
+    from kokoro import KModel
+    print("✅ KModel imported successfully")
+    
+    print("✅ ALL KOKORO TTS COMPONENTS IMPORTED SUCCESSFULLY!")
+    
+except ImportError as e:
+    print(f"❌ CRITICAL ERROR: Could not import Kokoro TTS components!")
+    print(f"❌ ImportError details: {e}")
+    print("❌ This usually means:")
+    print("❌   1. Kokoro TTS is not installed")
+    print("❌   2. Kokoro TTS is not in the Python path")
+    print("❌   3. Dependencies are missing")
+    print("❌ Attempting to diagnose...")
+    
+    # Try to find kokoro module
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec("kokoro")
+        if spec is None:
+            print("❌ Kokoro module not found in Python path")
+        else:
+            print(f"❌ Kokoro module found at: {spec.origin}")
+    except Exception as diag_e:
+        print(f"❌ Error during diagnosis: {diag_e}")
+    
+    print("❌ EXITING DUE TO MISSING KOKORO TTS")
+    sys.exit(1)
+
+except Exception as e:
+    print(f"❌ CRITICAL ERROR: Unexpected error importing Kokoro TTS!")
+    print(f"❌ Error type: {type(e).__name__}")
+    print(f"❌ Error details: {e}")
+    print(f"❌ Error traceback:")
+    import traceback
+    traceback.print_exc()
+    print("❌ EXITING DUE TO KOKORO TTS IMPORT ERROR")
     sys.exit(1)
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+print("")
+print("📝 CONFIGURING LOGGING:")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+print("✅ Logging configured successfully")
+
+print("")
+print("🎉 ALL IMPORTS SUCCESSFUL - PROCEEDING TO SERVER SETUP")
+print("🎉 ============================================")
 
 class BrowserTTSServer:
     def __init__(self, host='localhost', port=2701, device='cpu', language='a'):
+        print("")
+        print("🔧 BROWSER TTS SERVER INITIALIZATION:")
+        print("🔧 ============================================")
+        print(f"🔧 Host: {host}")
+        print(f"🔧 Port: {port}")
+        print(f"🔧 Device: {device}")
+        print(f"🔧 Language: {language}")
+        
+        # Check if port is coming from environment variable
+        env_port = os.environ.get('KOKORO_SERVER_PORT')
+        env_host = os.environ.get('KOKORO_SERVER_HOST')
+        
+        if env_port:
+            try:
+                env_port_int = int(env_port)
+                if env_port_int != port:
+                    print(f"🔧 Port override from environment: {port} -> {env_port_int}")
+                    port = env_port_int
+            except ValueError:
+                print(f"⚠️ Invalid KOKORO_SERVER_PORT environment variable: {env_port}, using default: {port}")
+        
+        if env_host and env_host != host:
+            print(f"🔧 Host override from environment: {host} -> {env_host}")
+            host = env_host
+        
+        print(f"🔧 Final configuration - Host: {host}, Port: {port}")
+        print("🔧 ============================================")
+        
         self.host = host
         self.port = port
         self.device = device

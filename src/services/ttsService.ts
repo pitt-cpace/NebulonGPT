@@ -137,41 +137,123 @@ export class TTSService {
 
   public connect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      console.log(`🔌 TTS Connect: Starting connection attempt to ${this.serverUrl}`);
+      console.log(`🔌 TTS Connect: Current WebSocket state: ${this.ws ? this.getWebSocketStateString(this.ws.readyState) : 'null'}`);
+      console.log(`🔌 TTS Connect: Reconnect attempts so far: ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+      
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        console.log('✅ TTS Connect: WebSocket already open, resolving immediately');
         resolve();
         return;
       }
 
+      if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+        console.log('⏳ TTS Connect: WebSocket already connecting, waiting for result...');
+        // Wait for the existing connection attempt
+        const checkConnection = () => {
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            console.log('✅ TTS Connect: Existing connection attempt succeeded');
+            resolve();
+          } else if (this.ws?.readyState === WebSocket.CLOSED || this.ws?.readyState === WebSocket.CLOSING) {
+            console.log('❌ TTS Connect: Existing connection attempt failed, starting new attempt');
+            this.connect().then(resolve).catch(reject);
+          } else {
+            setTimeout(checkConnection, 100);
+          }
+        };
+        checkConnection();
+        return;
+      }
+
+      console.log('🔄 TTS Connect: Updating status to connecting...');
       this.updateStatus('connecting');
 
       try {
+        console.log(`🚀 TTS Connect: Creating new WebSocket connection to ${this.serverUrl}`);
+        console.log(`🚀 TTS Connect: Browser location: ${window.location.href}`);
+        console.log(`🚀 TTS Connect: Protocol: ${window.location.protocol}, Host: ${window.location.hostname}, Port: ${window.location.port}`);
+        
         this.ws = new WebSocket(this.serverUrl);
+        console.log(`✅ TTS Connect: WebSocket object created successfully`);
+        console.log(`🔍 TTS Connect: Initial WebSocket state: ${this.getWebSocketStateString(this.ws.readyState)}`);
 
-        this.ws.onopen = () => {
-          console.log('TTS WebSocket connected');
+        this.ws.onopen = (event) => {
+          console.log('🎉 TTS WebSocket CONNECTED successfully!');
+          console.log('🎉 TTS Connect: Connection event details:', {
+            url: this.serverUrl,
+            readyState: this.getWebSocketStateString(this.ws!.readyState),
+            protocol: this.ws!.protocol,
+            extensions: this.ws!.extensions,
+            timestamp: new Date().toISOString()
+          });
+          
           this.reconnectAttempts = 0;
+          console.log('🔄 TTS Connect: Reset reconnect attempts to 0');
+          console.log('🔄 TTS Connect: Updating status to connected...');
           this.updateStatus('connected');
+          
+          console.log('✅ TTS Connect: Resolving connection promise');
           resolve();
         };
 
         this.ws.onclose = (event) => {
-          console.log('TTS WebSocket closed:', event.code, event.reason);
+          console.log('🔌 TTS WebSocket CLOSED');
+          console.log('🔌 TTS Close: Event details:', {
+            code: event.code,
+            reason: event.reason || 'No reason provided',
+            wasClean: event.wasClean,
+            timestamp: new Date().toISOString(),
+            url: this.serverUrl
+          });
+          console.log('🔌 TTS Close: Close code meaning:', this.getCloseCodeMeaning(event.code));
+          
           this.handleDisconnection();
         };
 
         this.ws.onerror = (error) => {
-          console.error('TTS WebSocket error:', error);
+          console.error('❌ TTS WebSocket ERROR occurred!');
+          console.error('❌ TTS Error: Error event details:', {
+            error: error,
+            timestamp: new Date().toISOString(),
+            url: this.serverUrl,
+            readyState: this.ws ? this.getWebSocketStateString(this.ws.readyState) : 'WebSocket is null'
+          });
+          
+          // Try to get more error details
+          if (error instanceof Event) {
+            console.error('❌ TTS Error: Event type:', error.type);
+            console.error('❌ TTS Error: Event target:', error.target);
+          }
+          
+          console.log('🔄 TTS Error: Updating status to disconnected...');
           this.updateStatus('disconnected');
+          
+          console.log('❌ TTS Error: Rejecting connection promise');
           reject(error);
         };
 
         this.ws.onmessage = (event) => {
+          console.log('📨 TTS WebSocket: Received message');
+          console.log('📨 TTS Message: Data preview:', event.data.substring(0, 200) + (event.data.length > 200 ? '...' : ''));
           this.handleMessage(event.data);
         };
 
+        console.log('🔧 TTS Connect: All event handlers attached');
+
       } catch (error) {
-        console.error('Failed to create TTS WebSocket:', error);
+        console.error('💥 TTS Connect: EXCEPTION during WebSocket creation!');
+        console.error('💥 TTS Connect: Exception details:', {
+          error: error,
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : 'No stack trace',
+          timestamp: new Date().toISOString(),
+          url: this.serverUrl
+        });
+        
+        console.log('🔄 TTS Connect: Updating status to disconnected due to exception...');
         this.updateStatus('disconnected');
+        
+        console.log('❌ TTS Connect: Rejecting promise due to exception');
         reject(error);
       }
     });
@@ -1050,17 +1132,97 @@ export class TTSService {
   }
 
   private handleDisconnection() {
+    console.log('🔌 TTS Disconnection: Starting disconnection handling...');
+    console.log('🔌 TTS Disconnection: Current reconnect attempts:', this.reconnectAttempts);
+    console.log('🔌 TTS Disconnection: Max reconnect attempts:', this.maxReconnectAttempts);
+    
     this.updateStatus('disconnected');
     
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
+      console.log(`🔄 TTS Reconnect: Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+      console.log(`🔄 TTS Reconnect: Delay: ${this.reconnectDelay * this.reconnectAttempts}ms`);
+      
       this.updateStatus('reconnecting');
       
       setTimeout(() => {
-        this.connect().catch(() => {
-          // Reconnection failed, will try again or give up
+        console.log(`🚀 TTS Reconnect: Starting reconnection attempt ${this.reconnectAttempts}`);
+        this.connect().then(() => {
+          console.log(`✅ TTS Reconnect: Attempt ${this.reconnectAttempts} succeeded!`);
+        }).catch((error) => {
+          console.error(`❌ TTS Reconnect: Attempt ${this.reconnectAttempts} failed:`, error);
+          console.log('🔄 TTS Reconnect: Will try again or give up based on max attempts');
         });
       }, this.reconnectDelay * this.reconnectAttempts);
+    } else {
+      console.log(`❌ TTS Reconnect: Max attempts (${this.maxReconnectAttempts}) reached, giving up`);
+      console.log('🔌 TTS Reconnect: Connection permanently failed');
+    }
+  }
+
+  /**
+   * Get human-readable WebSocket state string
+   */
+  private getWebSocketStateString(readyState: number): string {
+    switch (readyState) {
+      case WebSocket.CONNECTING:
+        return 'CONNECTING (0)';
+      case WebSocket.OPEN:
+        return 'OPEN (1)';
+      case WebSocket.CLOSING:
+        return 'CLOSING (2)';
+      case WebSocket.CLOSED:
+        return 'CLOSED (3)';
+      default:
+        return `UNKNOWN (${readyState})`;
+    }
+  }
+
+  /**
+   * Get human-readable close code meaning
+   */
+  private getCloseCodeMeaning(code: number): string {
+    switch (code) {
+      case 1000:
+        return 'Normal Closure - Connection closed normally';
+      case 1001:
+        return 'Going Away - Endpoint is going away (e.g., server going down)';
+      case 1002:
+        return 'Protocol Error - Protocol error occurred';
+      case 1003:
+        return 'Unsupported Data - Received unsupported data type';
+      case 1004:
+        return 'Reserved - Reserved for future use';
+      case 1005:
+        return 'No Status Received - No status code was provided';
+      case 1006:
+        return 'Abnormal Closure - Connection closed abnormally (no close frame)';
+      case 1007:
+        return 'Invalid Frame Payload Data - Invalid UTF-8 data received';
+      case 1008:
+        return 'Policy Violation - Message violates policy';
+      case 1009:
+        return 'Message Too Big - Message too large to process';
+      case 1010:
+        return 'Mandatory Extension - Required extension not negotiated';
+      case 1011:
+        return 'Internal Server Error - Server encountered unexpected condition';
+      case 1012:
+        return 'Service Restart - Service is restarting';
+      case 1013:
+        return 'Try Again Later - Temporary server condition';
+      case 1014:
+        return 'Bad Gateway - Server acting as gateway received invalid response';
+      case 1015:
+        return 'TLS Handshake - TLS handshake failed';
+      default:
+        if (code >= 3000 && code <= 3999) {
+          return `Library/Framework Specific (${code})`;
+        } else if (code >= 4000 && code <= 4999) {
+          return `Application Specific (${code})`;
+        } else {
+          return `Unknown Close Code (${code})`;
+        }
     }
   }
 
