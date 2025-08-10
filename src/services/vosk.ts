@@ -31,10 +31,11 @@ export class VoskRecognitionService {
   
   // Silence detection for auto-stop
   private silenceDetectionEnabled = true;
-  private silenceThreshold = 0.30; // Root Mean Square (RMS) audio level 0.0-1.0 (0.05 = 5% of max volume, roughly normal conversation ~65-70dB equivalent) - Audio below this is considered silence
+  private silenceThreshold = 0.15; // Root Mean Square (RMS) audio level 0.0-1.0 (0.05 = 5% of max volume, roughly normal conversation ~65-70dB equivalent) - Audio below this is considered silence
   private silenceTimeout = 2000; // 1.5 seconds of silence before auto-stop
   private lastAudioTime = 0;
   private silenceTimer: number | null = null;
+  private accumulatedSilenceTime = 0; // Variable to accumulate silence time
   
   // Voice detection threshold to reduce background noise sensitivity
   private voiceDetectionEnabled = true;
@@ -982,6 +983,9 @@ export class VoskRecognitionService {
       return '';
     }
 
+    // Audio detected - reset silence timer
+    this.accumulatedSilenceTime = Date.now();
+    console.log("SET ats=", this.accumulatedSilenceTime, "this=", this);
     // If it's multiple words or a meaningful single word, keep the original text
     return text;
   }
@@ -1013,10 +1017,7 @@ export class VoskRecognitionService {
       
       // Check if audio level is above silence threshold
       if (rms > this.silenceThreshold) {
-        // Audio detected - reset silence timer
-        this.lastAudioTime = Date.now();
-        this.clearSilenceTimer();
-        
+
         // Pause TTS if full voice mode is enabled and user starts speaking (above threshold)
         const ttsSettings = ttsService.getSettings();
         if (ttsSettings.fullVoiceMode) {
@@ -1050,41 +1051,48 @@ export class VoskRecognitionService {
    */
   private startSilenceTimer(): void {
     if (this.silenceTimer) {
+      console.log(`Timer already running`);
       return; // Timer already running
     }
 
-    this.silenceTimer = window.setTimeout(async () => {
+    // Reset accumulated silence time when starting timer
+    this.accumulatedSilenceTime = Date.now();
+
+    this.silenceTimer = window.setInterval(async () => {
       if (this.isRecording && this.silenceDetectionEnabled) {
-        // Check if full voice mode is enabled
-        const ttsSettings = ttsService.getSettings();
-        const isFullVoiceMode = ttsSettings.fullVoiceMode;
-        
-        if (isFullVoiceMode) {
-          console.log(`🔇 ${this.silenceTimeout}ms of silence detected - full voice mode enabled, triggering onEnd but keeping microphone active`);
+      
+       const currentTime = Date.now();
+       const base = this.accumulatedSilenceTime;
+       const elapsedTime = currentTime - base;
+       console.log("TICK base=", base, "elapsed=", Math.round(elapsedTime), "this=", this);
+       console.log(elapsedTime);
+
+        if (elapsedTime >= this.silenceTimeout) {
+          const ttsSettings = ttsService.getSettings();
+          const isFullVoiceMode = ttsSettings.fullVoiceMode;
           
-          // In full voice mode: trigger onEnd callback but don't stop the microphone
-          if (this.onEndCallback) {
-            this.onEndCallback();
-          }
-          
-          // Reset silence timer for next detection cycle
-          this.lastAudioTime = Date.now();
-        } else {
-          console.log(`🔇 ${this.silenceTimeout}ms of silence detected - auto-stopping microphone`);
-          try {
-            await this.stop();
-            
-            // Notify that recording ended due to silence
+          if (isFullVoiceMode) {
+            console.log(`🔇 ${this.silenceTimeout}ms of silence detected - full voice mode enabled`);
             if (this.onEndCallback) {
               this.onEndCallback();
             }
-          } catch (error) {
-            console.error('❌ Error auto-stopping due to silence:', error);
+            this.lastAudioTime = Date.now();
+          } else {
+            console.log(`🔇 ${this.silenceTimeout}ms of silence detected - auto-stopping microphone`);
+            try {
+              await this.stop();
+              
+              if (this.onEndCallback) {
+                this.onEndCallback();
+              }
+            } catch (error) {
+              console.error('❌ Error auto-stopping due to silence:', error);
+            }
           }
+          this.clearSilenceTimer();
         }
       }
-      this.silenceTimer = null;
-    }, this.silenceTimeout);
+    }, 50);
   }
 
   /**
@@ -1092,7 +1100,7 @@ export class VoskRecognitionService {
    */
   private clearSilenceTimer(): void {
     if (this.silenceTimer) {
-      clearTimeout(this.silenceTimer);
+      clearInterval(this.silenceTimer);
       this.silenceTimer = null;
     }
   }
