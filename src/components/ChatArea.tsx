@@ -91,9 +91,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [interimTranscript, setInterimTranscript] = useState('');
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
   const suggestedPrompts = getSuggestedPrompts();
 
   const handleSendMessage = useCallback(() => {
@@ -515,6 +517,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   }, [isListening, onListeningStateChange]);
 
 
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -680,13 +683,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
-  // Handle file selection for all supported file types
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  // Process files from either file input or drag and drop
+  const processFiles = (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
     
+    // Convert FileList to Array if needed
+    const fileArray = Array.from(files);
+    
     // Process each selected file
-    Array.from(files).forEach(file => {
+    fileArray.forEach(file => {
       // Process image files
       if (file.type.startsWith('image/')) {
         const reader = new FileReader();
@@ -796,7 +801,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
       // Skip unsupported files
       else {
-        alert(`Only .txt, .docx, .pdf, and image files are supported. Skipping ${file.name}`);
+        alert(`Only .txt, .docx, and image files are supported. Skipping ${file.name}`);
       }
     });
     
@@ -805,6 +810,50 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       fileInputRef.current.value = '';
     }
   };
+
+  // Handle file selection for all supported file types
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      processFiles(files);
+    }
+  };
+
+  // Drag and drop event handlers
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    dragCounterRef.current = 0;
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files);
+      e.dataTransfer.clearData();
+    }
+  }, [processFiles]);
   
   // Handle attachment removal
   const handleRemoveAttachment = (attachmentId: string) => {
@@ -1490,7 +1539,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   return (
     <Box
       component="main"
-      sx={styles.container(sidebarOpen)}
+      sx={{
+        ...styles.container(sidebarOpen),
+        ...(isDragOver && {
+          backgroundColor: 'rgba(25, 118, 210, 0.08)',
+          border: '2px dashed rgba(25, 118, 210, 0.5)',
+          borderRadius: 2,
+        })
+      }}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       <AppBar
         position="static"
