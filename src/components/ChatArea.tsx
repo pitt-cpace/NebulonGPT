@@ -89,6 +89,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [isProcessingMic, setIsProcessingMic] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [interimTranscript, setInterimTranscript] = useState('');
+  const [isTurningOff, setIsTurningOff] = useState(false);
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -470,6 +471,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     try {
       if (isListening) {
+        // Check if we're in Full Voice Mode when stopping
+        const ttsSettings = ttsService.getSettings();
+        const isFullVoiceMode = ttsSettings.fullVoiceMode;
+        
+        if (isFullVoiceMode) {
+          console.log('🔇 Stopping mic in Full Voice Mode - changing indicator color');
+          // Start the turning off animation (color change) when stopping mic in Full Voice Mode
+          setIsTurningOff(true);
+        }
+        
         // Stop listening
         await stopMicListening();
       } else {
@@ -515,6 +526,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       onListeningStateChange(isListening);
     }
   }, [isListening, onListeningStateChange]);
+
+  // Reset turning off state when microphone actually stops (with gradual fade)
+  useEffect(() => {
+    if (!isListening && isTurningOff) {
+      console.log('🎙️ Microphone stopped - starting gradual fade out...');
+      // Add a delay for gradual disappearance when mic stops
+      setTimeout(() => {
+        console.log('🎙️ Gradual fade completed - resetting turning off state');
+        setIsTurningOff(false);
+      }, 2000); // 2 seconds gradual fade when mic stops
+    }
+  }, [isListening, isTurningOff]);
 
 
 
@@ -1657,112 +1680,182 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               const ttsSettings = ttsService.getSettings();
               const isFullVoiceMode = ttsSettings.fullVoiceMode;
               
-              if (isFullVoiceMode && isListening) {
+              // Show indicator if Full Voice Mode is active OR if we're in the process of turning off
+              if ((isFullVoiceMode && isListening) || (isTurningOff && isListening)) {
                 return (
                   <Box
-                    onClick={() => {
-                      console.log('🔇 User clicked to disable full voice mode');
-                      ttsService.updateSettings({ fullVoiceMode: false });
-                      ttsService.saveSettings();
-                      
-                      // Stop mic listening when disabling full voice mode
-                      if (onMicStop && onMicStop.current) {
-                        onMicStop.current();
-                      }
-                    }}
                     sx={{
                       position: 'fixed',
-                      top: '80px',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
+                      bottom: '120px',
+                      right: '20px',
                       zIndex: 1000,
-                      backgroundColor: 'rgba(76, 175, 80, 0.95)',
+                      backgroundColor: isTurningOff ? 'rgba(158, 158, 158, 0.95)' : 'rgba(244, 67, 54, 0.95)',
                       color: 'white',
-                      padding: '12px 20px',
-                      borderRadius: '25px',
+                      padding: '20px',
+                      borderRadius: '16px',
                       display: 'flex',
+                      flexDirection: 'column',
                       alignItems: 'center',
-                      gap: 1,
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-                      backdropFilter: 'blur(10px)',
-                      border: '1px solid rgba(255, 255, 255, 0.2)',
-                      animation: 'pulse 2s infinite',
-                      '@keyframes pulse': {
+                      gap: 2,
+                      boxShadow: isTurningOff 
+                        ? '0 8px 32px rgba(158, 158, 158, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)'
+                        : '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                      backdropFilter: 'blur(20px)',
+                      border: isTurningOff ? '2px solid rgba(158, 158, 158, 0.8)' : '2px solid rgba(244, 67, 54, 0.8)',
+                      minWidth: '200px',
+                      animation: isTurningOff ? 'none' : 'pulseRed 2s infinite',
+                      transition: 'all 0.5s ease-in-out',
+                      '@keyframes pulseRed': {
                         '0%': {
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(76, 175, 80, 0.7)',
+                          boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(244, 67, 54, 0.7)',
                         },
                         '70%': {
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 10px rgba(76, 175, 80, 0)',
+                          boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 15px rgba(244, 67, 54, 0)',
                         },
                         '100%': {
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 0 rgba(76, 175, 80, 0)',
+                          boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(244, 67, 54, 0)',
                         },
                       },
-                      '&:hover': {
-                        backgroundColor: 'rgba(76, 175, 80, 1)',
-                        transform: 'translateX(-50%) scale(1.05)',
-                        transition: 'all 0.2s ease-in-out',
+                      '@keyframes fadeOut': {
+                        '0%': {
+                          opacity: 1,
+                          transform: 'scale(1)',
+                          backgroundColor: 'rgba(244, 67, 54, 0.95)',
+                        },
+                        '50%': {
+                          opacity: 0.7,
+                          transform: 'scale(0.9)',
+                          backgroundColor: 'rgba(158, 158, 158, 0.95)',
+                        },
+                        '100%': {
+                          opacity: 0,
+                          transform: 'scale(0.8)',
+                          backgroundColor: 'rgba(158, 158, 158, 0.5)',
+                        },
                       },
                     }}
                   >
-                    {/* Animated microphone icon */}
+                    {/* Main indicator content */}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
+                      {/* Large animated microphone icon */}
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '60px',
+                          height: '60px',
+                          borderRadius: '50%',
+                          backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                          animation: 'bounce 1.5s infinite',
+                          '@keyframes bounce': {
+                            '0%, 20%, 50%, 80%, 100%': {
+                              transform: 'translateY(0)',
+                            },
+                            '40%': {
+                              transform: 'translateY(-5px)',
+                            },
+                            '60%': {
+                              transform: 'translateY(-2px)',
+                            },
+                          },
+                        }}
+                      >
+                        <MicIcon sx={{ fontSize: 32, color: 'white' }} />
+                      </Box>
+                      
+                      {/* Title */}
+                      <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.1rem', textAlign: 'center' }}>
+                        Full Voice Mode
+                      </Typography>
+                      
+                      {/* Status text */}
+                      <Typography variant="body2" sx={{ fontSize: '0.9rem', opacity: 0.9, textAlign: 'center' }}>
+                        🎙️ Listening for your voice...
+                      </Typography>
+                      
+                      {/* Large animated sound waves */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <Box
+                            key={i}
+                            sx={{
+                              width: '4px',
+                              backgroundColor: 'white',
+                              borderRadius: '2px',
+                              animation: `waveRed${i} 1.8s infinite`,
+                              [`@keyframes waveRed${i}`]: {
+                                '0%, 100%': {
+                                  height: '12px',
+                                  opacity: 0.4,
+                                },
+                                '50%': {
+                                  height: '24px',
+                                  opacity: 1,
+                                },
+                              },
+                              animationDelay: `${i * 0.15}s`,
+                            }}
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                    
+                    {/* Separator line */}
                     <Box
                       sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        animation: 'bounce 1s infinite',
-                        '@keyframes bounce': {
-                          '0%, 20%, 50%, 80%, 100%': {
-                            transform: 'translateY(0)',
-                          },
-                          '40%': {
-                            transform: 'translateY(-3px)',
-                          },
-                          '60%': {
-                            transform: 'translateY(-1px)',
-                          },
+                        width: '100%',
+                        height: '1px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                        my: 1,
+                      }}
+                    />
+                    
+                    {/* Disable button at the bottom */}
+                    <Button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        console.log('🔇 User clicked to disable full voice mode');
+                        
+                        // Start the turning off animation immediately
+                        setIsTurningOff(true);
+                        
+                        // Disable full voice mode and stop mic immediately (but keep animation running)
+                        ttsService.updateSettings({ fullVoiceMode: false });
+                        ttsService.saveSettings();
+                        
+                        // Stop mic listening when disabling full voice mode
+                        if (onMicStop && onMicStop.current) {
+                          await onMicStop.current();
+                        }
+                        
+                        // The turning off state will be reset when isListening becomes false
+                        // This happens automatically when the mic stops
+                      }}
+                      variant="contained"
+                      size="small"
+                      sx={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        color: 'white',
+                        borderRadius: '20px',
+                        textTransform: 'none',
+                        fontSize: '0.85rem',
+                        fontWeight: 'bold',
+                        px: 3,
+                        py: 1,
+                        border: '1px solid rgba(255, 255, 255, 0.3)',
+                        '&:hover': {
+                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                          transform: 'scale(1.05)',
+                          transition: 'all 0.2s ease-in-out',
+                        },
+                        '&:active': {
+                          transform: 'scale(0.95)',
                         },
                       }}
                     >
-                      <MicIcon sx={{ fontSize: 20 }} />
-                    </Box>
-                    
-                    {/* Text content */}
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      <Typography variant="body2" sx={{ fontWeight: 'bold', fontSize: '0.85rem' }}>
-                        Full Voice Mode
-                      </Typography>
-                      <Typography variant="caption" sx={{ fontSize: '0.7rem', opacity: 0.9 }}>
-                        Listening... Click to disable
-                      </Typography>
-                    </Box>
-                    
-                    {/* Animated sound waves */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3, ml: 1 }}>
-                      {[1, 2, 3].map((i) => (
-                        <Box
-                          key={i}
-                          sx={{
-                            width: '3px',
-                            backgroundColor: 'white',
-                            borderRadius: '2px',
-                            animation: `wave${i} 1.5s infinite`,
-                            [`@keyframes wave${i}`]: {
-                              '0%, 100%': {
-                                height: '8px',
-                                opacity: 0.5,
-                              },
-                              '50%': {
-                                height: '16px',
-                                opacity: 1,
-                              },
-                            },
-                            animationDelay: `${i * 0.1}s`,
-                          }}
-                        />
-                      ))}
-                    </Box>
+                      🔇 Turn Off
+                    </Button>
                   </Box>
                 );
               }
