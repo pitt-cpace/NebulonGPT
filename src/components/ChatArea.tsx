@@ -99,7 +99,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
@@ -154,12 +156,93 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, []);
 
-  // Scroll to bottom when messages change
+  // Scroll to bottom when messages change, but only if user hasn't scrolled up
   useEffect(() => {
-    if (messagesEndRef.current) {
+    console.log('🔄 Auto-scroll effect triggered:', {
+      hasMessagesEndRef: !!messagesEndRef.current,
+      userHasScrolledUp,
+      messagesCount: chat?.messages?.length || 0
+    });
+    
+    if (messagesEndRef.current && !userHasScrolledUp) {
+      console.log('✅ Auto-scrolling to bottom');
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      console.log('❌ Auto-scroll blocked:', {
+        noRef: !messagesEndRef.current,
+        userScrolledUp: userHasScrolledUp
+      });
     }
-  }, [chat?.messages]);
+  }, [chat?.messages, userHasScrolledUp]);
+
+  // Handle scroll events to detect when user scrolls up
+  useEffect(() => {
+    // Only set up scroll listener when we have a chat (messages container is rendered)
+    if (!chat) {
+      console.log('⏳ No chat yet, waiting for messages container...');
+      return;
+    }
+
+    const messagesContainer = messagesContainerRef.current;
+    if (!messagesContainer) {
+      console.log('❌ Messages container ref not found, retrying...');
+      return;
+    }
+
+    console.log('✅ Setting up scroll listener on messages container:', messagesContainer);
+    console.log('✅ Container scroll properties:', {
+      scrollHeight: messagesContainer.scrollHeight,
+      clientHeight: messagesContainer.clientHeight,
+      scrollTop: messagesContainer.scrollTop,
+      overflowY: getComputedStyle(messagesContainer).overflowY
+    });
+
+    const handleScroll = (event: Event) => {
+      console.log('🔥 SCROLL EVENT TRIGGERED!', event);
+      
+      const { scrollTop, scrollHeight, clientHeight } = messagesContainer;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 10; // 10px threshold
+      
+      console.log('📜 Scroll event details:', {
+        scrollTop,
+        scrollHeight,
+        clientHeight,
+        difference: scrollHeight - scrollTop - clientHeight,
+        isAtBottom,
+        currentUserHasScrolledUp: userHasScrolledUp
+      });
+      
+      // If user is at the bottom, reset the scroll state
+      if (isAtBottom) {
+        if (userHasScrolledUp) {
+          console.log('🔄 User scrolled back to bottom - resuming auto-scroll');
+          setUserHasScrolledUp(false);
+        }
+      } else {
+        // If user is not at the bottom, they have scrolled up
+        if (!userHasScrolledUp) {
+          console.log('⬆️ User scrolled up - pausing auto-scroll');
+          setUserHasScrolledUp(true);
+        }
+      }
+    };
+
+    // Add both scroll and wheel events for better detection
+    messagesContainer.addEventListener('scroll', handleScroll, { passive: true });
+    messagesContainer.addEventListener('wheel', handleScroll, { passive: true });
+    
+    // Test if the element is actually scrollable
+    console.log('🧪 Testing scroll capability:', {
+      canScroll: messagesContainer.scrollHeight > messagesContainer.clientHeight,
+      hasScrollbar: messagesContainer.scrollHeight > messagesContainer.clientHeight
+    });
+
+    return () => {
+      console.log('🧹 Cleaning up scroll listeners');
+      messagesContainer.removeEventListener('scroll', handleScroll);
+      messagesContainer.removeEventListener('wheel', handleScroll);
+    };
+  }, [chat, userHasScrolledUp]); // Add chat as dependency so it runs when chat is available
 
   // Initialize Vosk speech recognition event handlers
   useEffect(() => {
@@ -1689,6 +1772,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       ) : (
         <>
           <Box
+            ref={messagesContainerRef}
             sx={styles.messagesContainer}
           >
             {/* Full Voice Mode Indicator */}
@@ -1878,6 +1962,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               
               return null;
             })()}
+            
             
             {chat.messages.map(renderMessage)}
             <div ref={messagesEndRef} />
