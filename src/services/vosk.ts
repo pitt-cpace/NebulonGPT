@@ -32,10 +32,11 @@ export class VoskRecognitionService {
   // Silence detection for auto-stop
   private silenceDetectionEnabled = true;
   private silenceThreshold = 0.15; // Root Mean Square (RMS) audio level 0.0-1.0 (0.05 = 5% of max volume, roughly normal conversation ~65-70dB equivalent) - Audio below this is considered silence
-  private silenceTimeout = 2000; // 1.5 seconds of silence before auto-stop
+  private silenceTimeout = 3000; // 3 seconds of silence before auto-stop
   private lastAudioTime = 0;
   private silenceTimer: number | null = null;
   private accumulatedSilenceTime = 0; // Variable to accumulate silence time
+  private pendingText = ''; // Store text that should be sent after silence timeout
   
   // Voice detection threshold to reduce background noise sensitivity
   private voiceDetectionEnabled = true;
@@ -190,7 +191,20 @@ export class VoskRecognitionService {
                   // Filter out single meaningless words
                   const filteredText = this.filterMeaninglessWords(msg.text);
                   if (filteredText) {
-                    this.onResultCallback({ text: filteredText });
+                    // In full voice mode AND mic is listening, don't send the text immediately
+                    // Store it and let the silence timeout handle sending it
+                    const ttsSettings = ttsService.getSettings();
+                    console.log(`🔍 DEBUG: fullVoiceMode=${ttsSettings.fullVoiceMode}, isRecording=${this.isRecording}, filteredText="${filteredText}"`);
+                    if (ttsSettings.fullVoiceMode && this.isRecording) {
+                      // Store the result but don't send it yet - wait for silence timeout
+                      this.pendingText += (this.pendingText ? ' ' : '') + filteredText;
+                      console.log(`📝 Storing final result for silence timeout: "${filteredText}" (total pending: "${this.pendingText}")`);
+                      // Don't call onResultCallback({ text: filteredText }) here
+                    } else {
+                      // Normal mode OR mic not listening: send immediately
+                      console.log(`🚨 SENDING IMMEDIATELY: fullVoiceMode=${ttsSettings.fullVoiceMode}, isRecording=${this.isRecording}`);
+                      this.onResultCallback({ text: filteredText });
+                    }
                   }
                 }
                 break;
@@ -200,7 +214,21 @@ export class VoskRecognitionService {
                   // Filter out single meaningless words from partial results too
                   const filteredPartial = this.filterMeaninglessWords(msg.partial);
                   if (filteredPartial) {
-                    this.onResultCallback({ partial: filteredPartial });
+                    // In full voice mode, combine pending text with current partial for display
+                    const ttsSettings = ttsService.getSettings();
+                    if (ttsSettings.fullVoiceMode && this.isRecording) {
+                      if (this.pendingText.trim()) {
+                        // Show accumulated pending text + current partial text in the animated display
+                        const combinedPartial = this.pendingText.trim() + ' ' + filteredPartial;
+                        this.onResultCallback({ partial: combinedPartial });
+                      } else {
+                        // No pending text yet, just show current partial
+                        this.onResultCallback({ partial: filteredPartial });
+                      }
+                    } else {
+                      // Normal mode: show just the current partial
+                      this.onResultCallback({ partial: filteredPartial });
+                    }
                   }
                 }
                 break;
@@ -375,6 +403,10 @@ export class VoskRecognitionService {
       }
 
       this.isRecording = true;
+      
+      // Clear any pending text from previous sessions
+      this.pendingText = '';
+      console.log('🧹 Cleared pending text for new recording session');
       
       // Initialize silence detection
       this.lastAudioTime = Date.now();
@@ -979,13 +1011,13 @@ export class VoskRecognitionService {
     
     // If it's a single word and it's in our meaningless list, filter it out
     if (words.length === 1 && meaninglessWords.includes(words[0])) {
-      console.log(`🚫 Filtered out meaningless single word: "${text}"`);
+      //console.log(`🚫 Filtered out meaningless single word: "${text}"`);
       return '';
     }
 
     // Audio detected - reset silence timer
     this.accumulatedSilenceTime = Date.now();
-    console.log("SET ats=", this.accumulatedSilenceTime, "this=", this);
+    //console.log("SET ats=", this.accumulatedSilenceTime, "this=", this);
     // If it's multiple words or a meaningful single word, keep the original text
     return text;
   }
@@ -1017,6 +1049,12 @@ export class VoskRecognitionService {
       
       // Check if audio level is above silence threshold
       if (rms > this.silenceThreshold) {
+        // Audio detected - reset silence timer and update last audio time
+        this.lastAudioTime = Date.now();
+        this.accumulatedSilenceTime = Date.now();
+        
+        // Clear any existing silence timer since we have audio
+        this.clearSilenceTimer();
 
         // Pause TTS if full voice mode is enabled and user starts speaking (above threshold)
         const ttsSettings = ttsService.getSettings();
@@ -1024,7 +1062,7 @@ export class VoskRecognitionService {
           ttsService.pause();
         }
         
-        console.log(`🔊 Audio detected (level: ${rms.toFixed(4)}, threshold: ${this.silenceThreshold})`);
+        console.log(`🔊 Audio detected (level: ${rms.toFixed(4)}, threshold: ${this.silenceThreshold}) - silence timer reset`);
       } else {
         // Silence detected - check if we should start/continue silence timer
         const silenceDuration = Date.now() - this.lastAudioTime;
@@ -1064,21 +1102,49 @@ export class VoskRecognitionService {
        const currentTime = Date.now();
        const base = this.accumulatedSilenceTime;
        const elapsedTime = currentTime - base;
-       console.log("TICK base=", base, "elapsed=", Math.round(elapsedTime), "this=", this);
-       console.log(elapsedTime);
+       //console.log("TICK base=", base, "elapsed=", Math.round(elapsedTime), "this=", this);
+       
+       console.log(`AAAAAAAAAAAAAAAAAAAAAAAAAAAA:${elapsedTime}`);
 
         if (elapsedTime >= this.silenceTimeout) {
           const ttsSettings = ttsService.getSettings();
           const isFullVoiceMode = ttsSettings.fullVoiceMode;
           
           if (isFullVoiceMode) {
-            console.log(`🔇 ${this.silenceTimeout}ms of silence detected - full voice mode enabled`);
+            //console.log(`🔇 ${this.silenceTimeout}ms of silence detected - full voice mode enabled`);
+            console.log(`EEEEEEEEEEEEEEEEEEEEEEEEE:${this.onEndCallback}`);
+            
+            // Send any pending text that was accumulated during speech recognition
+            if (this.onResultCallback && this.pendingText.trim()) {
+              console.log(`📤 Sending accumulated pending text: "${this.pendingText}"`);
+              this.onResultCallback({ text: this.pendingText.trim() });
+              this.pendingText = ''; // Clear pending text after sending
+              
+              // Reset accumulated silence time when starting timer
+              this.accumulatedSilenceTime = Date.now();
+              return;
+            }
+            
+
+            
+            // Do NOT call onEndCallback if there's text in chat box OR if there's pending text to be added
             if (this.onEndCallback) {
+              console.log(`YYYYYYYYYYYYYYYYYYYYYYYYYY:${this.onEndCallback}`);
+              console.log(`📝 Chat box is empty - calling onEndCallback`);
+              
+              // Flush any partial text to the chatbox before ending
+              if (this.onResultCallback) {
+                // Create a fake final result to flush partial text
+                this.onResultCallback({ text: '' });
+                console.log(`SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS:${this.onEndCallback}`);
+              }
+              
+              console.log(`PPPPPPPPPPPPPPPPPPPPPPPPPP:${elapsedTime}`);
               this.onEndCallback();
             }
             this.lastAudioTime = Date.now();
           } else {
-            console.log(`🔇 ${this.silenceTimeout}ms of silence detected - auto-stopping microphone`);
+            //console.log(`🔇 ${this.silenceTimeout}ms of silence detected - auto-stopping microphone`);
             try {
               await this.stop();
               
