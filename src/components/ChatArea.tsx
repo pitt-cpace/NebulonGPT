@@ -23,6 +23,10 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -36,6 +40,7 @@ import {
   Close as CloseIcon,
   InsertDriveFile as InsertDriveFileIcon,
   Image as ImageIcon,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
@@ -85,6 +90,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
   const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
+  const [contributorsOpen, setContributorsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isProcessingMic, setIsProcessingMic] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
@@ -1625,6 +1631,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           </Typography>
 
           <Box sx={{ flexGrow: 1 }} />
+          
+          {/* Contributors Button */}
+          <IconButton
+            color="inherit"
+            onClick={() => setContributorsOpen(true)}
+            title="Contributors"
+            sx={{ mr: 5 }}
+          >
+            <PeopleIcon />
+          </IconButton>
         </Toolbar>
       </AppBar>
 
@@ -2022,6 +2038,91 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           </Box>
         </>
       )}
+      
+      {/* Contributors Dialog */}
+      <Dialog
+        open={contributorsOpen}
+        onClose={() => setContributorsOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <PeopleIcon color="primary" />
+              <Typography variant="h6">Contributors</Typography>
+            </Box>
+            <IconButton
+              edge="end"
+              color="inherit"
+              onClick={() => setContributorsOpen(false)}
+              aria-label="close"
+              sx={{ p: 1 }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 3 }}>
+            This project was made possible by the contributions of the following individuals:
+          </Typography>
+          
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {[
+              'Dr. Hooman H. Rashidi',
+              'Dr. Quincy Gu',
+              'Dr. Matthew Hanna',
+              'Dr. Yanshan Wang',
+              'Parth Sanghani',
+              'Mohammadreza Moradi'
+            ].map((contributor, index) => (
+              <Box
+                key={index}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  p: 2,
+                  borderRadius: 2,
+                  bgcolor: 'action.hover',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: '50%',
+                    bgcolor: 'primary.main',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontWeight: 'bold',
+                    fontSize: '1.2rem',
+                  }}
+                >
+                  {contributor.split(' ').map(name => name.charAt(0)).join('').slice(0, 2)}
+                </Box>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  {contributor}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+          
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 3, textAlign: 'center' }}>
+            Thank you for your valuable contributions to this project!
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setContributorsOpen(false)} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
