@@ -1017,8 +1017,7 @@ export class VoskRecognitionService {
 
     // Audio detected - reset silence timer
     this.accumulatedSilenceTime = Date.now();
-    //console.log("SET ats=", this.accumulatedSilenceTime, "this=", this);
-    // If it's multiple words or a meaningful single word, keep the original text
+
     return text;
   }
 
@@ -1102,17 +1101,12 @@ export class VoskRecognitionService {
        const currentTime = Date.now();
        const base = this.accumulatedSilenceTime;
        const elapsedTime = currentTime - base;
-       //console.log("TICK base=", base, "elapsed=", Math.round(elapsedTime), "this=", this);
-       
-       console.log(`AAAAAAAAAAAAAAAAAAAAAAAAAAAA:${elapsedTime}`);
 
         if (elapsedTime >= this.silenceTimeout) {
           const ttsSettings = ttsService.getSettings();
           const isFullVoiceMode = ttsSettings.fullVoiceMode;
           
           if (isFullVoiceMode) {
-            //console.log(`🔇 ${this.silenceTimeout}ms of silence detected - full voice mode enabled`);
-            console.log(`EEEEEEEEEEEEEEEEEEEEEEEEE:${this.onEndCallback}`);
             
             // Send any pending text that was accumulated during speech recognition
             if (this.onResultCallback && this.pendingText.trim()) {
@@ -1129,17 +1123,13 @@ export class VoskRecognitionService {
             
             // Do NOT call onEndCallback if there's text in chat box OR if there's pending text to be added
             if (this.onEndCallback) {
-              console.log(`YYYYYYYYYYYYYYYYYYYYYYYYYY:${this.onEndCallback}`);
-              console.log(`📝 Chat box is empty - calling onEndCallback`);
               
               // Flush any partial text to the chatbox before ending
               if (this.onResultCallback) {
                 // Create a fake final result to flush partial text
                 this.onResultCallback({ text: '' });
-                console.log(`SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS:${this.onEndCallback}`);
               }
               
-              console.log(`PPPPPPPPPPPPPPPPPPPPPPPPPP:${elapsedTime}`);
               this.onEndCallback();
             }
             this.lastAudioTime = Date.now();
