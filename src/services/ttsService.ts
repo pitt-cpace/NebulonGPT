@@ -79,7 +79,7 @@ export class TTSService {
     const targetPort = port || '3000';
     
     const url = `${protocol}//${host}:${targetPort}/tts`;
-    console.log(`🔗 TTS Service auto-detected URL: ${url}`);
+    // console.log(`🔗 TTS Service auto-detected URL: ${url}`);
     return url;
   }
 
@@ -100,11 +100,11 @@ export class TTSService {
    */
   private startBackgroundCleanup() {
     if (this.isBackgroundCleanupRunning) {
-      console.log('🧹 Background cleanup thread already running');
+      // console.log('🧹 Background cleanup thread already running');
       return;
     }
 
-    console.log('🚀 Starting background cleanup thread (50ms interval)');
+    // console.log('🚀 Starting background cleanup thread (50ms interval)');
     this.isBackgroundCleanupRunning = true;
 
     this.backgroundCleanupInterval = setInterval(() => {
@@ -126,7 +126,7 @@ export class TTSService {
       return;
     }
 
-    console.log('🛑 Stopping background cleanup thread');
+    // console.log('🛑 Stopping background cleanup thread');
     
     if (this.backgroundCleanupInterval) {
       clearInterval(this.backgroundCleanupInterval);
@@ -191,25 +191,25 @@ export class TTSService {
 
   public connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      console.log(`🔌 TTS Connect: Starting connection attempt to ${this.serverUrl}`);
-      console.log(`🔌 TTS Connect: Current WebSocket state: ${this.ws ? this.getWebSocketStateString(this.ws.readyState) : 'null'}`);
-      console.log(`🔌 TTS Connect: Reconnect attempts so far: ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+      // console.log(`🔌 TTS Connect: Starting connection attempt to ${this.serverUrl}`);
+      // console.log(`🔌 TTS Connect: Current WebSocket state: ${this.ws ? this.getWebSocketStateString(this.ws.readyState) : 'null'}`);
+      // console.log(`🔌 TTS Connect: Reconnect attempts so far: ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
       
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        console.log('✅ TTS Connect: WebSocket already open, resolving immediately');
+        // console.log('✅ TTS Connect: WebSocket already open, resolving immediately');
         resolve();
         return;
       }
 
       if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
-        console.log('⏳ TTS Connect: WebSocket already connecting, waiting for result...');
+        // console.log('⏳ TTS Connect: WebSocket already connecting, waiting for result...');
         // Wait for the existing connection attempt
         const checkConnection = () => {
           if (this.ws?.readyState === WebSocket.OPEN) {
-            console.log('✅ TTS Connect: Existing connection attempt succeeded');
+            // console.log('✅ TTS Connect: Existing connection attempt succeeded');
             resolve();
           } else if (this.ws?.readyState === WebSocket.CLOSED || this.ws?.readyState === WebSocket.CLOSING) {
-            console.log('❌ TTS Connect: Existing connection attempt failed, starting new attempt');
+            // console.log('❌ TTS Connect: Existing connection attempt failed, starting new attempt');
             this.connect().then(resolve).catch(reject);
           } else {
             setTimeout(checkConnection, 100);
@@ -219,47 +219,47 @@ export class TTSService {
         return;
       }
 
-      console.log('🔄 TTS Connect: Updating status to connecting...');
+      // console.log('🔄 TTS Connect: Updating status to connecting...');
       this.updateStatus('connecting');
 
       try {
-        console.log(`🚀 TTS Connect: Creating new WebSocket connection to ${this.serverUrl}`);
-        console.log(`🚀 TTS Connect: Browser location: ${window.location.href}`);
-        console.log(`🚀 TTS Connect: Protocol: ${window.location.protocol}, Host: ${window.location.hostname}, Port: ${window.location.port}`);
+        // console.log(`🚀 TTS Connect: Creating new WebSocket connection to ${this.serverUrl}`);
+        // console.log(`🚀 TTS Connect: Browser location: ${window.location.href}`);
+        // console.log(`🚀 TTS Connect: Protocol: ${window.location.protocol}, Host: ${window.location.hostname}, Port: ${window.location.port}`);
         
         this.ws = new WebSocket(this.serverUrl);
-        console.log(`✅ TTS Connect: WebSocket object created successfully`);
-        console.log(`🔍 TTS Connect: Initial WebSocket state: ${this.getWebSocketStateString(this.ws.readyState)}`);
+        // console.log(`✅ TTS Connect: WebSocket object created successfully`);
+        // console.log(`🔍 TTS Connect: Initial WebSocket state: ${this.getWebSocketStateString(this.ws.readyState)}`);
 
         this.ws.onopen = (event) => {
-          console.log('🎉 TTS WebSocket CONNECTED successfully!');
-          console.log('🎉 TTS Connect: Connection event details:', {
-            url: this.serverUrl,
-            readyState: this.getWebSocketStateString(this.ws!.readyState),
-            protocol: this.ws!.protocol,
-            extensions: this.ws!.extensions,
-            timestamp: new Date().toISOString()
-          });
+          // console.log('🎉 TTS WebSocket CONNECTED successfully!');
+          // console.log('🎉 TTS Connect: Connection event details:', {
+          //   url: this.serverUrl,
+          //   readyState: this.getWebSocketStateString(this.ws!.readyState),
+          //   protocol: this.ws!.protocol,
+          //   extensions: this.ws!.extensions,
+          //   timestamp: new Date().toISOString()
+          // });
           
           this.reconnectAttempts = 0;
-          console.log('🔄 TTS Connect: Reset reconnect attempts to 0');
-          console.log('🔄 TTS Connect: Updating status to connected...');
+          // console.log('🔄 TTS Connect: Reset reconnect attempts to 0');
+          // console.log('🔄 TTS Connect: Updating status to connected...');
           this.updateStatus('connected');
           
-          console.log('✅ TTS Connect: Resolving connection promise');
+          // console.log('✅ TTS Connect: Resolving connection promise');
           resolve();
         };
 
         this.ws.onclose = (event) => {
-          console.log('🔌 TTS WebSocket CLOSED');
-          console.log('🔌 TTS Close: Event details:', {
-            code: event.code,
-            reason: event.reason || 'No reason provided',
-            wasClean: event.wasClean,
-            timestamp: new Date().toISOString(),
-            url: this.serverUrl
-          });
-          console.log('🔌 TTS Close: Close code meaning:', this.getCloseCodeMeaning(event.code));
+          // console.log('🔌 TTS WebSocket CLOSED');
+          // console.log('🔌 TTS Close: Event details:', {
+          //   code: event.code,
+          //   reason: event.reason || 'No reason provided',
+          //   wasClean: event.wasClean,
+          //   timestamp: new Date().toISOString(),
+          //   url: this.serverUrl
+          // });
+          // console.log('🔌 TTS Close: Close code meaning:', this.getCloseCodeMeaning(event.code));
           
           this.handleDisconnection();
         };
@@ -279,10 +279,10 @@ export class TTSService {
             console.error('❌ TTS Error: Event target:', error.target);
           }
           
-          console.log('🔄 TTS Error: Updating status to disconnected...');
+          // console.log('🔄 TTS Error: Updating status to disconnected...');
           this.updateStatus('disconnected');
           
-          console.log('❌ TTS Error: Rejecting connection promise');
+          // console.log('❌ TTS Error: Rejecting connection promise');
           reject(error);
         };
 
@@ -292,7 +292,7 @@ export class TTSService {
           this.handleMessage(event.data);
         };
 
-        console.log('🔧 TTS Connect: All event handlers attached');
+        // console.log('🔧 TTS Connect: All event handlers attached');
 
       } catch (error) {
         console.error('💥 TTS Connect: EXCEPTION during WebSocket creation!');
@@ -304,10 +304,10 @@ export class TTSService {
           url: this.serverUrl
         });
         
-        console.log('🔄 TTS Connect: Updating status to disconnected due to exception...');
+        // console.log('🔄 TTS Connect: Updating status to disconnected due to exception...');
         this.updateStatus('disconnected');
         
-        console.log('❌ TTS Connect: Rejecting promise due to exception');
+        // console.log('❌ TTS Connect: Rejecting promise due to exception');
         reject(error);
       }
     });
@@ -368,15 +368,15 @@ export class TTSService {
     // Always use the centralized getCurrentMsgId function to get the current message ID
     const currentMsgId = this.getCurrentMsgId ? this.getCurrentMsgId() : null;
     
-    console.log(`🧹 Using centralized getCurrentMsgId: ${currentMsgId} (function exists: ${!!this.getCurrentMsgId})`);
+    // console.log(`🧹 Using centralized getCurrentMsgId: ${currentMsgId} (function exists: ${!!this.getCurrentMsgId})`);
     if (currentMsgId === null || currentMsgId === "DESTROY_ALL") {
-      console.log(`💥 DESTROYING ALL MESSAGE THREADS - No filtering, destroy everything`);      
+      // console.log(`💥 DESTROYING ALL MESSAGE THREADS - No filtering, destroy everything`);      
       // Destroy ALL threads regardless of message ID
       const threadsToDestroy = [...this.audioQueue]; // Copy all threads for destruction
       const threadsToKeep: TTSQueueItem[] = []; // Keep nothing
       
       if (threadsToDestroy.length > 0) {
-        console.log(`💥 Destroying ALL ${threadsToDestroy.length} threads (DESTROY_ALL mode)`);
+        // console.log(`💥 Destroying ALL ${threadsToDestroy.length} threads (DESTROY_ALL mode)`);
         
         // Destroy all threads
         threadsToDestroy.forEach((item, index) => {
@@ -386,7 +386,7 @@ export class TTSService {
             // Stop playback if playing
             if (!audio.paused) {
               audio.pause();
-              console.log(`💥 Force stopped audio ${index} (msg: ${item.assistantMessageId || 'unknown'}) - DESTROY_ALL`);
+              // console.log(`💥 Force stopped audio ${index} (msg: ${item.assistantMessageId || 'unknown'}) - DESTROY_ALL`);
             }
             
             // Reset audio completely
@@ -405,7 +405,7 @@ export class TTSService {
             // Destroy blob URL to free memory
             if (audio.src && audio.src.startsWith('blob:')) {
               URL.revokeObjectURL(audio.src);
-              console.log(`💥 Destroyed blob URL for audio ${index} - DESTROY_ALL`);
+              // console.log(`💥 Destroyed blob URL for audio ${index} - DESTROY_ALL`);
             }
             
             // Clear source and force reload
@@ -413,7 +413,7 @@ export class TTSService {
             audio.srcObject = null;
             audio.load();
             
-            console.log(`💥 DESTROYED audio thread ${index} (msg: ${item.assistantMessageId || 'unknown'}) - DESTROY_ALL`);
+            // console.log(`💥 DESTROYED audio thread ${index} (msg: ${item.assistantMessageId || 'unknown'}) - DESTROY_ALL`);
           } catch (error) {
             console.warn(`⚠️ Error destroying audio thread ${index} in DESTROY_ALL mode:`, error);
           }
@@ -423,20 +423,20 @@ export class TTSService {
         this.audioQueue = threadsToKeep; // Empty array
         
         // Reset current playing audio since we destroyed everything
-        console.log(`💥 Resetting current playing audio - DESTROY_ALL mode`);
+        // console.log(`💥 Resetting current playing audio - DESTROY_ALL mode`);
         this.currentPlayingAudio = null;
         this.pausedAudioTime = 0;
         this.isPlayingAudio = false;
         
-        console.log(`✅ DESTROYED ALL ${threadsToDestroy.length} threads - DESTROY_ALL completed`);
+        // console.log(`✅ DESTROYED ALL ${threadsToDestroy.length} threads - DESTROY_ALL completed`);
       } else {
-        console.log(`✅ No threads to destroy in DESTROY_ALL mode`);
+        // console.log(`✅ No threads to destroy in DESTROY_ALL mode`);
       }
       
       return; // Exit early for DESTROY_ALL mode
     }
     
-    console.log(`🧹 DESTROYING OLD MESSAGE THREADS AND NULL MESSAGE IDs - keeping only: ${currentMsgId}`);
+    // console.log(`🧹 DESTROYING OLD MESSAGE THREADS AND NULL MESSAGE IDs - keeping only: ${currentMsgId}`);
     
     // Find threads that are NOT equal to current message ID (destroy old/different message threads)
     const threadsToDestroy = this.audioQueue.filter(item => 
@@ -449,7 +449,7 @@ export class TTSService {
     );
     
     if (threadsToDestroy.length > 0) {
-      console.log(`💥 Destroying ${threadsToDestroy.length} old message threads`);
+      // console.log(`💥 Destroying ${threadsToDestroy.length} old message threads`);
       
       // Destroy old threads
       threadsToDestroy.forEach((item, index) => {
@@ -459,7 +459,7 @@ export class TTSService {
           // Stop playback if playing
           if (!audio.paused) {
             audio.pause();
-            console.log(`💥 Force stopped old message audio ${index} (msg: ${item.assistantMessageId})`);
+            // console.log(`💥 Force stopped old message audio ${index} (msg: ${item.assistantMessageId})`);
           }
           
           // Reset audio completely
@@ -478,7 +478,7 @@ export class TTSService {
           // Destroy blob URL to free memory
           if (audio.src && audio.src.startsWith('blob:')) {
             URL.revokeObjectURL(audio.src);
-            console.log(`💥 Destroyed blob URL for old message audio ${index}`);
+            // console.log(`💥 Destroyed blob URL for old message audio ${index}`);
           }
           
           // Clear source and force reload
@@ -486,7 +486,7 @@ export class TTSService {
           audio.srcObject = null;
           audio.load();
           
-          console.log(`💥 DESTROYED old message audio thread ${index} (msg: ${item.assistantMessageId})`);
+          // console.log(`💥 DESTROYED old message audio thread ${index} (msg: ${item.assistantMessageId})`);
         } catch (error) {
           console.warn(`⚠️ Error destroying old message audio thread ${index}:`, error);
         }
@@ -499,15 +499,15 @@ export class TTSService {
       if (this.currentPlayingAudio && 
           this.currentPlayingAudio.assistantMessageId && 
           this.currentPlayingAudio.assistantMessageId !== currentMsgId) {
-        console.log(`💥 Resetting current playing audio (belonged to old message: ${this.currentPlayingAudio.assistantMessageId})`);
+        // console.log(`💥 Resetting current playing audio (belonged to old message: ${this.currentPlayingAudio.assistantMessageId})`);
         this.currentPlayingAudio = null;
         this.pausedAudioTime = 0;
         this.isPlayingAudio = false;
       }
       
-      console.log(`✅ Kept ${threadsToKeep.length} threads for current message: ${currentMsgId}`);
+      // console.log(`✅ Kept ${threadsToKeep.length} threads for current message: ${currentMsgId}`);
     } else {
-      console.log(`✅ No old message threads to destroy for: ${currentMsgId}`);
+      // console.log(`✅ No old message threads to destroy for: ${currentMsgId}`);
     }
   }
 
@@ -714,7 +714,7 @@ export class TTSService {
     } else {
       // No previously paused thread, resume normal queue playback
       if (this.audioQueue.length > 0) {
-        console.log('▶️ No previously paused thread, resuming normal queue playback...');
+        //console.log('▶️ No previously paused thread, resuming normal queue playback...');
         this.playNextInQueue();
       } else {
         //console.log('▶️ No audio in queue to resume');
@@ -1153,7 +1153,7 @@ export class TTSService {
     // Check if any English pattern matches
     const isEnglish = englishPatterns.some(pattern => pattern.test(lowerModelName));
     
-    console.log(`🔍 Checking Vosk model "${modelName}" for English: ${isEnglish ? 'YES' : 'NO'}`);
+    // console.log(`🔍 Checking Vosk model "${modelName}" for English: ${isEnglish ? 'YES' : 'NO'}`);
     
     return isEnglish;
   }
@@ -1489,7 +1489,7 @@ export class TTSService {
     
     // CRITICAL: Prevent double-play with flag
     if (this.isPlayingAudio) {
-      console.log('🎵 Audio is already being played, preventing double-play');
+      //console.log('🎵 Audio is already being played, preventing double-play');
       return;
     }
     

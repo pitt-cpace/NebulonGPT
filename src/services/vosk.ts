@@ -65,7 +65,7 @@ export class VoskRecognitionService {
     const targetPort = port || '3000';
     
     const url = `${protocol}//${host}:${targetPort}/vosk`;
-    console.log(`🔗 Vosk Service auto-detected URL: ${url}`);
+    // console.log(`🔗 Vosk Service auto-detected URL: ${url}`);
     return url;
   }
 
@@ -77,12 +77,12 @@ export class VoskRecognitionService {
         this.socket = new WebSocket(voskServerUrl);
         
         this.socket.onopen = () => {
-          console.log('✅ WebSocket connected to Vosk server');
+          // console.log('✅ WebSocket connected to Vosk server');
           
           // If we had a model selected before, reselect it after reconnection
           // But only if we're not currently in the middle of selecting a different model
           if (this.currentModel && !this.isSelectingModel) {
-            console.log(`🔄 Reselecting model after reconnection: ${this.currentModel}`);
+            // console.log(`🔄 Reselecting model after reconnection: ${this.currentModel}`);
             // Use setTimeout to avoid blocking the WebSocket connection
             setTimeout(() => {
               // Double-check that we're still not selecting a model
@@ -94,29 +94,29 @@ export class VoskRecognitionService {
                     type: 'select_model', 
                     model: this.currentModel! 
                   }));
-                  console.log(`📤 Sent automatic model reselection request: ${this.currentModel}`);
+                  // console.log(`📤 Sent automatic model reselection request: ${this.currentModel}`);
                 } catch (error) {
                   console.error(`❌ Failed to send automatic reselection: ${error}`);
                 }
               } else {
-                console.log('⏭️ Skipping automatic model reselection - manual selection in progress');
+                // console.log('⏭️ Skipping automatic model reselection - manual selection in progress');
               }
             }, 100);
           } else if (!this.currentModel && !this.isSelectingModel) {
             // No model selected yet, check server first before auto-selecting
-            console.log('🔍 No local model, checking server for existing model...');
+            // console.log('🔍 No local model, checking server for existing model...');
             setTimeout(async () => {
               try {
                 // First check if server already has a model loaded
                 const serverModel = await this.getServerCurrentModel();
                 if (serverModel && serverModel !== 'none') {
-                  console.log(`✅ Server already has model loaded: ${serverModel}`);
+                  // console.log(`✅ Server already has model loaded: ${serverModel}`);
                   this.currentModel = serverModel;
                   return; // Don't load a new model
                 }
                 
                 // Server has no model, wait for manual selection
-                console.log('🔍 Server has no model, waiting for manual model selection...');
+                // console.log('🔍 Server has no model, waiting for manual model selection...');
                 // IMPORTANT: Don't auto-load any model - let VoskModelSelector handle this
               } catch (error) {
                 console.error('❌ Failed to check server model:', error);
@@ -194,15 +194,15 @@ export class VoskRecognitionService {
                     // In full voice mode AND mic is listening, don't send the text immediately
                     // Store it and let the silence timeout handle sending it
                     const ttsSettings = ttsService.getSettings();
-                    console.log(`🔍 DEBUG: fullVoiceMode=${ttsSettings.fullVoiceMode}, isRecording=${this.isRecording}, filteredText="${filteredText}"`);
+                    // console.log(`🔍 DEBUG: fullVoiceMode=${ttsSettings.fullVoiceMode}, isRecording=${this.isRecording}, filteredText="${filteredText}"`);
                     if (ttsSettings.fullVoiceMode && this.isRecording) {
                       // Store the result but don't send it yet - wait for silence timeout
                       this.pendingText += (this.pendingText ? ' ' : '') + filteredText;
-                      console.log(`📝 Storing final result for silence timeout: "${filteredText}" (total pending: "${this.pendingText}")`);
+                      // console.log(`📝 Storing final result for silence timeout: "${filteredText}" (total pending: "${this.pendingText}")`);
                       // Don't call onResultCallback({ text: filteredText }) here
                     } else {
                       // Normal mode OR mic not listening: send immediately
-                      console.log(`🚨 SENDING IMMEDIATELY: fullVoiceMode=${ttsSettings.fullVoiceMode}, isRecording=${this.isRecording}`);
+                      // console.log(`🚨 SENDING IMMEDIATELY: fullVoiceMode=${ttsSettings.fullVoiceMode}, isRecording=${this.isRecording}`);
                       this.onResultCallback({ text: filteredText });
                     }
                   }
@@ -1110,7 +1110,7 @@ export class VoskRecognitionService {
             
             // Send any pending text that was accumulated during speech recognition
             if (this.onResultCallback && this.pendingText.trim()) {
-              console.log(`📤 Sending accumulated pending text: "${this.pendingText}"`);
+              // console.log(`📤 Sending accumulated pending text: "${this.pendingText}"`);
               this.onResultCallback({ text: this.pendingText.trim() });
               this.pendingText = ''; // Clear pending text after sending
               

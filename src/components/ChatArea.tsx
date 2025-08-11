@@ -162,20 +162,20 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Scroll to bottom when messages change, but only if user hasn't scrolled up
   useEffect(() => {
-    console.log('🔄 Auto-scroll effect triggered:', {
-      hasMessagesEndRef: !!messagesEndRef.current,
-      userHasScrolledUp,
-      messagesCount: chat?.messages?.length || 0
-    });
+    // console.log('🔄 Auto-scroll effect triggered:', {
+    //   hasMessagesEndRef: !!messagesEndRef.current,
+    //   userHasScrolledUp,
+    //   messagesCount: chat?.messages?.length || 0
+    // });
     
     if (messagesEndRef.current && !userHasScrolledUp) {
-      console.log('✅ Auto-scrolling to bottom');
+      // console.log('✅ Auto-scrolling to bottom');
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     } else {
-      console.log('❌ Auto-scroll blocked:', {
-        noRef: !messagesEndRef.current,
-        userScrolledUp: userHasScrolledUp
-      });
+      // console.log('❌ Auto-scroll blocked:', {
+      //   noRef: !messagesEndRef.current,
+      //   userScrolledUp: userHasScrolledUp
+      // });
     }
   }, [chat?.messages, userHasScrolledUp]);
 
@@ -183,13 +183,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   useEffect(() => {
     // Only set up scroll listener when we have a chat (messages container is rendered)
     if (!chat) {
-      console.log('⏳ No chat yet, waiting for messages container...');
+      // console.log('⏳ No chat yet, waiting for messages container...');
       return;
     }
 
     const messagesContainer = messagesContainerRef.current;
     if (!messagesContainer) {
-      console.log('❌ Messages container ref not found, retrying...');
+      // console.log('❌ Messages container ref not found, retrying...');
       return;
     }
 
@@ -267,7 +267,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const isFullVoiceMode = ttsSettings.fullVoiceMode;
         
         if (isFullVoiceMode && loading && result.partial.trim().length > 0) {
-          console.log('🛑 User started speaking while LLM is generating - stopping LLM response and clearing TTS');
+          // console.log('🛑 User started speaking while LLM is generating - stopping LLM response and clearing TTS');
           onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
           
           // Also directly clear TTS to ensure immediate stopping
@@ -278,7 +278,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       if (result.text) {
         // Final transcript received
-        console.log('🟢 Vosk Final:', result.text);
+        // console.log('🟢 Vosk Final:', result.text);
         finalTranscriptRef.current += result.text + ' ';
         setMessage(finalTranscriptRef.current);
         setInterimTranscript(''); // Clear interim transcript
@@ -337,7 +337,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Dedicated function to start mic listening
   const startMicListening = useCallback(async () => {
-    console.log('🎙️ STARTING speech recognition...');
+    // console.log('🎙️ STARTING speech recognition...');
     
     if (!voskRecognition) {
       setSpeechError('Speech recognition not available');
@@ -345,7 +345,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
 
     if (isListening) {
-      console.log('⚠️ Already listening, skipping start');
+      // console.log('⚠️ Already listening, skipping start');
       return;
     }
 
@@ -362,7 +362,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       if (!currentModel || currentModel === 'none') {
         // No model loaded, auto-load default model when user clicks microphone
-        console.log('🎤 No model loaded, auto-selecting default model for microphone usage...');
+        // console.log('🎤 No model loaded, auto-selecting default model for microphone usage...');
         
         const availableModels = await voskRecognition.getAvailableModels();
         if (availableModels.length === 0) {
@@ -392,11 +392,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           defaultModel = availableModels[0];
         }
         
-        console.log(`🎤 Auto-loading default model for microphone: ${defaultModel}`);
+        // console.log(`🎤 Auto-loading default model for microphone: ${defaultModel}`);
         await voskRecognition.selectModel(defaultModel);
-        console.log(`✅ Default model loaded successfully: ${defaultModel}`);
+        // console.log(`✅ Default model loaded successfully: ${defaultModel}`);
       } else {
-        console.log(`✅ Using currently running model for speech recognition: ${currentModel}`);
+        // console.log(`✅ Using currently running model for speech recognition: ${currentModel}`);
       }
     } catch (error) {
       console.error('❌ Failed to check/load model for speech recognition:', error);
@@ -410,20 +410,20 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     try {
       // Reset the final transcript when starting a new recognition session
       finalTranscriptRef.current = message;
-      console.log('  - finalTranscriptRef reset to:', finalTranscriptRef.current);
+      // console.log('  - finalTranscriptRef reset to:', finalTranscriptRef.current);
       
       // Start recognition
-      console.log('  - Calling voskRecognition.start()...');
+      // console.log('  - Calling voskRecognition.start()...');
       await voskRecognition.start();
-      console.log('✅ voskRecognition.start() completed successfully');
+      // console.log('✅ voskRecognition.start() completed successfully');
       
       setIsListening(true);
-      console.log('✅ UI state updated - isListening set to true');
-      console.log('✅ Vosk speech recognition started successfully');
+      // console.log('✅ UI state updated - isListening set to true');
+      // console.log('✅ Vosk speech recognition started successfully');
     } catch (error) {
       console.error('❌ Error starting Vosk speech recognition:', error);
       setSpeechError('Failed to start Vosk speech recognition');
-      console.log('❌ UI state - speechError set to:', 'Failed to start Vosk speech recognition');
+      // console.log('❌ UI state - speechError set to:', 'Failed to start Vosk speech recognition');
       throw error;
     }
   }, [isListening, message, voskRecognition]);
@@ -549,13 +549,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Toggle speech recognition with debounce protection
   const toggleListening = useCallback(async () => {
-    console.log('🎤 MICROPHONE BUTTON CLICKED!');
-    console.log('  - isListening:', isListening);
-    console.log('  - isProcessingMic:', isProcessingMic);
+    // console.log('🎤 MICROPHONE BUTTON CLICKED!');
+    // console.log('  - isListening:', isListening);
+    // console.log('  - isProcessingMic:', isProcessingMic);
     
     // Prevent rapid clicks - debounce protection
     if (isProcessingMic) {
-      console.log('⏳ Mic operation already in progress, ignoring click');
+      // console.log('⏳ Mic operation already in progress, ignoring click');
       return;
     }
     
@@ -569,7 +569,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const isFullVoiceMode = ttsSettings.fullVoiceMode;
         
         if (isFullVoiceMode) {
-          console.log('🔇 Stopping mic in Full Voice Mode - changing indicator color');
+          // console.log('🔇 Stopping mic in Full Voice Mode - changing indicator color');
           // Start the turning off animation (color change) when stopping mic in Full Voice Mode
           setIsTurningOff(true);
         }
@@ -586,7 +586,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     } finally {
       // Always clear processing state after operation completes
       setIsProcessingMic(false);
-      console.log('🏁 toggleListening completed - processing state cleared');
+      // console.log('🏁 toggleListening completed - processing state cleared');
     }
   }, [isListening, isProcessingMic, startMicListening, stopMicListening]);
 

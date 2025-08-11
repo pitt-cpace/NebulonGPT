@@ -69,13 +69,13 @@ const App: React.FC = () => {
 
   // Functions to manage current message ID
   const getCurrentMsgId = useCallback((): string | null => {
-    console.log(`🔍 getCurrentMsgId called, returning: ${currentMsgId}`);
+    // console.log(`🔍 getCurrentMsgId called, returning: ${currentMsgId}`);
     return currentMsgId;
   }, [currentMsgId]);
 
   const setCurrentMsgIdFromResponse = useCallback((msgId: string | null) => {
     setCurrentMsgId(msgId);
-    console.log(`📝 Current message ID set to: ${msgId}`);
+    // console.log(`📝 Current message ID set to: ${msgId}`);
   }, []);
 
   // Function to determine the chat API URL based on environment
@@ -217,10 +217,10 @@ const App: React.FC = () => {
   // Set up TTS service connection whenever getCurrentMsgId function changes
   useEffect(() => {
     if (initialized) {
-      console.log('🔗 Setting up TTS service with updated getCurrentMsgId function');
+      // console.log('🔗 Setting up TTS service with updated getCurrentMsgId function');
       ttsService.setGetCurrentMsgId(getCurrentMsgId);
       ttsService.setSetCurrentMsgId(setCurrentMsgIdFromResponse);
-      console.log('🔗 TTS service connected to centralized message ID functions');
+      // console.log('🔗 TTS service connected to centralized message ID functions');
     }
   }, [initialized, getCurrentMsgId, setCurrentMsgIdFromResponse]);
 
@@ -418,7 +418,7 @@ const App: React.FC = () => {
     // Add AI response using the actual API with streaming
     try {
       // PERSISTENT LOOP - Keep trying until everything is destroyed before LLM starts (minimum 2 seconds)
-      console.log('💥 Starting persistent TTS clearing loop before LLM response (minimum 2 seconds)...');
+      // console.log('💥 Starting persistent TTS clearing loop before LLM response (minimum 2 seconds)...');
       let clearAttempt = 0;
       const maxClearAttempts = 10; // Maximum 10 attempts
       let allCleared = false;
@@ -427,7 +427,7 @@ const App: React.FC = () => {
       
       while (!allCleared && clearAttempt < maxClearAttempts) {
         clearAttempt++;
-        console.log(`💥 Pre-LLM TTS clearing attempt ${clearAttempt}/${maxClearAttempts}...`);
+        // console.log(`💥 Pre-LLM TTS clearing attempt ${clearAttempt}/${maxClearAttempts}...`);
         
         try {
           // Enhanced TTS stop inside the loop
@@ -439,22 +439,22 @@ const App: React.FC = () => {
           const cleared = await ttsService.clear(); // This includes server + client clearing with verification
           
           if (cleared) {
-            console.log(`✅ Pre-LLM TTS clearing attempt ${clearAttempt} SUCCESSFUL - All threads destroyed before LLM`);
+            // console.log(`✅ Pre-LLM TTS clearing attempt ${clearAttempt} SUCCESSFUL - All threads destroyed before LLM`);
             
             // Check if we've been running for at least 2 seconds
             const elapsedTime = Date.now() - startTime;
             if (elapsedTime >= minimumDuration) {
-              console.log(`⏰ Minimum 2 seconds elapsed (${elapsedTime}ms) - stopping loop`);
+              // console.log(`⏰ Minimum 2 seconds elapsed (${elapsedTime}ms) - stopping loop`);
               allCleared = true;
               break;
             } else {
               const remainingTime = minimumDuration - elapsedTime;
-              console.log(`⏰ Only ${elapsedTime}ms elapsed, continuing for ${remainingTime}ms more...`);
+              // console.log(`⏰ Only ${elapsedTime}ms elapsed, continuing for ${remainingTime}ms more...`);
               // Continue the loop even though clearing was successful
               await new Promise(resolve => setTimeout(resolve, 500));
             }
           } else {
-            console.warn(`⚠️ Pre-LLM TTS clearing attempt ${clearAttempt} verification timeout - retrying...`);
+            // console.warn(`⚠️ Pre-LLM TTS clearing attempt ${clearAttempt} verification timeout - retrying...`);
             
             // Wait 500ms before next attempt (shorter for LLM start)
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -469,29 +469,29 @@ const App: React.FC = () => {
         // Additional check: if we've reached minimum time and had at least one successful clear
         const elapsedTime = Date.now() - startTime;
         if (elapsedTime >= minimumDuration && clearAttempt > 0) {
-          console.log(`⏰ Minimum 2 seconds completed (${elapsedTime}ms) after ${clearAttempt} attempts - finishing`);
+          // console.log(`⏰ Minimum 2 seconds completed (${elapsedTime}ms) after ${clearAttempt} attempts - finishing`);
           allCleared = true;
           break;
         }
       }
       
       if (allCleared) {
-        console.log('🎉 PERSISTENT PRE-LLM TTS CLEARING SUCCESSFUL - Ready for clean LLM response');
+        // console.log('🎉 PERSISTENT PRE-LLM TTS CLEARING SUCCESSFUL - Ready for clean LLM response');
       } else {
-        console.warn(`⚠️ PERSISTENT PRE-LLM TTS CLEARING TIMEOUT after ${maxClearAttempts} attempts - forcing LLM start`);
+        // console.warn(`⚠️ PERSISTENT PRE-LLM TTS CLEARING TIMEOUT after ${maxClearAttempts} attempts - forcing LLM start`);
         
         // Force one final aggressive cleanup attempt before LLM
-        console.log('💥 Final aggressive TTS cleanup before LLM...');
+        // console.log('💥 Final aggressive TTS cleanup before LLM...');
         try {
           await ttsService.pause(); // One more aggressive stop
-          console.log('💥 Final aggressive cleanup before LLM completed');
+          // console.log('💥 Final aggressive cleanup before LLM completed');
         } catch (finalError) {
           console.error('❌ Error in final aggressive cleanup before LLM:', finalError);
         }
       }
       
       //Wait additional 500ms for server and processes to respond properly
-      console.log('⏳ Waiting additional 500ms for server and processes to respond...');
+      // console.log('⏳ Waiting additional 500ms for server and processes to respond...');
       await new Promise(resolve => setTimeout(resolve, 500));
       setLoading(true); // ← LLM response writing starts here
       
@@ -551,7 +551,7 @@ const App: React.FC = () => {
           while ((match = sentenceEndings.exec(ttsBuffer)) !== null) {
             const sentence = ttsBuffer.substring(lastIndex, match.index + match[0].length).trim();
             if (sentence) {
-              console.log('🔊 Sending sentence to TTS (mic is listening):', sentence);
+              // console.log('🔊 Sending sentence to TTS (mic is listening):', sentence);
               ttsService.speak(sentence, aiMessageId); // Pass the current message ID
             }
             lastIndex = match.index + match[0].length;
@@ -612,7 +612,7 @@ const App: React.FC = () => {
       
       // Send any remaining text in the TTS buffer after streaming is complete
       if (isFullVoiceMode && isListening && ttsBuffer.trim()) {
-        console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
+        // console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
         ttsService.speak(ttsBuffer.trim(), aiMessageId); // Pass the current message ID
       }
       

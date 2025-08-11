@@ -104,7 +104,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     
     // If enabling Full Voice Mode and TTS is disconnected, try to connect
     if (checked && ttsStatus === 'disconnected') {
-      console.log('🔌 Full Voice Mode enabled but TTS is disconnected - attempting to connect...');
+      // console.log('🔌 Full Voice Mode enabled but TTS is disconnected - attempting to connect...');
       
       // Set status to "connecting" during the connection attempts
       setTtsStatus('connecting');
@@ -115,18 +115,18 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       
       while (attempts < maxAttempts && ttsService.getStatus() === 'disconnected') {
         attempts++;
-        console.log(`🔌 TTS connection attempt ${attempts}/${maxAttempts}...`);
+        // console.log(`🔌 TTS connection attempt ${attempts}/${maxAttempts}...`);
         
         try {
           await ttsService.connect();
-          console.log(`✅ TTS connected successfully on attempt ${attempts}`);
+          // console.log(`✅ TTS connected successfully on attempt ${attempts}`);
           break; // Exit loop if connection successful
         } catch (error) {
           console.error(`❌ TTS connection attempt ${attempts} failed:`, error);
           
           // Wait 1 second before next attempt (except for the last attempt)
           if (attempts < maxAttempts) {
-            console.log(`⏳ Waiting 1 second before attempt ${attempts + 1}...`);
+            // console.log(`⏳ Waiting 1 second before attempt ${attempts + 1}...`);
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
         }
@@ -137,7 +137,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       setTtsStatus(finalStatus);
       
       if (finalStatus === 'connected') {
-        console.log(`🎉 TTS connection successful after ${attempts} attempts`);
+        // console.log(`🎉 TTS connection successful after ${attempts} attempts`);
       } else {
         console.warn(`⚠️ TTS connection failed after ${maxAttempts} attempts. Final status: ${finalStatus}`);
       }
@@ -161,7 +161,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     
     // If Full Voice Mode is enabled and TTS is disconnected, try to connect
     if (currentSettings.fullVoiceMode && ttsService.getStatus() === 'disconnected') {
-      console.log('🔌 Settings dialog opened with Full Voice Mode enabled but TTS disconnected - attempting to connect...');
+      // console.log('🔌 Settings dialog opened with Full Voice Mode enabled but TTS disconnected - attempting to connect...');
       
       // Set status to "connecting" during the connection attempts
       setTtsStatus('connecting');
@@ -172,18 +172,18 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       
       while (attempts < maxAttempts && ttsService.getStatus() === 'disconnected') {
         attempts++;
-        console.log(`🔌 TTS connection attempt ${attempts}/${maxAttempts}...`);
+        // console.log(`🔌 TTS connection attempt ${attempts}/${maxAttempts}...`);
         
         try {
           await ttsService.connect();
-          console.log(`✅ TTS connected successfully on attempt ${attempts}`);
+          // console.log(`✅ TTS connected successfully on attempt ${attempts}`);
           break; // Exit loop if connection successful
         } catch (error) {
           console.error(`❌ TTS connection attempt ${attempts} failed:`, error);
           
           // Wait 1 second before next attempt (except for the last attempt)
           if (attempts < maxAttempts) {
-            console.log(`⏳ Waiting 1 second before attempt ${attempts + 1}...`);
+            // console.log(`⏳ Waiting 1 second before attempt ${attempts + 1}...`);
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
         }
@@ -194,7 +194,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       setTtsStatus(finalStatus);
       
       if (finalStatus === 'connected') {
-        console.log(`🎉 TTS connection successful after ${attempts} attempts`);
+        // console.log(`🎉 TTS connection successful after ${attempts} attempts`);
       } else {
         console.warn(`⚠️ TTS connection failed after ${maxAttempts} attempts. Final status: ${finalStatus}`);
       }
@@ -294,7 +294,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
           <VoskModelSelector
             voskRecognition={voskRecognition || null}
             onModelSelected={(modelName) => {
-              console.log('Model selected:', modelName);
+              // console.log('Model selected:', modelName);
             }}
             onError={(error) => {
               console.error('Vosk model selector error:', error);
