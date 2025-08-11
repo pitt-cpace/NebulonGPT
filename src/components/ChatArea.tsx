@@ -137,6 +137,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         }
       }
       
+      // Reset scroll state when sending a new message to ensure auto-scroll to the new message
+      setUserHasScrolledUp(false);
+      
       // Send message with any attachments
       onSendMessage(messageText, attachments.length > 0 ? attachments : undefined);
       
