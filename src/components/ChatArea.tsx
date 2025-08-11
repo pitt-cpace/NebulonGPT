@@ -68,6 +68,7 @@ interface ChatAreaProps {
   onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
   onListeningStateChange?: (listening: boolean) => void;
   onClearChatInput?: React.MutableRefObject<(() => void) | null>;
+  getCurrentMsgId?: () => string | null;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -192,39 +193,39 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       return;
     }
 
-    console.log('✅ Setting up scroll listener on messages container:', messagesContainer);
-    console.log('✅ Container scroll properties:', {
-      scrollHeight: messagesContainer.scrollHeight,
-      clientHeight: messagesContainer.clientHeight,
-      scrollTop: messagesContainer.scrollTop,
-      overflowY: getComputedStyle(messagesContainer).overflowY
-    });
+    //console.log('✅ Setting up scroll listener on messages container:', messagesContainer);
+    //console.log('✅ Container scroll properties:', {
+    //  scrollHeight: messagesContainer.scrollHeight,
+    //  clientHeight: messagesContainer.clientHeight,
+    //  scrollTop: messagesContainer.scrollTop,
+    //  overflowY: getComputedStyle(messagesContainer).overflowY
+    //});
 
     const handleScroll = (event: Event) => {
-      console.log('🔥 SCROLL EVENT TRIGGERED!', event);
+      //console.log('🔥 SCROLL EVENT TRIGGERED!', event);
       
       const { scrollTop, scrollHeight, clientHeight } = messagesContainer;
       const isAtBottom = scrollHeight - scrollTop - clientHeight < 10; // 10px threshold
       
-      console.log('📜 Scroll event details:', {
-        scrollTop,
-        scrollHeight,
-        clientHeight,
-        difference: scrollHeight - scrollTop - clientHeight,
-        isAtBottom,
-        currentUserHasScrolledUp: userHasScrolledUp
-      });
+      //console.log('📜 Scroll event details:', {
+      //  scrollTop,
+      //  scrollHeight,
+      //  clientHeight,
+      //  difference: scrollHeight - scrollTop - clientHeight,
+      //  isAtBottom,
+      //  currentUserHasScrolledUp: userHasScrolledUp
+      //});
       
       // If user is at the bottom, reset the scroll state
       if (isAtBottom) {
         if (userHasScrolledUp) {
-          console.log('🔄 User scrolled back to bottom - resuming auto-scroll');
+          //console.log('🔄 User scrolled back to bottom - resuming auto-scroll');
           setUserHasScrolledUp(false);
         }
       } else {
         // If user is not at the bottom, they have scrolled up
         if (!userHasScrolledUp) {
-          console.log('⬆️ User scrolled up - pausing auto-scroll');
+          //console.log('⬆️ User scrolled up - pausing auto-scroll');
           setUserHasScrolledUp(true);
         }
       }
@@ -235,15 +236,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     messagesContainer.addEventListener('wheel', handleScroll, { passive: true });
     
     // Test if the element is actually scrollable
-    console.log('🧪 Testing scroll capability:', {
-      canScroll: messagesContainer.scrollHeight > messagesContainer.clientHeight,
-      hasScrollbar: messagesContainer.scrollHeight > messagesContainer.clientHeight
-    });
+    //console.log('🧪 Testing scroll capability:', {
+    //  canScroll: messagesContainer.scrollHeight > messagesContainer.clientHeight,
+    //  hasScrollbar: messagesContainer.scrollHeight > messagesContainer.clientHeight
+    //});
 
     return () => {
-      console.log('🧹 Cleaning up scroll listeners');
-      messagesContainer.removeEventListener('scroll', handleScroll);
-      messagesContainer.removeEventListener('wheel', handleScroll);
+      //console.log('🧹 Cleaning up scroll listeners');
+      //messagesContainer.removeEventListener('scroll', handleScroll);
+      //messagesContainer.removeEventListener('wheel', handleScroll);
     };
   }, [chat, userHasScrolledUp]); // Add chat as dependency so it runs when chat is available
 
@@ -270,7 +271,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
           
           // Also directly clear TTS to ensure immediate stopping
-          ttsService.stop();
+          ttsService.pause();
           ttsService.clear();
         }
       }
@@ -473,7 +474,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         try {
           // Enhanced TTS stop inside the loop
           await ttsService.clear();
-          await ttsService.speak('', null); // Pass null to trigger DESTROY_ALL mode
+          await ttsService.speak(''); // Use centralized getCurrentMsgId
           await ttsService.stop(); // This includes the 500ms delay and aggressive cleanup
           
           const cleared = await ttsService.clear(); // This includes server + client clearing with verification

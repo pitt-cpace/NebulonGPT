@@ -324,6 +324,7 @@ class BrowserTTSServer:
         voice = data.get('voice', 'af_heart')
         speed = data.get('speed', 1.0)
         language = data.get('language', 'a')
+        assistant_message_id = data.get('assistantMessageId')  # Extract message ID from request
         
         # Store session data
         self.active_sessions[session_id] = {
@@ -332,7 +333,8 @@ class BrowserTTSServer:
             'speed': speed,
             'language': language,
             'text_buffer': '',
-            'processed_sentences': 0
+            'processed_sentences': 0,
+            'assistantMessageId': assistant_message_id  # Store message ID in session
         }
         
         logger.info(f"Started streaming session {session_id} with voice={voice}, speed={speed}")
@@ -387,7 +389,8 @@ class BrowserTTSServer:
                             'text_chunk': sentence,
                             'audio_chunk': base64.b64encode(audio_data).decode('utf-8'),
                             'audio_format': 'wav',
-                            'sample_rate': 24000
+                            'sample_rate': 24000,
+                            'assistantMessageId': session_data.get('assistantMessageId')  # Include message ID from session
                         }
                         
                         await websocket.send(json.dumps(audio_response))
@@ -444,7 +447,8 @@ class BrowserTTSServer:
                         'text_chunk': remaining_text,
                         'audio_chunk': base64.b64encode(audio_data).decode('utf-8'),
                         'audio_format': 'wav',
-                        'sample_rate': 24000
+                        'sample_rate': 24000,
+                        'assistantMessageId': session_data.get('assistantMessageId')  # Include message ID from session
                     }
                     
                     await websocket.send(json.dumps(audio_response))
@@ -603,6 +607,7 @@ class BrowserTTSServer:
         voice = data.get('voice', 'af_heart')
         speed = data.get('speed', 1.0)
         language = data.get('language', 'a')
+        assistant_message_id = data.get('assistantMessageId')  # Extract message ID from request
         
         if not text:
             return {'error': 'No text provided'}
@@ -637,7 +642,8 @@ class BrowserTTSServer:
                     'audio': base64.b64encode(audio_data).decode('utf-8'),
                     'audio_format': 'wav',
                     'sample_rate': 24000,
-                    'size': len(audio_data)
+                    'size': len(audio_data),
+                    'assistantMessageId': assistant_message_id  # Include message ID in response
                 }
                 
                 # Send immediately if not paused

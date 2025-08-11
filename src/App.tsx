@@ -18,6 +18,9 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   
+  // Current message ID from last response
+  const [currentMsgId, setCurrentMsgId] = useState<string | null>(null);
+  
   // Model settings
   const [contextLength, setContextLength] = useState(4096); // Default context length
   const [temperature, setTemperature] = useState(0.1); // Default temperature
@@ -62,6 +65,17 @@ const App: React.FC = () => {
   // Handle listening state change from ChatArea
   const handleListeningStateChange = useCallback((listening: boolean) => {
     setIsListening(listening);
+  }, []);
+
+  // Functions to manage current message ID
+  const getCurrentMsgId = useCallback((): string | null => {
+    console.log(`🔍 getCurrentMsgId called, returning: ${currentMsgId}`);
+    return currentMsgId;
+  }, [currentMsgId]);
+
+  const setCurrentMsgIdFromResponse = useCallback((msgId: string | null) => {
+    setCurrentMsgId(msgId);
+    console.log(`📝 Current message ID set to: ${msgId}`);
   }, []);
 
   // Function to determine the chat API URL based on environment
@@ -200,6 +214,16 @@ const App: React.FC = () => {
     }
   }, [initialized]);
 
+  // Set up TTS service connection whenever getCurrentMsgId function changes
+  useEffect(() => {
+    if (initialized) {
+      console.log('🔗 Setting up TTS service with updated getCurrentMsgId function');
+      ttsService.setGetCurrentMsgId(getCurrentMsgId);
+      ttsService.setSetCurrentMsgId(setCurrentMsgIdFromResponse);
+      console.log('🔗 TTS service connected to centralized message ID functions');
+    }
+  }, [initialized, getCurrentMsgId, setCurrentMsgIdFromResponse]);
+
   // Initialize app after both models and chats are loaded
   useEffect(() => {
     if (models.length > 0 && !initialized) {
@@ -330,7 +354,7 @@ const App: React.FC = () => {
     const ttsSettings = ttsService.getSettings();
     if (ttsSettings.fullVoiceMode) {
       console.log('🛑 Stopping TTS due to response cancellation');
-      ttsService.stop();
+      ttsService.pause();
       ttsService.clear(); // Clear any queued TTS audio
     }
   };
@@ -343,7 +367,7 @@ const App: React.FC = () => {
     if (ttsSettings.fullVoiceMode) {
       console.log('🔄 New message - clearing TTS for fresh conversation turn');
       
-      ttsService.stop();
+      ttsService.pause();
       ttsService.clear(); // This will stop current audio and clear queue
     }
     
@@ -407,9 +431,10 @@ const App: React.FC = () => {
         
         try {
           // Enhanced TTS stop inside the loop
+          await ttsService.pause(); // Your enhanced stop with 500ms delay
           await ttsService.clear();
-          await ttsService.speak('', null); // Pass null to trigger DESTROY_ALL mode
-          await ttsService.stop(); // Your enhanced stop with 500ms delay
+          await ttsService.speak(''); // Use centralized getCurrentMsgId
+          
           
           const cleared = await ttsService.clear(); // This includes server + client clearing with verification
           
@@ -458,7 +483,7 @@ const App: React.FC = () => {
         // Force one final aggressive cleanup attempt before LLM
         console.log('💥 Final aggressive TTS cleanup before LLM...');
         try {
-          await ttsService.stop(); // One more aggressive stop
+          await ttsService.pause(); // One more aggressive stop
           console.log('💥 Final aggressive cleanup before LLM completed');
         } catch (finalError) {
           console.error('❌ Error in final aggressive cleanup before LLM:', finalError);
@@ -483,6 +508,8 @@ const App: React.FC = () => {
       
       // Function to handle streaming updates
       const handleStreamUpdate = (chunk: string) => {
+        // Set the current message ID from the first chunk received
+        setCurrentMsgIdFromResponse(aiMessageId);        
         // Update the AI message with the new chunk
         setCurrentChat(prevChat => {
           if (!prevChat) return null;
@@ -525,7 +552,7 @@ const App: React.FC = () => {
             const sentence = ttsBuffer.substring(lastIndex, match.index + match[0].length).trim();
             if (sentence) {
               console.log('🔊 Sending sentence to TTS (mic is listening):', sentence);
-              ttsService.speak(sentence, aiMessageId); // Pass assistant message ID
+              ttsService.speak(sentence, aiMessageId); // Pass the current message ID
             }
             lastIndex = match.index + match[0].length;
           }
@@ -540,7 +567,7 @@ const App: React.FC = () => {
               const chunk = ttsBuffer.substring(0, lineBreakIndex).trim();
               if (chunk) {
                 console.log('🔊 Sending line chunk (no punctuation, using line break, mic is listening):', chunk);
-                ttsService.speak(chunk, aiMessageId); // Pass assistant message ID
+                ttsService.speak(chunk, aiMessageId); // Pass the current message ID
               }
               // Update buffer to remove sent chunk including the line break
               ttsBuffer = ttsBuffer.substring(lineBreakIndex + 1);
@@ -553,7 +580,7 @@ const App: React.FC = () => {
                 // Send first 15 words as a chunk
                 const chunk = words.slice(0, 15).join(' ');
                 console.log('🔊 Sending word chunk (no punctuation/line breaks found, mic is listening):', chunk);
-                ttsService.speak(chunk, aiMessageId); // Pass assistant message ID
+                ttsService.speak(chunk, aiMessageId); // Pass the current message ID
                 
                 // Update buffer to remove sent chunk
                 ttsBuffer = words.slice(15).join(' ');
@@ -586,7 +613,7 @@ const App: React.FC = () => {
       // Send any remaining text in the TTS buffer after streaming is complete
       if (isFullVoiceMode && isListening && ttsBuffer.trim()) {
         console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
-        ttsService.speak(ttsBuffer.trim(), aiMessageId); // Pass assistant message ID
+        ttsService.speak(ttsBuffer.trim(), aiMessageId); // Pass the current message ID
       }
       
     } catch (error) {
@@ -721,6 +748,7 @@ const App: React.FC = () => {
         onMicStop={onMicStopRef}
         onListeningStateChange={handleListeningStateChange}
         onClearChatInput={onClearChatInput}
+        getCurrentMsgId={getCurrentMsgId}
       />
     </Box>
   );

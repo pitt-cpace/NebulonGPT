@@ -36,6 +36,8 @@ export class TTSService {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
   private statusCallback?: (status: TTSStatus) => void;
+  private getCurrentMsgId?: () => string | null; // Reference to the global getCurrentMsgId function
+  private setCurrentMsgId?: (msgId: string | null) => void; // Reference to set the current message ID
   private settings: TTSSettings = {
     fullVoiceMode: false,
     voiceGender: 'female',
@@ -51,6 +53,9 @@ export class TTSService {
   private isPlayingAudio = false; // Flag to prevent double-play
   private currentPlayingAudio: TTSQueueItem | null = null; // Track current playing thread
   private pausedAudioTime: number = 0; // Store paused position for resume
+  private backgroundCleanupInterval: NodeJS.Timeout | null = null; // Background cleanup thread
+  private isBackgroundCleanupRunning = false; // Flag to prevent multiple cleanup threads
+  private backgroundCleanupStopTimeout: NodeJS.Timeout | null = null; // Timeout to stop cleanup after 1 minute
 
   constructor(serverUrl?: string) {
     // Use environment variable if available, otherwise detect current port dynamically
@@ -80,6 +85,55 @@ export class TTSService {
 
   public setStatusCallback(callback: (status: TTSStatus) => void) {
     this.statusCallback = callback;
+  }
+
+  public setGetCurrentMsgId(getCurrentMsgId: () => string | null) {
+    this.getCurrentMsgId = getCurrentMsgId;
+  }
+
+  public setSetCurrentMsgId(setCurrentMsgId: (msgId: string | null) => void) {
+    this.setCurrentMsgId = setCurrentMsgId;
+  }
+
+  /**
+   * Start background cleanup thread that runs every 50ms when TTS is active
+   */
+  private startBackgroundCleanup() {
+    if (this.isBackgroundCleanupRunning) {
+      console.log('🧹 Background cleanup thread already running');
+      return;
+    }
+
+    console.log('🚀 Starting background cleanup thread (50ms interval)');
+    this.isBackgroundCleanupRunning = true;
+
+    this.backgroundCleanupInterval = setInterval(() => {
+      // Only run cleanup when TTS is active (has audio queue or active session)
+      const isTTSActive = this.audioQueue.length > 0 || this.currentSession !== null || this.isPlayingAudio;
+      
+      if (isTTSActive) {
+        // Get current message ID from centralized function and destroy old threads
+        this.destroyThreadsForOldMessages();
+      }
+    }, 50); // Run every 50ms
+  }
+
+  /**
+   * Stop background cleanup thread
+   */
+  private stopBackgroundCleanup() {
+    if (!this.isBackgroundCleanupRunning) {
+      return;
+    }
+
+    console.log('🛑 Stopping background cleanup thread');
+    
+    if (this.backgroundCleanupInterval) {
+      clearInterval(this.backgroundCleanupInterval);
+      this.backgroundCleanupInterval = null;
+    }
+    
+    this.isBackgroundCleanupRunning = false;
   }
 
   public updateSettings(settings: Partial<TTSSettings>) {
@@ -233,8 +287,8 @@ export class TTSService {
         };
 
         this.ws.onmessage = (event) => {
-          console.log('📨 TTS WebSocket: Received message');
-          console.log('📨 TTS Message: Data preview:', event.data.substring(0, 200) + (event.data.length > 200 ? '...' : ''));
+          //console.log('📨 TTS WebSocket: Received message');
+          //console.log('📨 TTS Message: Data preview:', event.data.substring(0, 200) + (event.data.length > 200 ? '...' : ''));
           this.handleMessage(event.data);
         };
 
@@ -278,10 +332,8 @@ export class TTSService {
       return;
     }
 
-    // If we have a message ID (including null for DESTROY_ALL), destroy threads accordingly
-    if (assistantMessageId !== undefined) {
-      this.destroyThreadsForOldMessages(assistantMessageId);
-    }
+    // Start background cleanup thread when TTS becomes active
+    this.startBackgroundCleanup();
 
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.connect();
@@ -310,12 +362,15 @@ export class TTSService {
   /**
    * Destroy all audio threads that belong to old assistant messages
    * Only keep threads for the current assistant message
-   * If currentAssistantMessageId is null or "DESTROY_ALL", destroy ALL threads
+   * Uses centralized getCurrentMsgId function to get the current message ID
    */
-  private destroyThreadsForOldMessages(currentAssistantMessageId: string | null) {
-    if (currentAssistantMessageId === null || currentAssistantMessageId === "DESTROY_ALL") {
-      console.log(`💥 DESTROYING ALL MESSAGE THREADS - No filtering, destroy everything`);
-      
+  private destroyThreadsForOldMessages() {
+    // Always use the centralized getCurrentMsgId function to get the current message ID
+    const currentMsgId = this.getCurrentMsgId ? this.getCurrentMsgId() : null;
+    
+    console.log(`🧹 Using centralized getCurrentMsgId: ${currentMsgId} (function exists: ${!!this.getCurrentMsgId})`);
+    if (currentMsgId === null || currentMsgId === "DESTROY_ALL") {
+      console.log(`💥 DESTROYING ALL MESSAGE THREADS - No filtering, destroy everything`);      
       // Destroy ALL threads regardless of message ID
       const threadsToDestroy = [...this.audioQueue]; // Copy all threads for destruction
       const threadsToKeep: TTSQueueItem[] = []; // Keep nothing
@@ -381,16 +436,16 @@ export class TTSService {
       return; // Exit early for DESTROY_ALL mode
     }
     
-    console.log(`🧹 DESTROYING OLD MESSAGE THREADS - keeping only: ${currentAssistantMessageId}`);
+    console.log(`🧹 DESTROYING OLD MESSAGE THREADS AND NULL MESSAGE IDs - keeping only: ${currentMsgId}`);
     
-    // Find threads that belong to old messages
+    // Find threads that are NOT equal to current message ID (destroy old/different message threads)
     const threadsToDestroy = this.audioQueue.filter(item => 
-      item.assistantMessageId && item.assistantMessageId !== currentAssistantMessageId
+      item.assistantMessageId !== currentMsgId
     );
     
-    // Keep threads that belong to the current message or have no message ID (legacy)
+    // Keep threads that match the current message ID exactly
     const threadsToKeep = this.audioQueue.filter(item => 
-      !item.assistantMessageId || item.assistantMessageId === currentAssistantMessageId
+      item.assistantMessageId === currentMsgId
     );
     
     if (threadsToDestroy.length > 0) {
@@ -443,21 +498,44 @@ export class TTSService {
       // Reset current playing audio if it belonged to an old message
       if (this.currentPlayingAudio && 
           this.currentPlayingAudio.assistantMessageId && 
-          this.currentPlayingAudio.assistantMessageId !== currentAssistantMessageId) {
+          this.currentPlayingAudio.assistantMessageId !== currentMsgId) {
         console.log(`💥 Resetting current playing audio (belonged to old message: ${this.currentPlayingAudio.assistantMessageId})`);
         this.currentPlayingAudio = null;
         this.pausedAudioTime = 0;
         this.isPlayingAudio = false;
       }
       
-      console.log(`✅ Kept ${threadsToKeep.length} threads for current message: ${currentAssistantMessageId}`);
+      console.log(`✅ Kept ${threadsToKeep.length} threads for current message: ${currentMsgId}`);
     } else {
-      console.log(`✅ No old message threads to destroy for: ${currentAssistantMessageId}`);
+      console.log(`✅ No old message threads to destroy for: ${currentMsgId}`);
     }
   }
 
   public async stop() {
     console.log('🛑 FORCE STOPPING ALL TTS AUDIO THREADS AND RESETTING QUEUE...');
+    
+    // STEP 0: Set centralized message ID to null to trigger background cleanup to destroy ALL threads
+    if (this.setCurrentMsgId) {
+      console.log('💥 Setting centralized message ID to null to trigger DESTROY_ALL via background cleanup');
+      this.setCurrentMsgId(null); // This will trigger destroyThreadsForOldMessages to destroy ALL threads
+    }
+    
+    // STEP 0.5: Schedule background cleanup thread to stop after 1 minute
+    if (this.isBackgroundCleanupRunning) {
+      console.log('⏰ Scheduling background cleanup thread to stop in 1 minute...');
+      
+      // Clear any existing stop timeout
+      if (this.backgroundCleanupStopTimeout) {
+        clearTimeout(this.backgroundCleanupStopTimeout);
+      }
+      
+      // Schedule stop after 1 minute (60000ms)
+      this.backgroundCleanupStopTimeout = setTimeout(() => {
+        console.log('⏰ 1 minute elapsed - stopping background cleanup thread');
+        this.stopBackgroundCleanup();
+        this.backgroundCleanupStopTimeout = null;
+      }, 60000); // 1 minute
+    }
     
     // STEP 1: Immediately stop all currently playing audio
     this.audioQueue.forEach((item, index) => {
@@ -550,7 +628,7 @@ export class TTSService {
   }
 
   public resume() {
-    console.log('▶️ RESUMING audio thread...');
+    //console.log('▶️ RESUMING audio thread...');
     
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { action: 'resume' };
@@ -639,7 +717,7 @@ export class TTSService {
         console.log('▶️ No previously paused thread, resuming normal queue playback...');
         this.playNextInQueue();
       } else {
-        console.log('▶️ No audio in queue to resume');
+        //console.log('▶️ No audio in queue to resume');
       }
     }
   }
@@ -948,10 +1026,8 @@ export class TTSService {
       return null;
     }
 
-    // If we have a message ID (including null for DESTROY_ALL), destroy threads accordingly
-    if (assistantMessageId !== undefined) {
-      this.destroyThreadsForOldMessages(assistantMessageId);
-    }
+    // Destroy threads using centralized message ID
+    this.destroyThreadsForOldMessages();
 
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.connect();
@@ -1234,13 +1310,13 @@ export class TTSService {
         case 'complete_audio':
           // Handle complete audio response from regular TTS
           if (message.audio) {
-            this.playAudio(message.audio);
+            this.playAudio(message.audio, message.assistantMessageId);
           }
           break;
         case 'audio_chunk':
           // Handle streaming audio chunk
           if (message.audio_chunk) {
-            this.playAudio(message.audio_chunk);
+            this.playAudio(message.audio_chunk, message.assistantMessageId);
           }
           break;
         case 'streaming_started':
@@ -1308,7 +1384,7 @@ export class TTSService {
     }
   }
 
-  private playAudio(audioData: string) {
+  private playAudio(audioData: string, assistantMessageId?: string) {
     try {
       // Convert base64 audio data to blob and play
       const binaryString = atob(audioData);
@@ -1374,10 +1450,10 @@ export class TTSService {
         }
       };
       
-      // Add to queue - create TTSQueueItem with current session's assistant message ID
+      // Add to queue - create TTSQueueItem with the assistant message ID from the server
       const queueItem: TTSQueueItem = {
         audio: audio,
-        assistantMessageId: this.currentSession?.assistantMessageId
+        assistantMessageId: assistantMessageId
       };
       
       this.audioQueue.push(queueItem);
