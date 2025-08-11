@@ -97,10 +97,51 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   }, []);
 
   // Handle TTS settings changes (local only, not saved until Save button)
-  const handleFullVoiceModeChange = (checked: boolean) => {
+  const handleFullVoiceModeChange = async (checked: boolean) => {
     setFullVoiceMode(checked);
     // Update service temporarily for immediate UI feedback
     ttsService.updateSettings({ fullVoiceMode: checked });
+    
+    // If enabling Full Voice Mode and TTS is disconnected, try to connect
+    if (checked && ttsStatus === 'disconnected') {
+      console.log('🔌 Full Voice Mode enabled but TTS is disconnected - attempting to connect...');
+      
+      // Set status to "connecting" during the connection attempts
+      setTtsStatus('connecting');
+      
+      // Try to connect up to 10 times
+      let attempts = 0;
+      const maxAttempts = 60;
+      
+      while (attempts < maxAttempts && ttsService.getStatus() === 'disconnected') {
+        attempts++;
+        console.log(`🔌 TTS connection attempt ${attempts}/${maxAttempts}...`);
+        
+        try {
+          await ttsService.connect();
+          console.log(`✅ TTS connected successfully on attempt ${attempts}`);
+          break; // Exit loop if connection successful
+        } catch (error) {
+          console.error(`❌ TTS connection attempt ${attempts} failed:`, error);
+          
+          // Wait 1 second before next attempt (except for the last attempt)
+          if (attempts < maxAttempts) {
+            console.log(`⏳ Waiting 1 second before attempt ${attempts + 1}...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      }
+      
+      // Update status based on final result
+      const finalStatus = ttsService.getStatus();
+      setTtsStatus(finalStatus);
+      
+      if (finalStatus === 'connected') {
+        console.log(`🎉 TTS connection successful after ${attempts} attempts`);
+      } else {
+        console.warn(`⚠️ TTS connection failed after ${maxAttempts} attempts. Final status: ${finalStatus}`);
+      }
+    }
   };
 
   const handleVoiceGenderChange = (gender: 'female' | 'male') => {
@@ -109,7 +150,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     ttsService.updateSettings({ voiceGender: gender });
   };
 
-  const handleOpen = () => {
+  const handleOpen = async () => {
     // Refresh TTS settings from service when opening dialog
     const currentSettings = ttsService.getSettings();
     setFullVoiceMode(currentSettings.fullVoiceMode);
@@ -117,6 +158,47 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setOriginalTtsSettings(currentSettings);
     
     setOpen(true);
+    
+    // If Full Voice Mode is enabled and TTS is disconnected, try to connect
+    if (currentSettings.fullVoiceMode && ttsService.getStatus() === 'disconnected') {
+      console.log('🔌 Settings dialog opened with Full Voice Mode enabled but TTS disconnected - attempting to connect...');
+      
+      // Set status to "connecting" during the connection attempts
+      setTtsStatus('connecting');
+      
+      // Try to connect up to 60 times
+      let attempts = 0;
+      const maxAttempts = 60;
+      
+      while (attempts < maxAttempts && ttsService.getStatus() === 'disconnected') {
+        attempts++;
+        console.log(`🔌 TTS connection attempt ${attempts}/${maxAttempts}...`);
+        
+        try {
+          await ttsService.connect();
+          console.log(`✅ TTS connected successfully on attempt ${attempts}`);
+          break; // Exit loop if connection successful
+        } catch (error) {
+          console.error(`❌ TTS connection attempt ${attempts} failed:`, error);
+          
+          // Wait 1 second before next attempt (except for the last attempt)
+          if (attempts < maxAttempts) {
+            console.log(`⏳ Waiting 1 second before attempt ${attempts + 1}...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      }
+      
+      // Update status based on final result
+      const finalStatus = ttsService.getStatus();
+      setTtsStatus(finalStatus);
+      
+      if (finalStatus === 'connected') {
+        console.log(`🎉 TTS connection successful after ${attempts} attempts`);
+      } else {
+        console.warn(`⚠️ TTS connection failed after ${maxAttempts} attempts. Final status: ${finalStatus}`);
+      }
+    }
   };
 
   const handleClose = () => {
