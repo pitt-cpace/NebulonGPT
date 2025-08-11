@@ -1348,13 +1348,15 @@ export class TTSService {
           //console.log('TTS Queue action:', message.action, message.message);
           if (message.action === 'pause') {
             this.isPaused = true;
-            this.updateStatus('paused');
+            // Don't change status to 'paused' - keep it as 'connected'
+            // this.updateStatus('paused');
           } 
           break;
         case 'queue_resumed':
           //console.log('TTS Queue action:', message.action, message.message);
           if (message.action === 'resume') {
             this.isPaused = false;
+            // Status should already be 'connected', but ensure it
             this.updateStatus('connected');
           } 
           break;
