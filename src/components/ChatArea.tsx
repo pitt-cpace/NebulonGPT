@@ -160,24 +160,60 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, []);
 
-  // Scroll to bottom when messages change, but only if user hasn't scrolled up
+  // Force scroll to bottom - most direct approach
+  const forceScrollToBottom = useCallback(() => {
+    if (userHasScrolledUp) return;
+    
+    if (messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      // Force immediate scroll to bottom
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [userHasScrolledUp]);
+
+  // Scroll to bottom when messages change
   useEffect(() => {
-    // console.log('🔄 Auto-scroll effect triggered:', {
-    //   hasMessagesEndRef: !!messagesEndRef.current,
-    //   userHasScrolledUp,
-    //   messagesCount: chat?.messages?.length || 0
-    // });
+    console.log('🔄 Auto-scroll effect triggered:', {
+      hasMessagesEndRef: !!messagesEndRef.current,
+      userHasScrolledUp,
+      messagesCount: chat?.messages?.length || 0
+    });
     
     if (messagesEndRef.current && !userHasScrolledUp) {
-      // console.log('✅ Auto-scrolling to bottom');
+      console.log('✅ Auto-scrolling to bottom');
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     } else {
-      // console.log('❌ Auto-scroll blocked:', {
-      //   noRef: !messagesEndRef.current,
-      //   userScrolledUp: userHasScrolledUp
-      // });
+      console.log('❌ Auto-scroll blocked:', {
+        noRef: !messagesEndRef.current,
+        userScrolledUp: userHasScrolledUp
+      });
     }
   }, [chat?.messages, userHasScrolledUp]);
+
+  // Additional effect specifically for content changes (like tables)
+  useEffect(() => {
+    if (!userHasScrolledUp && messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      
+      // Use MutationObserver to detect when content changes
+      const observer = new MutationObserver(() => {
+        console.log('🔄 Content mutation detected - scrolling to bottom');
+        if (!userHasScrolledUp) {
+          forceScrollToBottom();
+        }
+      });
+
+      observer.observe(container, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+
+      return () => {
+        observer.disconnect();
+      };
+    }
+  }, [userHasScrolledUp, forceScrollToBottom, chat?.messages?.length]);
 
   // Handle scroll events to detect when user scrolls up
   useEffect(() => {
