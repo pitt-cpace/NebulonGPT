@@ -8,6 +8,8 @@ websocket/models/**
 websocket/venv/**
 !websocket/models/.placeholder
 !websocket/models/*.zip
+# Ignore specific large model files
+websocket/models/vosk-model-en-us-0.22.zip
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
