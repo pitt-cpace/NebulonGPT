@@ -220,9 +220,10 @@ const App: React.FC = () => {
       // console.log('🔗 Setting up TTS service with updated getCurrentMsgId function');
       ttsService.setGetCurrentMsgId(getCurrentMsgId);
       ttsService.setSetCurrentMsgId(setCurrentMsgIdFromResponse);
+      ttsService.setGetIsListening(() => isListening);
       // console.log('🔗 TTS service connected to centralized message ID functions');
     }
-  }, [initialized, getCurrentMsgId, setCurrentMsgIdFromResponse]);
+  }, [initialized, getCurrentMsgId, setCurrentMsgIdFromResponse, isListening]);
 
   // Initialize app after both models and chats are loaded
   useEffect(() => {

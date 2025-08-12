@@ -38,6 +38,7 @@ export class TTSService {
   private statusCallback?: (status: TTSStatus) => void;
   private getCurrentMsgId?: () => string | null; // Reference to the global getCurrentMsgId function
   private setCurrentMsgId?: (msgId: string | null) => void; // Reference to set the current message ID
+  private getIsListening?: () => boolean; // Reference to get the current listening state
   private settings: TTSSettings = {
     fullVoiceMode: false,
     voiceGender: 'female',
@@ -93,6 +94,10 @@ export class TTSService {
 
   public setSetCurrentMsgId(setCurrentMsgId: (msgId: string | null) => void) {
     this.setCurrentMsgId = setCurrentMsgId;
+  }
+
+  public setGetIsListening(getIsListening: () => boolean) {
+    this.getIsListening = getIsListening;
   }
 
   /**
@@ -1388,6 +1393,27 @@ export class TTSService {
 
   private playAudio(audioData: string, assistantMessageId?: string) {
     try {
+      // Only play audio if Full Voice Mode is enabled AND microphone is listening
+      if (!this.settings.fullVoiceMode) {
+        console.log('🎵 Full Voice Mode disabled - skipping audio playback');
+        return;
+      }
+      
+      // Check if microphone is currently listening using centralized state
+      if (this.getIsListening) {
+        const isListening = this.getIsListening();
+        
+        if (!isListening) {
+          console.log('🎵 Microphone not listening in Full Voice Mode - skipping audio playback');
+          return;
+        }
+        
+        console.log('🎵 Full Voice Mode enabled and microphone listening - proceeding with audio playback');
+      } else {
+        console.warn('⚠️ No listening state callback available - skipping audio playback for safety');
+        return;
+      }
+      
       // Convert base64 audio data to blob and play
       const binaryString = atob(audioData);
       const bytes = new Uint8Array(binaryString.length);
