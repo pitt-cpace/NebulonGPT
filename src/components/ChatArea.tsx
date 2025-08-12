@@ -1917,8 +1917,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             <div ref={messagesEndRef} />
           </Box>
 
-          {/* Jump to latest button when not pinned */}
-          {!isPinned && (
+          {/* Jump to latest button when not pinned and there are messages */}
+          {!isPinned && chat && chat.messages && chat.messages.length > 0 && (
             <IconButton
               onClick={() => jumpToLatest('smooth')}
               sx={{
@@ -2135,7 +2135,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {[
-              'Dr. Hooman H. Rashidi',
+              'Prof. Hooman H. Rashidi',
               'Dr. Quincy Gu',
               'Dr. Matthew Hanna',
               'Dr. Yanshan Wang',
