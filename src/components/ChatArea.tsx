@@ -1720,6 +1720,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             {(() => {
               const ttsSettings = ttsService.getSettings();
               const isFullVoiceMode = ttsSettings.fullVoiceMode;
+              const ttsQueueStatus = ttsService.getQueueStatus();
+              const isTTSPaused = ttsService.isPausedState();
               
               // Show indicator if Full Voice Mode is active OR if we're in the process of turning off
               if ((isFullVoiceMode && isListening) || (isTurningOff && isListening)) {
@@ -1810,9 +1812,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         Full Voice Mode
                       </Typography>
                       
-                      {/* Status text */}
+                      {/* Status text - changes based on TTS state */}
                       <Typography variant="body2" sx={{ fontSize: '0.9rem', opacity: 0.9, textAlign: 'center' }}>
-                        🎙️ Listening for your voice...
+                        {isTTSPaused ? (
+                          '⏸️ Audio Paused - Listening...'
+                        ) : ttsQueueStatus.isPlaying ? (
+                          '🔊 Playing Audio - Listening...'
+                        ) : (
+                          '🎙️ Listening for your voice...'
+                        )}
                       </Typography>
                       
                       {/* Large animated sound waves */}
