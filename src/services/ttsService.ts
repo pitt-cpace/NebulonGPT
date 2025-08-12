@@ -500,14 +500,19 @@ export class TTSService {
       // Update the queue to only contain current message threads
       this.audioQueue = threadsToKeep;
       
-      // Reset current playing audio if it belonged to an old message
+      // Reset current playing audio ONLY if it belonged to an old message (different message ID)
+      // If we're still on the same message ID, PROTECT the paused audio reference
       if (this.currentPlayingAudio && 
           this.currentPlayingAudio.assistantMessageId && 
           this.currentPlayingAudio.assistantMessageId !== currentMsgId) {
-        // console.log(`💥 Resetting current playing audio (belonged to old message: ${this.currentPlayingAudio.assistantMessageId})`);
+        console.log(`💥 Clearing paused audio reference - message ID changed from ${this.currentPlayingAudio.assistantMessageId} to ${currentMsgId}`);
         this.currentPlayingAudio = null;
         this.pausedAudioTime = 0;
         this.isPlayingAudio = false;
+      } else if (this.currentPlayingAudio && 
+                 this.currentPlayingAudio.assistantMessageId === currentMsgId) {
+        console.log(`🛡️ PROTECTING paused audio reference - still on same message ID: ${currentMsgId}`);
+        // Keep the paused audio reference since we're still on the same message
       }
       
       // console.log(`✅ Kept ${threadsToKeep.length} threads for current message: ${currentMsgId}`);
@@ -606,14 +611,17 @@ export class TTSService {
           // Store the current playback position for resume
           this.pausedAudioTime = currentAudio.currentTime;
           
-          // Store reference to the current playing audio item
+          // Store reference to the current playing audio item AND its message ID
           this.currentPlayingAudio = currentItem;
           
           // Pause the audio thread
           currentAudio.pause();
           
+          // Reset the playing flag since we paused
+          this.isPlayingAudio = false;
+          
           console.log(`⏸️ Paused audio thread at position ${this.pausedAudioTime.toFixed(2)}s (msg: ${currentItem.assistantMessageId || 'unknown'})`);
-          console.log(`⏸️ Current playing audio stored for resume validation`);
+          console.log(`⏸️ Stored paused audio reference and position for resume`);
         } catch (error) {
           console.error('⚠️ Error pausing current audio thread:', error);
           // Reset tracking if pause failed
@@ -633,7 +641,7 @@ export class TTSService {
   }
 
   public resume() {
-    //console.log('▶️ RESUMING audio thread...');
+    console.log('▶️ RESUMING audio thread...');
     
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { action: 'resume' };
@@ -643,87 +651,57 @@ export class TTSService {
     // Reset paused state for client-side audio
     this.isPaused = false;
     
-    // CRITICAL: Check if the previously paused thread still exists and is valid
-    if (this.currentPlayingAudio) {
-      // Validate that the stored audio thread still exists in the queue
-      const currentItem = this.audioQueue[0];
+    // Check if we have a paused thread to resume
+    if (this.currentPlayingAudio && this.pausedAudioTime > 0) {
+      console.log(`▶️ Found paused thread, attempting to resume from ${this.pausedAudioTime.toFixed(2)}s`);
       
-      if (currentItem === this.currentPlayingAudio) {
-        const currentAudio = this.currentPlayingAudio.audio;
-        try {
-          // Verify the audio element is still valid and not destroyed
-          if (!currentAudio.src || !currentAudio.src.startsWith('blob:')) {
-            console.log('⚠️ Previously paused audio thread has invalid source, cannot resume');
-            this.currentPlayingAudio = null;
-            this.pausedAudioTime = 0;
-            // Fall back to normal queue playback
-            this.playNextInQueue();
-            return;
-          }
-          
+      const currentAudio = this.currentPlayingAudio.audio;
+      try {
+        // Verify the audio element is still valid and not destroyed
+        if (currentAudio.src && currentAudio.src.startsWith('blob:') && !currentAudio.ended) {
           // Restore the playback position
           currentAudio.currentTime = this.pausedAudioTime;
           
+          // Set the playing flag before starting playback
+          this.isPlayingAudio = true;
+          
           // Resume the specific paused thread
           currentAudio.play().then(() => {
-            console.log(`▶️ Resumed audio thread from position ${this.pausedAudioTime.toFixed(2)}s (msg: ${this.currentPlayingAudio?.assistantMessageId || 'unknown'})`);
+            console.log(`▶️ Successfully resumed paused audio thread from position ${this.pausedAudioTime.toFixed(2)}s (msg: ${this.currentPlayingAudio?.assistantMessageId || 'unknown'})`);
             
             // Clear the stored reference since it's now playing
             this.currentPlayingAudio = null;
             this.pausedAudioTime = 0;
           }).catch((error: any) => {
-            console.error('⚠️ Failed to resume previously paused audio thread:', error);
+            console.error('⚠️ Failed to resume paused audio thread:', error);
             
-            // Clear invalid reference
+            // Reset playing flag and clear references
+            this.isPlayingAudio = false;
             this.currentPlayingAudio = null;
             this.pausedAudioTime = 0;
             
-            // Remove the failed audio and try next
-            const failedItem = this.audioQueue.shift();
-            if (failedItem) {
-              const failedAudio = failedItem.audio;
-              failedAudio.onended = null;
-              failedAudio.onerror = null;
-              if (failedAudio.src && failedAudio.src.startsWith('blob:')) {
-                URL.revokeObjectURL(failedAudio.src);
-              }
-            }
-            
-            // Fall back to normal queue playback
+            // Try to play next audio in queue
             this.playNextInQueue();
           });
-          
-        } catch (error) {
-          console.error('⚠️ Error validating previously paused audio thread:', error);
-          
-          // Clear invalid reference
-          this.currentPlayingAudio = null;
-          this.pausedAudioTime = 0;
-          
-          // Fall back to normal queue playback
-          this.playNextInQueue();
+          return; // Exit early since we resumed the paused thread
+        } else {
+          console.log('⚠️ Paused audio thread has invalid source or has ended, clearing reference');
         }
-      } else {
-        console.log('⚠️ Previously paused audio thread no longer exists in queue (may have been destroyed)');
-        
-        // Clear invalid reference
-        this.currentPlayingAudio = null;
-        this.pausedAudioTime = 0;
-        
-        // Fall back to normal queue playback
-        if (this.audioQueue.length > 0) {
-          console.log('▶️ Falling back to normal queue playback...');
-          this.playNextInQueue();
-        }
+      } catch (error) {
+        console.error('⚠️ Error validating paused audio thread:', error);
       }
+      
+      // Clear invalid paused thread reference
+      this.currentPlayingAudio = null;
+      this.pausedAudioTime = 0;
+    }
+    
+    // If no valid paused thread exists, play the next one in queue
+    if (this.audioQueue.length > 0) {
+      console.log('▶️ No valid paused thread found, playing next audio in queue...');
+      this.playNextInQueue();
     } else {
-      // No previously paused thread, resume normal queue playback
-      if (this.audioQueue.length > 0) {
-        //console.log('▶️ No previously paused thread, resuming normal queue playback...');
-        this.playNextInQueue();
-      } else {
-        //console.log('▶️ No audio in queue to resume');
-      }
+      console.log('▶️ No audio in queue to resume');
     }
   }
 
