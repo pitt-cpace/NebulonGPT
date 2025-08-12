@@ -33,7 +33,7 @@ export class VoskRecognitionService {
   private silenceDetectionEnabled = true;
   private silenceThreshold = 0.25; // Root Mean Square (RMS) audio level 0.0-1.0 (0.05 = 5% of max volume, roughly normal conversation ~65-70dB equivalent) - Audio below this is considered silence
   private silenceTimeoutNormal = 3500; // 3 seconds of silence before auto-stop in normal mode
-  private silenceTimeoutFullVoice = 1000; // 1.5 seconds of silence before auto-stop in full voice mode
+  private silenceTimeoutFullVoice = 1500; // 1.5 seconds of silence before auto-stop in full voice mode
   private lastAudioTime = 0;
   private silenceTimer: number | null = null;
   private accumulatedSilenceTime = 0; // Variable to accumulate silence time
