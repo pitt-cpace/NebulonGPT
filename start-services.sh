@@ -80,6 +80,63 @@ echo "🔧 KOKORO_SERVER_PORT set to: $KOKORO_SERVER_PORT"
 export VOSK_MODELS_DIR=/app/vosk-server/models
 echo "🔧 VOSK_MODELS_DIR set to: $VOSK_MODELS_DIR"
 
+# Hugging Face Cache Extraction (Runtime)
+echo ""
+echo "📦 HUGGING FACE CACHE EXTRACTION:"
+echo "📦 Checking if Hugging Face cache needs to be extracted..."
+
+# Check if cache is already extracted and populated
+if [ -d "/app/.cache/huggingface/hub" ] && [ "$(ls -A /app/.cache/huggingface/hub 2>/dev/null)" ]; then
+    echo "✅ Hugging Face cache already exists and is populated"
+    echo "📦 Cache size: $(du -sh /app/.cache/huggingface 2>/dev/null || echo 'Cannot calculate')"
+else
+    echo "📦 Hugging Face cache is empty or missing, extracting from zip files..."
+    
+    # Check if zip files exist
+    if [ -f "/app/kokoro-tts/huggingface-cache.zip.001" ] && [ -f "/app/kokoro-tts/huggingface-cache.zip.002" ] && [ -f "/app/kokoro-tts/huggingface-cache.zip.003" ] && [ -f "/app/kokoro-tts/huggingface-cache.zip.004" ]; then
+        echo "📦 Found all 4 zip parts, proceeding with extraction..."
+        
+        # Create temporary extraction directory
+        mkdir -p /tmp/hf-extract
+        cd /app/kokoro-tts
+        
+        # Concatenate zip parts
+        echo "📦 Concatenating zip parts..."
+        cat huggingface-cache.zip.001 huggingface-cache.zip.002 huggingface-cache.zip.003 huggingface-cache.zip.004 > /tmp/huggingface-cache.zip
+        
+        # Extract to temporary directory
+        echo "📦 Extracting cache to temporary directory..."
+        cd /tmp/hf-extract
+        unzip -o -q /tmp/huggingface-cache.zip
+        
+        # Move extracted content to final location
+        if [ -d "huggingface-cache" ]; then
+            echo "📦 Moving extracted cache to final location..."
+            mv huggingface-cache/* /app/.cache/huggingface/
+            rmdir huggingface-cache
+            echo "✅ Hugging Face cache extraction completed successfully"
+            echo "📦 Final cache size: $(du -sh /app/.cache/huggingface 2>/dev/null || echo 'Cannot calculate')"
+        else
+            echo "❌ ERROR: huggingface-cache directory not found after extraction"
+            echo "📦 Contents of extraction directory:"
+            ls -la /tmp/hf-extract/
+        fi
+        
+        # Cleanup temporary files
+        echo "📦 Cleaning up temporary files..."
+        rm -rf /tmp/hf-extract /tmp/huggingface-cache.zip
+        
+        # Set proper permissions
+        chown -R root:root /app/.cache/huggingface
+        chmod -R 755 /app/.cache/huggingface
+        
+    else
+        echo "❌ ERROR: Hugging Face cache zip files not found in /app/kokoro-tts/"
+        echo "📦 Available files in kokoro-tts directory:"
+        ls -la /app/kokoro-tts/ | grep -E "zip|cache" || echo "📦 No zip or cache files found"
+    fi
+fi
+
 # Python Dependencies Check
 echo ""
 echo "🐍 PYTHON DEPENDENCIES CHECK:"

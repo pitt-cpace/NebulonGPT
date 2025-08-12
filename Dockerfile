@@ -73,14 +73,13 @@ RUN cd /tmp && \
     done && \
     rm -f /tmp/*.zip
 
-# Kokoro - Copy everything including the huggingface-cache
+# Kokoro - Copy everything including the zip files
 COPY Kokoro-TTS-Server/ /app/kokoro-tts/
 
-# Copy the huggingface cache to the proper location for offline use
+# Create Hugging Face cache directory (extraction will happen at runtime)
 RUN mkdir -p /app/.cache/huggingface && \
-    cp -r /app/kokoro-tts/huggingface-cache/* /app/.cache/huggingface/ && \
-    chown -R root:root /app/.cache/huggingface && \
-    chmod -R 755 /app/.cache/huggingface
+    chown -R root:root /app/.cache && \
+    chmod -R 755 /app/.cache
 
 # Data & nginx
 RUN mkdir -p /app/data

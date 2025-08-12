@@ -14,7 +14,6 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/sites-available/default
       - chat-data:/app/data
-      - ./Kokoro-TTS-Server/huggingface-cache:/app/.cache/huggingface
     environment:
       - NODE_ENV=production
       # Frontend build-time environment variables
