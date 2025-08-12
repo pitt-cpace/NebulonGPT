@@ -33,7 +33,7 @@ export class TTSService {
   private ws: WebSocket | null = null;
   private serverUrl: string;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
+  private maxReconnectAttempts = 60;
   private reconnectDelay = 1000;
   private statusCallback?: (status: TTSStatus) => void;
   private getCurrentMsgId?: () => string | null; // Reference to the global getCurrentMsgId function
