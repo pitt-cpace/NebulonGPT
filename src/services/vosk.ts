@@ -32,7 +32,8 @@ export class VoskRecognitionService {
   // Silence detection for auto-stop
   private silenceDetectionEnabled = true;
   private silenceThreshold = 0.25; // Root Mean Square (RMS) audio level 0.0-1.0 (0.05 = 5% of max volume, roughly normal conversation ~65-70dB equivalent) - Audio below this is considered silence
-  private silenceTimeout = 1500; // 1.5 seconds of silence before auto-stop
+  private silenceTimeoutNormal = 3500; // 3 seconds of silence before auto-stop in normal mode
+  private silenceTimeoutFullVoice = 1000; // 1.5 seconds of silence before auto-stop in full voice mode
   private lastAudioTime = 0;
   private silenceTimer: number | null = null;
   private accumulatedSilenceTime = 0; // Variable to accumulate silence time
@@ -1026,6 +1027,14 @@ export class VoskRecognitionService {
   // ========================================
 
   /**
+   * Get the appropriate silence timeout based on Full Voice Mode setting
+   */
+  private get silenceTimeout(): number {
+    const ttsSettings = ttsService.getSettings();
+    return ttsSettings.fullVoiceMode ? this.silenceTimeoutFullVoice : this.silenceTimeoutNormal;
+  }
+
+  /**
    * Process audio data for silence detection
    */
   private processAudioForSilenceDetection(audioData: ArrayBuffer): void {
@@ -1247,11 +1256,6 @@ export class VoskRecognitionService {
     if (settings.voiceDetectionEnabled !== undefined) {
       this.setVoiceDetectionEnabled(settings.voiceDetectionEnabled);
     }
-    
-    if (settings.silenceTimeout !== undefined) {
-      this.silenceTimeout = Math.max(500, Math.min(10000, settings.silenceTimeout));
-      console.log(`🔇 Silence timeout updated: ${this.silenceTimeout}ms`);
-    }
   }
 
   /**
@@ -1292,15 +1296,6 @@ export class VoskRecognitionService {
       this.clearSilenceTimer();
     }
     console.log(`🔇 Silence detection ${enabled ? 'enabled' : 'disabled'}`);
-  }
-
-  /**
-   * Set silence detection parameters
-   */
-  public setSilenceDetectionParams(threshold: number, timeout: number): void {
-    this.silenceThreshold = Math.max(0.001, Math.min(0.1, threshold)); // Clamp between 0.001 and 0.1
-    this.silenceTimeout = Math.max(500, Math.min(10000, timeout)); // Clamp between 0.5s and 10s
-    console.log(`🔇 Silence detection params updated - threshold: ${this.silenceThreshold}, timeout: ${this.silenceTimeout}ms`);
   }
 
   /**
