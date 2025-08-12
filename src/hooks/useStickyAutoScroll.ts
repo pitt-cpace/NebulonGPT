@@ -84,7 +84,7 @@ export function useStickyAutoScroll({
       const scrollUpDistance = lastTop - currentTop;
       if (scrolledUp && scrollUpDistance > 1) {
         setIsPinned(false);
-      } else if (d <= 100) { // At bottom - enable auto-scroll
+      } else if (d <= bottomThreshold) { // At bottom - enable auto-scroll
         if (!isPinned) {
           if (generating) {
             setIsPinned(true);
