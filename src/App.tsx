@@ -366,7 +366,6 @@ const App: React.FC = () => {
     // Clear TTS if full voice mode is enabled (for new conversation turn)
     const ttsSettings = ttsService.getSettings();
     if (ttsSettings.fullVoiceMode) {
-      console.log('🔄 New message - clearing TTS for fresh conversation turn');
       
       ttsService.pause();
       ttsService.clear(); // This will stop current audio and clear queue
@@ -440,22 +439,19 @@ const App: React.FC = () => {
           const cleared = await ttsService.clear(); // This includes server + client clearing with verification
           
           if (cleared) {
-            // console.log(`✅ Pre-LLM TTS clearing attempt ${clearAttempt} SUCCESSFUL - All threads destroyed before LLM`);
             
             // Check if we've been running for at least 2 seconds
             const elapsedTime = Date.now() - startTime;
             if (elapsedTime >= minimumDuration) {
-              // console.log(`⏰ Minimum 2 seconds elapsed (${elapsedTime}ms) - stopping loop`);
               allCleared = true;
               break;
             } else {
               const remainingTime = minimumDuration - elapsedTime;
-              // console.log(`⏰ Only ${elapsedTime}ms elapsed, continuing for ${remainingTime}ms more...`);
               // Continue the loop even though clearing was successful
               await new Promise(resolve => setTimeout(resolve, 500));
             }
           } else {
-            // console.warn(`⚠️ Pre-LLM TTS clearing attempt ${clearAttempt} verification timeout - retrying...`);
+            console.warn(`⚠️ Pre-LLM TTS clearing attempt ${clearAttempt} verification timeout - retrying...`);
             
             // Wait 500ms before next attempt (shorter for LLM start)
             await new Promise(resolve => setTimeout(resolve, 500));

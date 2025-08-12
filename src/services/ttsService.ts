@@ -523,17 +523,14 @@ export class TTSService {
   }
 
   public async stop() {
-    console.log('🛑 FORCE STOPPING ALL TTS AUDIO THREADS AND RESETTING QUEUE...');
     
     // STEP 0: Set centralized message ID to null to trigger background cleanup to destroy ALL threads
     if (this.setCurrentMsgId) {
-      console.log('💥 Setting centralized message ID to null to trigger DESTROY_ALL via background cleanup');
       this.setCurrentMsgId(null); // This will trigger destroyThreadsForOldMessages to destroy ALL threads
     }
     
     // STEP 0.5: Schedule background cleanup thread to stop after 1 minute
     if (this.isBackgroundCleanupRunning) {
-      console.log('⏰ Scheduling background cleanup thread to stop in 1 minute...');
       
       // Clear any existing stop timeout
       if (this.backgroundCleanupStopTimeout) {
@@ -542,7 +539,6 @@ export class TTSService {
       
       // Schedule stop after 1 minute (60000ms)
       this.backgroundCleanupStopTimeout = setTimeout(() => {
-        console.log('⏰ 1 minute elapsed - stopping background cleanup thread');
         this.stopBackgroundCleanup();
         this.backgroundCleanupStopTimeout = null;
       }, 60000); // 1 minute
@@ -555,7 +551,6 @@ export class TTSService {
         if (!audio.paused) {
           audio.pause();
           audio.currentTime = 0;
-          console.log(`🛑 Force stopped playing audio ${index} (msg: ${item.assistantMessageId || 'unknown'})`);
         }
       } catch (error) {
         console.warn(`⚠️ Error force stopping audio ${index}:`, error);
@@ -564,7 +559,6 @@ export class TTSService {
     
     // STEP 2: End streaming session first if active
     if (this.currentSession) {
-      console.log('🛑 Ending active streaming session...');
       this.endStreaming();
     }
     
@@ -572,11 +566,9 @@ export class TTSService {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { action: 'stop' };
       this.ws.send(JSON.stringify(message));
-      console.log('🛑 Sent stop command to TTS server');
     }
     
     // STEP 3.5: Wait 500ms for server and processes to respond properly
-    console.log('⏳ Waiting 500ms for server and processes to respond...');
     await new Promise(resolve => setTimeout(resolve, 500));
     
     // STEP 4: Force destroy all audio threads and reset everything
@@ -587,11 +579,9 @@ export class TTSService {
     this.isPlayingAudio = false;
     this.currentSession = null;
     
-    console.log('✅ ALL TTS AUDIO THREADS DESTROYED - READY FOR NEXT LLM RESPONSE');
   }
 
   public pause() {
-    console.log('⏸️ PAUSING current audio thread...');
     
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { action: 'pause' };
@@ -624,8 +614,6 @@ export class TTSService {
           // Reset the playing flag since we paused
           this.isPlayingAudio = false;
           
-          console.log(`⏸️ Paused audio thread at position ${this.pausedAudioTime.toFixed(2)}s (msg: ${currentItem.assistantMessageId || 'unknown'})`);
-          console.log(`⏸️ Stored paused audio reference, position, and timestamp for resume`);
         } catch (error) {
           console.error('⚠️ Error pausing current audio thread:', error);
           // Reset tracking if pause failed
@@ -633,19 +621,16 @@ export class TTSService {
           this.pausedAudioTime = 0;
         }
       } else {
-        console.log('⏸️ No currently playing audio thread found to pause');
         this.currentPlayingAudio = null;
         this.pausedAudioTime = 0;
       }
     } else {
-      console.log('⏸️ No audio in queue to pause');
       this.currentPlayingAudio = null;
       this.pausedAudioTime = 0;
     }
   }
 
   public async resume() {
-    console.log('▶️ RESUMING audio thread...');
     
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { action: 'resume' };
@@ -659,10 +644,7 @@ export class TTSService {
       
       if (timeSincePause < minimumWaitTime) {
         const remainingWaitTime = minimumWaitTime - timeSincePause;
-        console.log(`⏳ Waiting ${remainingWaitTime}ms more to ensure at least 1 second since last pause...`);
         await new Promise(resolve => setTimeout(resolve, remainingWaitTime));
-      } else {
-        console.log(`✅ ${timeSincePause}ms has passed since last pause - proceeding with resume`);
       }
     }
     
@@ -671,7 +653,6 @@ export class TTSService {
     
     // Check if we have a paused thread to resume
     if (this.currentPlayingAudio && this.pausedAudioTime > 0) {
-      console.log(`▶️ Found paused thread, attempting to resume from ${this.pausedAudioTime.toFixed(2)}s`);
       
       const currentAudio = this.currentPlayingAudio.audio;
       try {
@@ -685,7 +666,6 @@ export class TTSService {
           
           // Resume the specific paused thread
           currentAudio.play().then(() => {
-            console.log(`▶️ Successfully resumed paused audio thread from position ${this.pausedAudioTime.toFixed(2)}s (msg: ${this.currentPlayingAudio?.assistantMessageId || 'unknown'})`);
             
             // Clear the stored reference since it's now playing
             this.currentPlayingAudio = null;
@@ -702,9 +682,7 @@ export class TTSService {
             this.playNextInQueue();
           });
           return; // Exit early since we resumed the paused thread
-        } else {
-          console.log('⚠️ Paused audio thread has invalid source or has ended, clearing reference');
-        }
+        } 
       } catch (error) {
         console.error('⚠️ Error validating paused audio thread:', error);
       }
@@ -716,26 +694,20 @@ export class TTSService {
     
     // If no valid paused thread exists, play the next one in queue
     if (this.audioQueue.length > 0) {
-      console.log('▶️ No valid paused thread found, playing next audio in queue...');
       this.playNextInQueue();
-    } else {
-      console.log('▶️ No audio in queue to resume');
     }
   }
 
   public async clear(): Promise<boolean> {
-    console.log('🧹 STARTING COMPLETE TTS BUFFER CLEARING (SERVER + CLIENT)...');
     
     // STEP 1: End streaming session first if active
     if (this.currentSession) {
-      console.log('🛑 Ending active streaming session...');
       this.endStreaming();
       await new Promise(resolve => setTimeout(resolve, 50)); // Wait for server to process
     }
     
     // STEP 2: Send multiple clear commands to server to ensure buffer clearing
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      console.log('📤 Sending aggressive server buffer clear commands...');
       
       // Send stop command first
       this.ws.send(JSON.stringify({ action: 'stop' }));
@@ -755,11 +727,9 @@ export class TTSService {
     this.currentSession = null;
     
     // STEP 4: Aggressively clear client-side audio buffers
-    console.log('🧹 Clearing client-side audio buffers...');
     this.clearAudioQueue();
     
     // STEP 5: Additional client-side buffer clearing
-    console.log('🧹 Additional client-side buffer clearing...');
     
     // Clear any pending audio that might be in browser's audio pipeline
     try {
@@ -779,7 +749,6 @@ export class TTSService {
     }
     
     // STEP 6: Wait for server confirmation and verify clearing
-    console.log('⏳ Waiting for server and client buffer clearing confirmation...');
     
     const maxAttempts = 20; // Maximum 2 seconds (20 * 100ms)
     let attempt = 0;
@@ -820,10 +789,7 @@ export class TTSService {
       cleared = audioQueueEmpty && notPaused && noActiveSession && allAudioStopped && noAudioPlaying;
       
       if (cleared) {
-        console.log(`✅ COMPLETE TTS BUFFER CLEARING SUCCESSFUL after ${attempt * 100}ms`);
         break;
-      } else {
-        console.log(`⏳ Clearing verification attempt ${attempt}/${maxAttempts}...`);
       }
     }
     
@@ -841,12 +807,10 @@ export class TTSService {
       console.log('🧹 Forced garbage collection after buffer clearing');
     }
     
-    console.log('🏁 TTS BUFFER CLEARING PROCESS COMPLETED');
     return cleared;
   }
 
   private clearAudioQueue() {
-    console.log('🧹 AGGRESSIVE client-side audio cache clearing...');
     
     // Stop and destroy ALL audio elements in queue
     this.audioQueue.forEach((item, index) => {
@@ -879,7 +843,6 @@ export class TTSService {
         audio.src = '';
         audio.load(); // Force reload to clear internal buffers
         
-        console.log(`🗑️ Destroyed audio element ${index} (msg: ${item.assistantMessageId || 'unknown'})`);
       } catch (error) {
         console.warn(`⚠️ Error destroying audio element ${index}:`, error);
       }
@@ -898,14 +861,10 @@ export class TTSService {
     // Force garbage collection hint (browser may or may not honor this)
     if (window.gc) {
       window.gc();
-      console.log('🧹 Forced garbage collection');
     }
-    
-    console.log('✅ Client-side audio cache completely cleared');
   }
 
   private forceDestroyAllAudioThreads() {
-    console.log('💥 FORCE DESTROYING ALL AUDIO THREADS AND PROCESSES...');
     
     // STEP 1: Immediately stop and destroy all audio in queue
     this.audioQueue.forEach((item, index) => {
@@ -915,7 +874,6 @@ export class TTSService {
         // Force stop playback
         if (!audio.paused) {
           audio.pause();
-          console.log(`💥 Force stopped audio thread ${index} (msg: ${item.assistantMessageId || 'unknown'})`);
         }
         
         // Reset audio completely
@@ -998,7 +956,6 @@ export class TTSService {
     // STEP 5: Force aggressive garbage collection
     if (window.gc) {
       window.gc();
-      console.log('💥 Forced aggressive garbage collection');
     }
     
     // STEP 6: Additional cleanup - clear any potential audio contexts
@@ -1006,14 +963,11 @@ export class TTSService {
       // Clear any Web Audio API contexts that might be lingering
       if (window.AudioContext || (window as any).webkitAudioContext) {
         // Note: We don't create audio contexts in this service, but this is for safety
-        console.log('💥 Checked for lingering audio contexts');
       }
     } catch (error) {
       // Ignore errors in audio context cleanup
     }
     
-    console.log('✅ ALL AUDIO THREADS AND PROCESSES FORCEFULLY DESTROYED');
-    console.log('🆕 TTS SERVICE RESET - READY FOR FRESH LLM RESPONSE');
   }
 
   public async startStreaming(assistantMessageId?: string | null): Promise<number | null> {
@@ -1023,7 +977,6 @@ export class TTSService {
 
     // Only process English text for TTS streaming - skip other languages
     if (!this.isEnglishLanguage()) {
-      console.log(`🚫 Skipping TTS streaming for non-English language: ${this.settings.language}`);
       return null;
     }
 
@@ -1194,11 +1147,6 @@ export class TTSService {
       .replace(/\s+/g, ' ')
       .trim();
 
-    // Log the cleaning for debugging
-    if (text !== cleaned) {
-      console.log('🧹 TTS text cleaned:', { original: text, cleaned });
-    }
-
     return cleaned;
   }
 
@@ -1209,31 +1157,20 @@ export class TTSService {
   }
 
   private handleDisconnection() {
-    console.log('🔌 TTS Disconnection: Starting disconnection handling...');
-    console.log('🔌 TTS Disconnection: Current reconnect attempts:', this.reconnectAttempts);
-    console.log('🔌 TTS Disconnection: Max reconnect attempts:', this.maxReconnectAttempts);
     
     this.updateStatus('disconnected');
     
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
-      console.log(`🔄 TTS Reconnect: Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
-      console.log(`🔄 TTS Reconnect: Delay: ${this.reconnectDelay * this.reconnectAttempts}ms`);
       
       this.updateStatus('reconnecting');
       
       setTimeout(() => {
-        console.log(`🚀 TTS Reconnect: Starting reconnection attempt ${this.reconnectAttempts}`);
         this.connect().then(() => {
-          console.log(`✅ TTS Reconnect: Attempt ${this.reconnectAttempts} succeeded!`);
         }).catch((error) => {
           console.error(`❌ TTS Reconnect: Attempt ${this.reconnectAttempts} failed:`, error);
-          console.log('🔄 TTS Reconnect: Will try again or give up based on max attempts');
         });
       }, this.reconnectDelay * this.reconnectAttempts);
-    } else {
-      console.log(`❌ TTS Reconnect: Max attempts (${this.maxReconnectAttempts}) reached, giving up`);
-      console.log('🔌 TTS Reconnect: Connection permanently failed');
     }
   }
 
@@ -1332,21 +1269,17 @@ export class TTSService {
           };
           break;
         case 'streaming_ended':
-          console.log('TTS Streaming ended:', message.session_id);
           this.currentSession = null;
           break;
         case 'queue_cleared':
-          console.log('TTS Queue action:', message.action, message.message);
           if (message.action === 'stop' || message.action === 'clear') {
             // Server confirmed cache clearing - do additional client-side cleanup
-            console.log('🔄 Server confirmed cache clearing - performing additional client cleanup');
             this.clearAudioQueue(); // Double-clear to be absolutely sure
             this.currentSession = null; // Reset session
             this.isPaused = false; // Reset state
           }
           break;
         case 'queue_paused':
-          //console.log('TTS Queue action:', message.action, message.message);
           if (message.action === 'pause') {
             this.isPaused = true;
             // Don't change status to 'paused' - keep it as 'connected'
@@ -1354,7 +1287,6 @@ export class TTSService {
           } 
           break;
         case 'queue_resumed':
-          //console.log('TTS Queue action:', message.action, message.message);
           if (message.action === 'resume') {
             this.isPaused = false;
             // Status should already be 'connected', but ensure it
@@ -1378,8 +1310,6 @@ export class TTSService {
           // Handle error responses
           if (message.error) {
             console.error('TTS Error:', message.error);
-          } else {
-            console.log('Unknown TTS message:', message);
           }
       }
     } catch (error) {
@@ -1391,7 +1321,6 @@ export class TTSService {
     try {
       // Only play audio if Full Voice Mode is enabled AND microphone is listening
       if (!this.settings.fullVoiceMode) {
-        console.log('🎵 Full Voice Mode disabled - skipping audio playback');
         return;
       }
       
@@ -1400,11 +1329,9 @@ export class TTSService {
         const isListening = this.getIsListening();
         
         if (!isListening) {
-          console.log('🎵 Microphone not listening in Full Voice Mode - skipping audio playback');
           return;
         }
         
-        console.log('🎵 Full Voice Mode enabled and microphone listening - proceeding with audio playback');
       } else {
         console.warn('⚠️ No listening state callback available - skipping audio playback for safety');
         return;
@@ -1423,7 +1350,6 @@ export class TTSService {
       
       // Set up event handlers before adding to queue
       audio.onended = () => {
-        console.log('🎵 Audio finished playing, cleaning up and playing next...');
         URL.revokeObjectURL(audioUrl);
         
         // CRITICAL: Reset the playing flag
@@ -1433,7 +1359,6 @@ export class TTSService {
         const currentItem = this.audioQueue[0];
         if (currentItem && currentItem.audio === audio) {
           this.audioQueue.shift();
-          console.log(`🎵 Removed finished audio from queue (msg: ${currentItem.assistantMessageId || 'unknown'}). Remaining: ${this.audioQueue.length}`);
         }
         
         // Clean up event listeners
@@ -1442,11 +1367,8 @@ export class TTSService {
         
         // CRITICAL: Only play next if we're not paused and there are more items
         if (!this.isPaused && this.audioQueue.length > 0) {
-          console.log('🎵 Playing next audio after current finished...');
           this.playNextInQueue();
-        } else {
-          console.log(`🎵 Queue finished or paused. Paused: ${this.isPaused}, Remaining: ${this.audioQueue.length}`);
-        }
+        } 
       };
       
       audio.onerror = (error) => {
@@ -1469,7 +1391,6 @@ export class TTSService {
         
         // CRITICAL: Try to play next audio even if current failed
         if (!this.isPaused && this.audioQueue.length > 0) {
-          console.log('🎵 Playing next audio after current failed...');
           this.playNextInQueue();
         }
       };
@@ -1481,15 +1402,11 @@ export class TTSService {
       };
       
       this.audioQueue.push(queueItem);
-      console.log(`🎵 Added audio to queue (msg: ${queueItem.assistantMessageId || 'unknown'}). Queue length: ${this.audioQueue.length}`);
       
       // CRITICAL: Only start playing if this is the first audio AND no audio is currently playing
       if (this.audioQueue.length === 1 && !this.isPaused) {
-        console.log('🎵 Starting queue playback with first audio...');
         this.playNextInQueue();
-      } else {
-        console.log(`🎵 Audio queued. Will play after current audio finishes. Position in queue: ${this.audioQueue.length}`);
-      }
+      } 
       
     } catch (error) {
       console.error('Failed to process TTS audio:', error);
@@ -1526,19 +1443,15 @@ export class TTSService {
     
     // CRITICAL: Additional check if audio is already playing
     if (!audio.paused) {
-      console.log('🎵 Audio is already playing, not starting again');
       return;
     }
     
-    console.log(`🎵 Starting playback of audio at queue position 0 (msg: ${item.assistantMessageId || 'unknown'}). Total queue length: ${this.audioQueue.length}`);
     
     // Set flag to prevent double-play
     this.isPlayingAudio = true;
     
     // Play the audio
-    audio.play().then(() => {
-      console.log(`🎵 Audio playback started successfully (msg: ${item.assistantMessageId || 'unknown'})`);
-    }).catch((error: any) => {
+    audio.play().then(() => {}).catch((error: any) => {
       console.error('🎵 Failed to start audio playback:', error);
       
       // Reset flag on failure

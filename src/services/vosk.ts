@@ -134,12 +134,10 @@ export class VoskRecognitionService {
         };
 
         this.socket.onclose = (event) => {
-          console.log(`🔌 WebSocket connection closed - Code: ${event.code}, Reason: ${event.reason}`);
           
           // Check if this was an abnormal closure or connection issue that needs reconnection
           // 1006: Abnormal closure, 1001: Going away, 1011: Server error/timeout, 1000: Normal closure but we want to reconnect
           if (event.code === 1006 || event.code === 1001 || event.code === 1011 || event.code === 1000) {
-            console.log('🔄 Connection lost, attempting automatic reconnection...');
             
             // Remember if we were recording before disconnect
             this.wasRecordingBeforeDisconnect = this.isRecording;
@@ -150,7 +148,6 @@ export class VoskRecognitionService {
             // Start reconnection process
             this.attemptReconnection();
           } else {
-            console.log('🛑 WebSocket closed normally, no reconnection needed');
             this.socket = null;
           }
         };
@@ -169,17 +166,14 @@ export class VoskRecognitionService {
                 break;
                 
               case 'model_loading':
-                console.log(`🔄 Model loading: ${msg.model} - ${msg.message}`);
                 break;
                 
               case 'model_loaded':
-                console.log(`✅ Model loaded: ${msg.model}`);
                 this.currentModel = msg.model;
                 
                 // Trigger automatic language detection for TTS
                 const languageResult = ttsService.autoDetectLanguageFromVoskModel(msg.model);
                 if (languageResult.message) {
-                  console.log(`🌐 ${languageResult.message}`);
                 }
                 
                 if (this.onModelLoadedCallback) {
@@ -264,7 +258,6 @@ export class VoskRecognitionService {
 
   private async initializeAudio(): Promise<void> {
     try {
-      console.log('🎧 Creating fresh microphone stream...');
       
       // Always request fresh microphone access
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -277,9 +270,7 @@ export class VoskRecognitionService {
         }
       });
       
-      console.log('✅ Fresh microphone access granted');
 
-      console.log('🔊 Creating fresh audio context...');
       this.audioContext = new AudioContext({
         sampleRate: 16000
       });
@@ -289,15 +280,12 @@ export class VoskRecognitionService {
         await this.audioContext.resume();
       }
 
-      console.log('🎤 Creating audio source...');
       this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
 
-      console.log('⚙️ Loading AudioWorklet processor...');
       try {
         // Load the AudioWorklet processor
         await this.audioContext.audioWorklet.addModule('/vosk-audio-processor.js');
         
-        console.log('⚙️ Creating AudioWorklet node...');
         this.processor = new AudioWorkletNode(this.audioContext, 'vosk-audio-processor');
 
         // Handle messages from the AudioWorklet processor with silence detection
@@ -318,11 +306,9 @@ export class VoskRecognitionService {
           }
         };
 
-        console.log('🔗 Connecting audio nodes...');
         this.source.connect(this.processor);
         this.processor.connect(this.audioContext.destination);
 
-        console.log('✅ Audio initialization complete');
       } catch (workletError) {
         console.warn('⚠️ AudioWorklet not supported, falling back to ScriptProcessorNode...');
         
@@ -349,11 +335,9 @@ export class VoskRecognitionService {
         // Store as any to avoid type conflicts
         this.processor = scriptProcessor as any;
         
-        console.log('🔗 Connecting audio nodes (fallback)...');
         this.source.connect(scriptProcessor);
         scriptProcessor.connect(this.audioContext.destination);
 
-        console.log('✅ Audio initialization complete (using fallback)');
       }
     } catch (error) {
       console.error('❌ Audio initialization failed:', error);
@@ -362,42 +346,25 @@ export class VoskRecognitionService {
   }
 
   async start(): Promise<void> {
-    console.log('🚀 START METHOD CALLED - isRecording:', this.isRecording);
     
     if (this.isRecording) {
-      console.log('⚠️ Speech recognition is already running - EARLY RETURN');
       return;
     }
 
-    console.log('📋 Current state before start:');
-    console.log('  - socket:', this.socket?.readyState || 'null', this.socket?.readyState === WebSocket.OPEN ? '(OPEN)' : '(NOT OPEN)');
-    console.log('  - audioContext:', this.audioContext?.state || 'null');
-    console.log('  - mediaStream:', this.mediaStream ? `${this.mediaStream.getTracks().length} tracks` : 'null');
-    console.log('  - processor:', this.processor ? 'exists' : 'null');
-    console.log('  - source:', this.source ? 'exists' : 'null');
-    console.log('  - currentModel:', this.currentModel);
+
 
     try {
-      console.log('🔌 Checking WebSocket connection...');
       
       // Ensure WebSocket connection
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-        console.log('🔌 WebSocket not available, initializing...');
         await this.initializeWebSocket();
-        console.log('✅ WebSocket initialized successfully');
-      } else {
-        console.log('✅ WebSocket already available and open');
-      }
-
-      console.log('🎧 Starting audio initialization...');
+      } 
       await this.initializeAudio();
-      console.log('✅ Audio initialization completed successfully');
 
       // Send start message to AudioWorklet processor if it exists
       if (this.processor && 'port' in this.processor) {
         try {
           this.processor.port.postMessage({ type: 'start' });
-          console.log('📤 Sent start message to AudioWorklet processor');
         } catch (error) {
           console.warn('⚠️ Could not send start message to AudioWorklet processor:', error);
         }
@@ -407,21 +374,11 @@ export class VoskRecognitionService {
       
       // Clear any pending text from previous sessions
       this.pendingText = '';
-      console.log('🧹 Cleared pending text for new recording session');
       
       // Initialize silence detection
       this.lastAudioTime = Date.now();
       this.clearSilenceTimer();
-      console.log(`🔇 Silence detection initialized - enabled: ${this.silenceDetectionEnabled}, timeout: ${this.silenceTimeout}ms`);
-      
-      console.log('🎙️ Vosk speech recognition started - isRecording set to true');
-      console.log('📋 Final state after start:');
-      console.log('  - isRecording:', this.isRecording);
-      console.log('  - socket:', this.socket?.readyState);
-      console.log('  - audioContext:', this.audioContext?.state);
-      console.log('  - mediaStream:', this.mediaStream ? `${this.mediaStream.getTracks().length} tracks` : 'null');
-      console.log('  - processor:', this.processor ? 'exists' : 'null');
-      console.log('  - source:', this.source ? 'exists' : 'null');
+
 
     } catch (error) {
       console.error('❌ Failed to start Vosk recognition:', error);
@@ -431,41 +388,26 @@ export class VoskRecognitionService {
   }
 
   async stop(): Promise<void> {
-    console.log('🛑 STOP METHOD CALLED - isRecording:', this.isRecording);
     
     if (!this.isRecording) {
-      console.log('⚠️ Speech recognition is not running');
       return;
     }
 
-    console.log('📋 State before stop:');
-    console.log('  - isRecording:', this.isRecording);
-    console.log('  - socket:', this.socket?.readyState);
-    console.log('  - audioContext:', this.audioContext?.state);
-    console.log('  - mediaStream:', this.mediaStream ? `${this.mediaStream.getTracks().length} tracks` : 'null');
 
     this.isRecording = false;
     this.wasRecordingBeforeDisconnect = false; // Clear the flag since this is manual stop
     
     // Clear silence detection timer
     this.clearSilenceTimer();
-    console.log('🔇 Silence detection timer cleared');
-    
-    console.log('🛑 Vosk speech recognition stopped - isRecording set to false');
-    console.log('🛑 wasRecordingBeforeDisconnect cleared to prevent auto-resume');
 
     try {
       // Send EOF signal to server but keep connection open
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-        console.log('📤 Sending EOF signal to server...');
         this.socket.send(JSON.stringify({ eof: 1 }));
       } else {
-        console.log('⚠️ WebSocket not available for EOF signal');
       }
 
-      console.log('🧹 Calling cleanup (audio only)...');
       await this.cleanupAudioOnly();
-      console.log('✅ Stop method completed');
 
     } catch (error) {
       console.error('❌ Error during stop:', error);
@@ -475,7 +417,6 @@ export class VoskRecognitionService {
 
   // Method to completely disconnect and stop all reconnection attempts
   async disconnect(): Promise<void> {
-    console.log('🔌 DISCONNECT METHOD CALLED - stopping all connections and reconnection attempts');
     
     // Stop any ongoing reconnection attempts
     this.stopReconnection();
@@ -491,13 +432,11 @@ export class VoskRecognitionService {
       // Close WebSocket connection
       if (this.socket) {
         if (this.socket.readyState === WebSocket.OPEN) {
-          console.log('📤 Sending close signal to server...');
           this.socket.close(1000, 'Manual disconnect');
         }
         this.socket = null;
       }
       
-      console.log('✅ Complete disconnection successful');
     } catch (error) {
       console.error('❌ Error during disconnect:', error);
       throw error;
@@ -505,7 +444,6 @@ export class VoskRecognitionService {
   }
 
   private async cleanupAudioOnly(): Promise<void> {
-    console.log('🧹 Cleaning up audio resources only (keeping WebSocket)...');
     
     try {
       // Send stop message to AudioWorklet processor if it exists
@@ -551,14 +489,12 @@ export class VoskRecognitionService {
         this.audioContext = null;
       }
 
-      console.log('✅ Audio cleanup complete - WebSocket connection preserved');
     } catch (error) {
       console.error('❌ Error during audio cleanup:', error);
     }
   }
 
   private async cleanup(): Promise<void> {
-    console.log('🧹 Completely destroying all audio resources...');
     
     try {
       // Send stop message to AudioWorklet processor if it exists
@@ -633,25 +569,20 @@ export class VoskRecognitionService {
     // Calculate delay with exponential backoff
     const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), this.maxReconnectDelay);
     
-    console.log(`🔄 Attempting reconnection ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms...`);
 
     this.reconnectTimer = window.setTimeout(async () => {
       try {
-        console.log(`🔌 Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
         
         // Try to reconnect
         await this.initializeWebSocket();
         
-        console.log('✅ Reconnection successful!');
         this.isReconnecting = false;
         this.reconnectAttempts = 0;
         
         
         // If we were recording before disconnect, try to resume
         if (this.wasRecordingBeforeDisconnect && this.currentModel) {
-          console.log('🎙️ Attempting to resume recording after reconnection...');
-          console.log('🔍 wasRecordingBeforeDisconnect:', this.wasRecordingBeforeDisconnect);
-          console.log('🔍 currentModel:', this.currentModel);
+
           try {
             // Wait a bit for model to be reloaded and cached data to be sent
             setTimeout(async () => {
@@ -659,19 +590,14 @@ export class VoskRecognitionService {
               if (this.wasRecordingBeforeDisconnect) {
                 try {
                   await this.start();
-                  console.log('✅ Recording resumed successfully after reconnection');
                 } catch (error) {
                   console.error('❌ Failed to resume recording after reconnection:', error);
                 }
-              } else {
-                console.log('🛑 wasRecordingBeforeDisconnect was cleared, skipping auto-resume');
               }
             }, 2000);
           } catch (error) {
             console.error('❌ Failed to resume recording after reconnection:', error);
           }
-        } else {
-          console.log('🔍 Not resuming recording - wasRecordingBeforeDisconnect:', this.wasRecordingBeforeDisconnect, 'currentModel:', this.currentModel);
         }
         
       } catch (error) {
@@ -682,7 +608,6 @@ export class VoskRecognitionService {
           this.isReconnecting = false; // Reset flag so we can try again
           this.attemptReconnection();
         } else {
-          console.log('❌ All reconnection attempts failed');
           this.isReconnecting = false;
           this.reconnectAttempts = 0;
           if (this.onErrorCallback) {
@@ -739,19 +664,15 @@ export class VoskRecognitionService {
         this.socket!.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
-            console.log('📨 Received message from server:', msg);
             
             if (msg.type === 'current_model') {
               clearTimeout(timeoutId);
               this.socket!.onmessage = originalOnMessage; // Restore original handler
               
-              console.log('✅ Received current_model response:', msg.model);
               if (msg.model && msg.model !== 'none') {
-                console.log(`🔍 Server reports current model: ${msg.model}`);
                 this.currentModel = msg.model; // Update our local state
                 resolve(msg.model);
               } else {
-                console.log('🔍 Server reports no model currently loaded');
                 resolve(null);
               }
               return;
@@ -763,7 +684,6 @@ export class VoskRecognitionService {
             }
           } catch (error) {
             console.error('Error parsing server response for current model:', error);
-            console.log('Raw event data:', event.data);
             // Continue with original handler for non-JSON messages
             if (originalOnMessage && this.socket) {
               originalOnMessage.call(this.socket, event);
@@ -772,7 +692,6 @@ export class VoskRecognitionService {
         };
 
         // Request current model from server
-        console.log('📤 Requesting current model from server...');
         this.socket!.send(JSON.stringify({ type: 'get_current_model' }));
 
       } catch (error) {
@@ -787,7 +706,6 @@ export class VoskRecognitionService {
       try {
         // Ensure WebSocket connection before requesting models
         if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-          console.log('🔌 WebSocket not connected for getAvailableModels, reconnecting...');
           await this.initializeWebSocket();
         }
 
@@ -817,11 +735,9 @@ export class VoskRecognitionService {
       try {
         // Set flag to prevent automatic model reselection during manual selection
         this.isSelectingModel = true;
-        console.log(`🎯 Starting manual model selection: ${modelName}`);
 
         // Ensure WebSocket connection before selecting model
         if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-          console.log('🔌 WebSocket not connected for selectModel, reconnecting...');
           await this.initializeWebSocket();
         }
 
@@ -831,7 +747,6 @@ export class VoskRecognitionService {
           this.onModelLoadedCallback = originalCallback; // Restore original callback
           if (event.model === modelName) {
             this.isSelectingModel = false; // Clear flag on success
-            console.log(`✅ Manual model selection completed: ${modelName}`);
             resolve();
           }
         };
@@ -890,12 +805,11 @@ export class VoskRecognitionService {
 
   // Centralized method to check model availability with retry logic for concurrent usage
   async checkModelAvailability(): Promise<{ hasModels: boolean; errorMessage?: string }> {
-    const maxRetries = 3;
+    const maxRetries = 10;
     let lastError: any = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`🔍 Checking model availability (attempt ${attempt}/${maxRetries})`);
         
         // Try to get available models with retry logic
         const models = await this.getAvailableModelsWithRetry();
@@ -907,17 +821,14 @@ export class VoskRecognitionService {
           };
         }
         
-        console.log(`✅ Model availability check successful: ${models.length} models found`);
         return { hasModels: true };
         
       } catch (error) {
         lastError = error;
-        console.log(`⚠️ Model availability check failed (attempt ${attempt}/${maxRetries}):`, error);
         
         if (attempt < maxRetries) {
           // Exponential backoff: wait longer between retries when server is busy
           const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 1s, 2s, 4s max
-          console.log(`⏳ Waiting ${delay}ms before retry (server may be busy with other users)...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
@@ -937,7 +848,6 @@ export class VoskRecognitionService {
       try {
         // Ensure WebSocket connection with retry logic
         if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-          console.log('🔌 WebSocket not connected for getAvailableModelsWithRetry, connecting...');
           await this.initializeWebSocket();
         }
 
@@ -949,13 +859,11 @@ export class VoskRecognitionService {
           if (!responseReceived) {
             responseReceived = true;
             this.onModelsCallback = originalCallback; // Restore original callback
-            console.log(`📋 Received models list: ${models.length} models`);
             resolve(models);
           }
         };
 
         // Request available models
-        console.log('📤 Requesting available models from server...');
         this.socket!.send(JSON.stringify({ type: 'get_models' }));
 
         // Set timeout for the request - longer timeout for concurrent usage
@@ -1070,7 +978,6 @@ export class VoskRecognitionService {
           ttsService.pause();
         }
         
-        console.log(`🔊 Audio detected (level: ${rms.toFixed(4)}, threshold: ${this.silenceThreshold}) - silence timer reset`);
       } else {
         // Silence detected - check if we should start/continue silence timer
         const silenceDuration = Date.now() - this.lastAudioTime;
@@ -1082,7 +989,6 @@ export class VoskRecognitionService {
         }
         
         if (silenceDuration > 500 && !this.silenceTimer) { // Wait 500ms before starting silence timer
-          //console.log(`🔇 Silence detected, starting ${this.silenceTimeout}ms timer...`);
           this.startSilenceTimer();
         }
       }
@@ -1295,7 +1201,6 @@ export class VoskRecognitionService {
     if (!enabled) {
       this.clearSilenceTimer();
     }
-    console.log(`🔇 Silence detection ${enabled ? 'enabled' : 'disabled'}`);
   }
 
   /**

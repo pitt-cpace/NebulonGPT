@@ -174,21 +174,14 @@ export const sendMessage = async (
       const hasSystemMessage = finalMessages.some(msg => msg.role === 'system');
       if (!hasSystemMessage) {
         finalMessages = [systemMessage, ...formattedMessages];
-        console.log('🎙️ Added system message for full voice mode conversation (mic is listening)');
       }
     }
-    
-    console.log('Sending message to Ollama API:', {
-      model: modelId,
-      messages: finalMessages,
-      options,
-    });
+  
     
 // In development mode, we need to be careful not to duplicate the '/api' path
 const endpoint = isProduction ? '/chat' : '/chat';
     
     // Log the full URL being used
-    console.log('API endpoint:', isProduction ? baseURL + endpoint : baseURL + endpoint);
     
     // If streaming is enabled and callback is provided
     if (onStreamUpdate) {
@@ -203,10 +196,7 @@ const endpoint = isProduction ? '/chat' : '/chat';
         },
       };
       
-      // Log the number of images being sent (now included in the messages)
-      if (imageAttachments.length > 0) {
-        console.log(`Request includes ${imageAttachments.length} images in the messages`);
-      }
+      
       
       // Log the complete payload with messages containing images
       console.log('Complete Ollama API request payload:', JSON.stringify(payload, null, 2));
@@ -294,11 +284,9 @@ const endpoint = isProduction ? '/chat' : '/chat';
       }
       
       // Log the complete payload with messages containing images
-      // console.log('Complete Ollama API request payload (non-streaming):', JSON.stringify(payload, null, 2));
       
       const response = await api.post(endpoint, payload);
       
-      console.log('Ollama API response:', response.data);
       
       if (response.data && response.data.message) {
         return response.data.message.content;

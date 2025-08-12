@@ -299,13 +299,11 @@ export function extractLanguageFromVoskModel(modelName: string): string {
     const match = modelName.match(pattern);
     if (match && match[1]) {
       const lang = match[1].toLowerCase();
-      console.log(`🌐 Detected language "${lang}" from model: ${modelName}`);
       return lang;
     }
   }
   
   // Default to English if no language detected
-  console.log(`⚠️ Could not detect language from model "${modelName}", defaulting to English`);
   return 'en';
 }
 

@@ -347,37 +347,29 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     try {
       // Reset the final transcript when starting a new recognition session
       finalTranscriptRef.current = message;
-      // console.log('  - finalTranscriptRef reset to:', finalTranscriptRef.current);
       
       // Start recognition
-      // console.log('  - Calling voskRecognition.start()...');
       await voskRecognition.start();
-      // console.log('✅ voskRecognition.start() completed successfully');
       
       setIsListening(true);
-      // console.log('✅ UI state updated - isListening set to true');
-      // console.log('✅ Vosk speech recognition started successfully');
+
     } catch (error) {
       console.error('❌ Error starting Vosk speech recognition:', error);
       setSpeechError('Failed to start Vosk speech recognition');
-      // console.log('❌ UI state - speechError set to:', 'Failed to start Vosk speech recognition');
       throw error;
     }
   }, [isListening, message, voskRecognition]);
 
   // Dedicated function to stop mic listening
   const stopMicListening = useCallback(async () => {
-    console.log('🛑 STOPPING speech recognition...');
     
     if (voskRecognition) {
       if (!isListening) {
-        console.log('⚠️ Not currently listening, skipping stop');
         return;
       }
       
       try {
         await voskRecognition.stop();
-        console.log('✅ voskRecognition.stop() called successfully');
       } catch (error) {
         console.error('❌ Error stopping Vosk speech recognition:', error);
         // Don't throw here, we still want to update UI state
@@ -386,18 +378,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     // FORCEFULLY STOP AND DESTROY ALL TTS THREADS AND PROCESSES
     const ttsSettings = ttsService.getSettings();
-    console.log('💥 FORCEFULLY STOPPING AND DESTROYING ALL TTS THREADS due to mic stop...');
     
     // Stop LLM generation if it's currently running
     if (loading) {
-      console.log('🛑 Stopping LLM generation due to manual mic stop');
       onStopResponse();
     }
     
     // Use the enhanced forceful TTS destruction methods with DESTROY_ALL mode
     try {
       // PERSISTENT LOOP - Keep trying until everything is destroyed (minimum 5 seconds)
-      console.log('💥 Starting persistent TTS clearing loop (minimum 5 seconds)...');
       let clearAttempt = 0;
       const maxClearAttempts = 10; // Maximum 10 attempts
       let allCleared = false;
@@ -406,7 +395,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       while (!allCleared && clearAttempt < maxClearAttempts) {
         clearAttempt++;
-        console.log(`💥 TTS clearing attempt ${clearAttempt}/${maxClearAttempts}...`);
         
         try {
           // Enhanced TTS stop inside the loop
@@ -417,17 +405,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           const cleared = await ttsService.clear(); // This includes server + client clearing with verification
           
           if (cleared) {
-            console.log(`✅ TTS clearing attempt ${clearAttempt} SUCCESSFUL - All threads and buffers destroyed`);
             
             // Check if we've been running for at least 5 seconds
             const elapsedTime = Date.now() - startTime;
             if (elapsedTime >= minimumDuration) {
-              console.log(`⏰ Minimum 5 seconds elapsed (${elapsedTime}ms) - stopping loop`);
               allCleared = true;
               break;
             } else {
               const remainingTime = minimumDuration - elapsedTime;
-              console.log(`⏰ Only ${elapsedTime}ms elapsed, continuing for ${remainingTime}ms more...`);
               // Continue the loop even though clearing was successful
               await new Promise(resolve => setTimeout(resolve, 500));
             }
@@ -447,29 +432,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Additional check: if we've reached minimum time and had at least one successful clear
         const elapsedTime = Date.now() - startTime;
         if (elapsedTime >= minimumDuration && clearAttempt > 0) {
-          console.log(`⏰ Minimum 5 seconds completed (${elapsedTime}ms) after ${clearAttempt} attempts - finishing`);
           allCleared = true;
           break;
         }
       }
       
-      if (allCleared) {
-        console.log('🎉 PERSISTENT TTS CLEARING SUCCESSFUL - All threads completely destroyed');
-      } else {
+      if (!allCleared) {
         console.warn(`⚠️ PERSISTENT TTS CLEARING TIMEOUT after ${maxClearAttempts} attempts - forcing completion`);
         
         // Force one final aggressive cleanup attempt
-        console.log('💥 Final aggressive TTS cleanup attempt...');
         try {
           await ttsService.stop(); // One more aggressive stop
-          console.log('💥 Final aggressive cleanup completed');
         } catch (finalError) {
           console.error('❌ Error in final aggressive cleanup:', finalError);
         }
       }
       
       // STEP 3: Additional safety - wait a bit more for complete cleanup
-      console.log('⏳ Additional 1000ms wait for complete TTS cleanup...');
       await new Promise(resolve => setTimeout(resolve, 1000));
       
     } catch (error) {
@@ -480,8 +459,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Update all UI states
     setIsListening(false);
     setInterimTranscript('');
-    console.log('✅ UI state updated - isListening set to false, interimTranscript cleared');
-    console.log('🏁 MIC STOP COMPLETED - All TTS threads destroyed, ready for next interaction');
   }, [voskRecognition, isListening, loading, onStopResponse]);
 
   // Toggle speech recognition with debounce protection
@@ -523,7 +500,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     } finally {
       // Always clear processing state after operation completes
       setIsProcessingMic(false);
-      // console.log('🏁 toggleListening completed - processing state cleared');
     }
   }, [isListening, isProcessingMic, startMicListening, stopMicListening]);
 
@@ -560,10 +536,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   // Reset turning off state when microphone actually stops (with gradual fade)
   useEffect(() => {
     if (!isListening && isTurningOff) {
-      console.log('🎙️ Microphone stopped - starting gradual fade out...');
       // Add a delay for gradual disappearance when mic stops
       setTimeout(() => {
-        console.log('🎙️ Gradual fade completed - resetting turning off state');
         setIsTurningOff(false);
       }, 2000); // 2 seconds gradual fade when mic stops
     }
