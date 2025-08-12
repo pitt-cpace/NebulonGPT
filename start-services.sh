@@ -68,7 +68,7 @@ echo "🔧 TRANSFORMERS_CACHE set to: $TRANSFORMERS_CACHE"
 export HF_DATASETS_CACHE=/app/.cache/huggingface/datasets
 echo "🔧 HF_DATASETS_CACHE set to: $HF_DATASETS_CACHE"
 
-export HF_HUB_OFFLINE=0
+export HF_HUB_OFFLINE=1
 echo "🔧 HF_HUB_OFFLINE set to: $HF_HUB_OFFLINE"
 
 export KOKORO_SERVER_HOST=0.0.0.0
