@@ -54,6 +54,7 @@ export class TTSService {
   private isPlayingAudio = false; // Flag to prevent double-play
   private currentPlayingAudio: TTSQueueItem | null = null; // Track current playing thread
   private pausedAudioTime: number = 0; // Store paused position for resume
+  private lastPauseTimestamp: number = 0; // Store when the last pause occurred
   private backgroundCleanupInterval: NodeJS.Timeout | null = null; // Background cleanup thread
   private isBackgroundCleanupRunning = false; // Flag to prevent multiple cleanup threads
   private backgroundCleanupStopTimeout: NodeJS.Timeout | null = null; // Timeout to stop cleanup after 1 minute
@@ -614,6 +615,9 @@ export class TTSService {
           // Store reference to the current playing audio item AND its message ID
           this.currentPlayingAudio = currentItem;
           
+          // Store the timestamp when pause occurred
+          this.lastPauseTimestamp = Date.now();
+          
           // Pause the audio thread
           currentAudio.pause();
           
@@ -621,7 +625,7 @@ export class TTSService {
           this.isPlayingAudio = false;
           
           console.log(`⏸️ Paused audio thread at position ${this.pausedAudioTime.toFixed(2)}s (msg: ${currentItem.assistantMessageId || 'unknown'})`);
-          console.log(`⏸️ Stored paused audio reference and position for resume`);
+          console.log(`⏸️ Stored paused audio reference, position, and timestamp for resume`);
         } catch (error) {
           console.error('⚠️ Error pausing current audio thread:', error);
           // Reset tracking if pause failed
@@ -640,12 +644,26 @@ export class TTSService {
     }
   }
 
-  public resume() {
+  public async resume() {
     console.log('▶️ RESUMING audio thread...');
     
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { action: 'resume' };
       this.ws.send(JSON.stringify(message));
+    }
+    
+    // Check if at least 1 second has passed since the last pause
+    if (this.lastPauseTimestamp > 0) {
+      const timeSincePause = Date.now() - this.lastPauseTimestamp;
+      const minimumWaitTime = 2000; // 1 second minimum
+      
+      if (timeSincePause < minimumWaitTime) {
+        const remainingWaitTime = minimumWaitTime - timeSincePause;
+        console.log(`⏳ Waiting ${remainingWaitTime}ms more to ensure at least 1 second since last pause...`);
+        await new Promise(resolve => setTimeout(resolve, remainingWaitTime));
+      } else {
+        console.log(`✅ ${timeSincePause}ms has passed since last pause - proceeding with resume`);
+      }
     }
     
     // Reset paused state for client-side audio
