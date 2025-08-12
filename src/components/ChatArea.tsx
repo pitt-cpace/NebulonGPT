@@ -27,6 +27,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Chip,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -41,12 +42,14 @@ import {
   InsertDriveFile as InsertDriveFileIcon,
   Image as ImageIcon,
   People as PeopleIcon,
+  KeyboardArrowDown as ArrowDownIcon,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
 import { getSuggestedPrompts } from '../services/api';
 import { VoskRecognitionService } from '../services/vosk';
 import { ttsService } from '../services/ttsService';
+import { useStickyAutoScroll } from '../hooks/useStickyAutoScroll';
 import * as styles from '../styles/components/ChatArea.styles';
 
 // Set the worker source path
@@ -100,7 +103,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [userHasScrolledUp, setUserHasScrolledUp] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -108,7 +110,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const dragCounterRef = useRef(0);
   const suggestedPrompts = getSuggestedPrompts();
 
-  const handleSendMessage = useCallback(() => {
+  // Initialize the battle-tested auto-scroll system
+  const { isPinned, unread, onNewContent, jumpToLatest } = useStickyAutoScroll({
+    containerRef: messagesContainerRef,
+    endRef: messagesEndRef,
+    bottomThreshold: 64,
+    smoothBehavior: "smooth",
+    generating: loading,
+  });
+
+  const handleSendMessage = useCallback(async () => {
     // Allow sending if there's a message OR attachments
     if ((message.trim() || attachments.length > 0) && !loading) {
       let messageText = message.trim();
@@ -132,14 +143,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         // Add the PDF description to the message if there's no existing message
         if (!messageText) {
-          messageText = pdfDescription + ".";
+          messageText = messageText + pdfDescription + ".";
         } else {
           messageText = messageText + pdfDescription + ".";
         }
       }
       
-      // Reset scroll state when sending a new message to ensure auto-scroll to the new message
-      setUserHasScrolledUp(false);
+      // First scroll to bottom smoothly, then send message
+      jumpToLatest('smooth');
+      
+      // Wait for smooth scroll animation to complete
+      await new Promise(resolve => setTimeout(resolve, 700));
       
       // Send message with any attachments
       onSendMessage(messageText, attachments.length > 0 ? attachments : undefined);
@@ -148,7 +162,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       setMessage('');
       setAttachments([]);
     }
-  }, [message, attachments, loading, onSendMessage]);
+  }, [message, attachments, loading, onSendMessage, jumpToLatest]);
+
+  // Trigger auto-scroll when new assistant messages arrive (not user messages)
+  useEffect(() => {
+    if (!chat?.messages || chat.messages.length === 0) return;
+    
+    const lastMessage = chat.messages[chat.messages.length - 1];
+    // Only trigger auto-scroll for assistant messages (LLM responses)
+    if (lastMessage.role === 'assistant') {
+      onNewContent();
+    }
+  }, [chat?.messages, onNewContent]);
 
   // Load default model ID from localStorage on component mount
   useEffect(() => {
@@ -159,130 +184,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       console.error('Failed to load default model ID from localStorage:', error);
     }
   }, []);
-
-  // Force scroll to bottom - most direct approach
-  const forceScrollToBottom = useCallback(() => {
-    if (userHasScrolledUp) return;
-    
-    if (messagesContainerRef.current) {
-      const container = messagesContainerRef.current;
-      // Force immediate scroll to bottom
-      container.scrollTop = container.scrollHeight;
-    }
-  }, [userHasScrolledUp]);
-
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    console.log('🔄 Auto-scroll effect triggered:', {
-      hasMessagesEndRef: !!messagesEndRef.current,
-      userHasScrolledUp,
-      messagesCount: chat?.messages?.length || 0
-    });
-    
-    if (messagesEndRef.current && !userHasScrolledUp) {
-      console.log('✅ Auto-scrolling to bottom');
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    } else {
-      console.log('❌ Auto-scroll blocked:', {
-        noRef: !messagesEndRef.current,
-        userScrolledUp: userHasScrolledUp
-      });
-    }
-  }, [chat?.messages, userHasScrolledUp]);
-
-  // Additional effect specifically for content changes (like tables)
-  useEffect(() => {
-    if (!userHasScrolledUp && messagesContainerRef.current) {
-      const container = messagesContainerRef.current;
-      
-      // Use MutationObserver to detect when content changes
-      const observer = new MutationObserver(() => {
-        console.log('🔄 Content mutation detected - scrolling to bottom');
-        if (!userHasScrolledUp) {
-          forceScrollToBottom();
-        }
-      });
-
-      observer.observe(container, {
-        childList: true,
-        subtree: true,
-        characterData: true
-      });
-
-      return () => {
-        observer.disconnect();
-      };
-    }
-  }, [userHasScrolledUp, forceScrollToBottom, chat?.messages?.length]);
-
-  // Handle scroll events to detect when user scrolls up
-  useEffect(() => {
-    // Only set up scroll listener when we have a chat (messages container is rendered)
-    if (!chat) {
-      // console.log('⏳ No chat yet, waiting for messages container...');
-      return;
-    }
-
-    const messagesContainer = messagesContainerRef.current;
-    if (!messagesContainer) {
-      // console.log('❌ Messages container ref not found, retrying...');
-      return;
-    }
-
-    //console.log('✅ Setting up scroll listener on messages container:', messagesContainer);
-    //console.log('✅ Container scroll properties:', {
-    //  scrollHeight: messagesContainer.scrollHeight,
-    //  clientHeight: messagesContainer.clientHeight,
-    //  scrollTop: messagesContainer.scrollTop,
-    //  overflowY: getComputedStyle(messagesContainer).overflowY
-    //});
-
-    const handleScroll = (event: Event) => {
-      //console.log('🔥 SCROLL EVENT TRIGGERED!', event);
-      
-      const { scrollTop, scrollHeight, clientHeight } = messagesContainer;
-      const isAtBottom = scrollHeight - scrollTop - clientHeight < 10; // 10px threshold
-      
-      //console.log('📜 Scroll event details:', {
-      //  scrollTop,
-      //  scrollHeight,
-      //  clientHeight,
-      //  difference: scrollHeight - scrollTop - clientHeight,
-      //  isAtBottom,
-      //  currentUserHasScrolledUp: userHasScrolledUp
-      //});
-      
-      // If user is at the bottom, reset the scroll state
-      if (isAtBottom) {
-        if (userHasScrolledUp) {
-          //console.log('🔄 User scrolled back to bottom - resuming auto-scroll');
-          setUserHasScrolledUp(false);
-        }
-      } else {
-        // If user is not at the bottom, they have scrolled up
-        if (!userHasScrolledUp) {
-          //console.log('⬆️ User scrolled up - pausing auto-scroll');
-          setUserHasScrolledUp(true);
-        }
-      }
-    };
-
-    // Add both scroll and wheel events for better detection
-    messagesContainer.addEventListener('scroll', handleScroll, { passive: true });
-    messagesContainer.addEventListener('wheel', handleScroll, { passive: true });
-    
-    // Test if the element is actually scrollable
-    //console.log('🧪 Testing scroll capability:', {
-    //  canScroll: messagesContainer.scrollHeight > messagesContainer.clientHeight,
-    //  hasScrollbar: messagesContainer.scrollHeight > messagesContainer.clientHeight
-    //});
-
-    return () => {
-      //console.log('🧹 Cleaning up scroll listeners');
-      //messagesContainer.removeEventListener('scroll', handleScroll);
-      //messagesContainer.removeEventListener('wheel', handleScroll);
-    };
-  }, [chat, userHasScrolledUp]); // Add chat as dependency so it runs when chat is available
 
   // Initialize Vosk speech recognition event handlers
   useEffect(() => {
@@ -2007,6 +1908,37 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             {chat.messages.map(renderMessage)}
             <div ref={messagesEndRef} />
           </Box>
+
+          {/* Jump to latest button when not pinned */}
+          {!isPinned && (
+            <IconButton
+              onClick={() => jumpToLatest('smooth')}
+              sx={{
+                position: 'absolute',
+                bottom: '80px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 1000,
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                color: 'white',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+                width: '48px',
+                height: '48px',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                  transform: 'translateX(-50%) scale(1.05)',
+                },
+                '&:active': {
+                  transform: 'translateX(-50%) scale(0.95)',
+                },
+                transition: 'all 0.2s ease-in-out',
+              }}
+            >
+              <ArrowDownIcon />
+            </IconButton>
+          )}
 
           <Box
             component={Paper}
