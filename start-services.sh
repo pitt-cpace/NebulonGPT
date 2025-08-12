@@ -13,7 +13,7 @@ echo "🚀 =============================================="
 echo ""
 echo "📊 SYSTEM INFORMATION:"
 echo "📊 OS: $(uname -a)"
-echo "📊 Memory: $(free -h | grep Mem)"
+echo "📊 Memory: $(free -h | grep Mem 2>/dev/null || echo 'free command not available')"
 echo "📊 Disk Space: $(df -h /)"
 echo "📊 Python Version: $(python --version 2>&1 || echo 'Python not found')"
 echo "📊 Node Version: $(node --version 2>&1 || echo 'Node not found')"
@@ -35,6 +35,12 @@ echo "📄 Vosk server script: $([ -f /app/vosk-server/websocket/asr_server_with
 echo "📄 TTS server script: $([ -f /app/kokoro-tts/websocket/browser_tts_server.py ] && echo 'EXISTS' || echo 'MISSING')"
 echo "📄 Node.js server: $([ -f /app/server.js ] && echo 'EXISTS' || echo 'MISSING')"
 echo "📄 Nginx config: $([ -f /etc/nginx/sites-available/default ] && echo 'EXISTS' || echo 'MISSING')"
+echo "📄 React build directory: $([ -d /app/build ] && echo 'EXISTS' || echo 'MISSING')"
+echo "📄 React index.html: $([ -f /app/build/index.html ] && echo 'EXISTS' || echo 'MISSING')"
+if [ -d /app/build ]; then
+    echo "📄 Build directory contents:"
+    ls -la /app/build/ | sed 's/^/📄   /'
+fi
 
 # Models Check
 echo ""

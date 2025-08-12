@@ -12,7 +12,7 @@ RUN npm install
 
 # Now copy rest and build
 COPY . .
-RUN npm run build
+RUN npm run build && ls -la build/ && echo "Frontend build completed successfully"
 
 # --------------------------------------------
 # Stage 2: Final production image
@@ -56,7 +56,10 @@ RUN npm install --production
 
 # ---- Copy application files ----
 COPY server.js ./
+
+# Copy built frontend files and verify they exist
 COPY --from=frontend-build /app/build ./build
+RUN ls -la /app/build && echo "Build files copied successfully" || echo "ERROR: Build files not found"
 
 # Vosk
 COPY Vosk-Server/ /app/vosk-server/
@@ -97,4 +100,4 @@ LABEL com.docker.desktop.default-port-mapping="3000:80"
 LABEL com.docker.desktop.default-volume-mapping="/app/data"
 
 # Entrypoint
-CMD ["/app/start-services.sh"]
+CMD ["/bin/sh", "/app/start-services.sh"]
