@@ -28,6 +28,7 @@ import {
   DialogContent,
   DialogActions,
   Chip,
+  Slider,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -104,6 +105,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [micSensitivity, setMicSensitivity] = useState<number>(75); // Default sensitivity display value (inverse of internal 25)
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -186,6 +188,29 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       console.error('Failed to load default model ID from localStorage:', error);
     }
   }, []);
+
+  // Initialize mic sensitivity from Vosk service (inverse relationship)
+  useEffect(() => {
+    if (voskRecognition) {
+      const internalSensitivity = voskRecognition.getMicSensitivity();
+      const displayValue = 100 - internalSensitivity; // Inverse for display
+      setMicSensitivity(displayValue);
+    }
+  }, [voskRecognition]);
+
+  // Handle mic sensitivity change (inverse relationship)
+  const handleMicSensitivityChange = useCallback((event: Event, newValue: number | number[]) => {
+    const displayValue = Array.isArray(newValue) ? newValue[0] : newValue;
+    const internalValue = 100 - displayValue; // Inverse relationship
+    
+    setMicSensitivity(displayValue);
+    
+    if (voskRecognition) {
+      voskRecognition.updateSettings({ micSensitivity: internalValue });
+      voskRecognition.saveSettings();
+      console.log(`🎚️ Mic sensitivity display: ${displayValue}, internal: ${internalValue}`);
+    }
+  }, [voskRecognition]);
 
   // Initialize Vosk speech recognition event handlers
   useEffect(() => {
@@ -1846,6 +1871,97 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                             }}
                           />
                         ))}
+                      </Box>
+                    </Box>
+                    
+                    {/* Mic Sensitivity Control */}
+                    <Box sx={{ width: '100%', px: 1, pb: 1 }}>
+                      <Typography variant="caption" sx={{ 
+                        display: 'block', 
+                        textAlign: 'center', 
+                        mb: 1, 
+                        fontSize: '0.75rem',
+                        opacity: 0.8 
+                      }}>
+                        Mic Sensitivity: {micSensitivity}
+                      </Typography>
+                      <Box sx={{ px: 1, pb: 1 }}>
+                        <Slider
+                          value={micSensitivity}
+                          onChange={handleMicSensitivityChange}
+                          min={0}
+                          max={100}
+                          step={1}
+                          size="small"
+                          sx={{
+                            color: 'white',
+                            '& .MuiSlider-thumb': {
+                              backgroundColor: 'white',
+                              border: '3px solid rgba(255, 255, 255, 0.9)',
+                              width: 24,
+                              height: 16,
+                              borderRadius: '50px', // More oval/elliptical shape
+                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                              transition: 'all 0.2s ease-in-out',
+                              '&:hover': {
+                                boxShadow: '0 0 0 12px rgba(255, 255, 255, 0.12), 0 4px 12px rgba(0, 0, 0, 0.4)',
+                                transform: 'scale(1.1)',
+                                border: '3px solid rgba(255, 255, 255, 1)',
+                              },
+                              '&:active': {
+                                boxShadow: '0 0 0 16px rgba(255, 255, 255, 0.2), 0 2px 6px rgba(0, 0, 0, 0.5)',
+                                transform: 'scale(1.05)',
+                              },
+                              '&::before': {
+                                content: '""',
+                                position: 'absolute',
+                                top: '50%',
+                                left: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                width: '8px',
+                                height: '4px',
+                                backgroundColor: 'rgba(244, 67, 54, 0.8)',
+                                borderRadius: '50px',
+                                transition: 'all 0.2s ease-in-out',
+                              },
+                            },
+                            '& .MuiSlider-track': {
+                              backgroundColor: 'white',
+                              border: 'none',
+                              height: 16,
+                              borderRadius: '1px 12px 12px 1px', // Very thin start, thick end
+                              boxShadow: '0 3px 8px rgba(0, 0, 0, 0.4)',
+                              background: 'linear-gradient(to right, white 0%, white 100%)',
+                              clipPath: 'polygon(0% 45%, 100% 0%, 100% 100%, 0% 55%)', // Much thinner start
+                            },
+                            '& .MuiSlider-rail': {
+                              backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                              height: 16,
+                              borderRadius: '1px 12px 12px 1px', // Very thin start, thick end
+                              boxShadow: 'inset 0 3px 6px rgba(0, 0, 0, 0.3)',
+                              clipPath: 'polygon(0% 45%, 100% 0%, 100% 100%, 0% 55%)', // Much thinner start
+                            },
+                            '& .MuiSlider-mark': {
+                              display: 'none', // Hide marks to prevent overflow
+                            },
+                            '& .MuiSlider-markLabel': {
+                              display: 'none', // Hide mark labels to prevent overflow
+                            },
+                          }}
+                        />
+                      </Box>
+                      {/* Custom labels row */}
+                      <Box sx={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        px: 2,
+                        mt: -0.5
+                      }}>
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>0</Typography>
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>25</Typography>
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>50</Typography>
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>75</Typography>
+                        <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>100</Typography>
                       </Box>
                     </Box>
                     

@@ -51,7 +51,8 @@ export class VoskRecognitionService {
   private onModelLoadedCallback: ((event: VoskModelLoadedEvent) => void) | null = null;
 
   constructor() {
-    // Initialize with default settings
+    // Initialize with default settings and load from localStorage
+    this.loadSettings();
   }
 
   /**
@@ -1125,6 +1126,7 @@ export class VoskRecognitionService {
     silenceDetectionEnabled: boolean;
     voiceDetectionEnabled: boolean;
     silenceTimeout: number;
+    micSensitivity: number;
   } {
     return {
       silenceThreshold: this.silenceThreshold,
@@ -1132,6 +1134,7 @@ export class VoskRecognitionService {
       silenceDetectionEnabled: this.silenceDetectionEnabled,
       voiceDetectionEnabled: this.voiceDetectionEnabled,
       silenceTimeout: this.silenceTimeout,
+      micSensitivity: this.getMicSensitivity(),
     };
   }
 
@@ -1144,7 +1147,12 @@ export class VoskRecognitionService {
     silenceDetectionEnabled?: boolean;
     voiceDetectionEnabled?: boolean;
     silenceTimeout?: number;
+    micSensitivity?: number;
   }): void {
+    if (settings.micSensitivity !== undefined) {
+      this.setMicSensitivity(settings.micSensitivity);
+    }
+    
     if (settings.silenceThreshold !== undefined) {
       this.silenceThreshold = Math.max(0.001, Math.min(1.0, settings.silenceThreshold));
       console.log(`🔇 Silence threshold updated: ${this.silenceThreshold}`);
@@ -1252,6 +1260,59 @@ export class VoskRecognitionService {
     return {
       enabled: this.voiceDetectionEnabled,
       threshold: this.voiceDetectionThreshold,
+    };
+  }
+
+  // ========================================
+  // MIC SENSITIVITY METHODS
+  // ========================================
+
+  /**
+   * Set microphone sensitivity (0-100 range)
+   * This controls both silenceThreshold and voiceDetectionThreshold with the relationship:
+   * - silenceThreshold = sensitivity / 100
+   * - voiceDetectionThreshold = (sensitivity - 10) / 10000
+   */
+  public setMicSensitivity(sensitivity: number): void {
+    // Clamp sensitivity between 0 and 100
+    const clampedSensitivity = Math.max(0, Math.min(100, sensitivity));
+    
+    // Calculate new thresholds based on sensitivity
+    const newSilenceThreshold = clampedSensitivity / 100;
+    const newVoiceDetectionThreshold = Math.max(0, (clampedSensitivity - 10) / 10000);
+    
+    // Update the thresholds
+    this.silenceThreshold = newSilenceThreshold;
+    this.voiceDetectionThreshold = newVoiceDetectionThreshold;
+    
+    console.log(`🎚️ Mic sensitivity updated to ${clampedSensitivity}: silenceThreshold=${this.silenceThreshold}, voiceDetectionThreshold=${this.voiceDetectionThreshold}`);
+  }
+
+  /**
+   * Get current microphone sensitivity (0-100 range)
+   * Calculated from current silenceThreshold
+   */
+  public getMicSensitivity(): number {
+    // Calculate sensitivity from current silenceThreshold
+    return Math.round(this.silenceThreshold * 100);
+  }
+
+  /**
+   * Get microphone sensitivity settings including current values and ranges
+   */
+  public getMicSensitivityStatus(): {
+    sensitivity: number;
+    silenceThreshold: number;
+    voiceDetectionThreshold: number;
+    minSensitivity: number;
+    maxSensitivity: number;
+  } {
+    return {
+      sensitivity: this.getMicSensitivity(),
+      silenceThreshold: this.silenceThreshold,
+      voiceDetectionThreshold: this.voiceDetectionThreshold,
+      minSensitivity: 0,
+      maxSensitivity: 100,
     };
   }
 }
