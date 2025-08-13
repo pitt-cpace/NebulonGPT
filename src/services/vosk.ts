@@ -39,6 +39,9 @@ export class VoskRecognitionService {
   private accumulatedSilenceTime = 0; // Variable to accumulate silence time
   private pendingText = ''; // Store text that should be sent after silence timeout
   
+  // TTS resume timeout promise
+  private ttsResumeTimeout: Promise<void> | null = null;
+  
   // Voice detection threshold to reduce background noise sensitivity
   private voiceDetectionEnabled = true;
   private voiceDetectionThreshold = 0.0015; // Root Mean Square (RMS) audio level 0.0-1.0 (0.0015 = 0.15% of max volume, roughly quiet room noise ~30-40dB equivalent) - Audio below this won't be sent to Vosk server
@@ -210,9 +213,24 @@ export class VoskRecognitionService {
                   // Filter out single meaningless words from partial results too
                   const filteredPartial = this.filterMeaninglessWords(msg.partial);
                   if (filteredPartial) {
-                    // In full voice mode, combine pending text with current partial for display
+                    // Check if we're in full voice mode
                     const ttsSettings = ttsService.getSettings();
                     if (ttsSettings.fullVoiceMode && this.isRecording) {
+                      // PAUSE TTS immediately when partial voice recognition appears
+                      ttsService.pause();
+                      console.log("Pause");
+                      this.clearSilenceTimer();
+                      
+                      // Check if ttsResumeTimeout is null, only create new timeout if it is
+                      if (this.ttsResumeTimeout === null) {
+                        this.ttsResumeTimeout = (async () => {
+                          await new Promise(resolve => setTimeout(resolve, ttsService.getMinimumWaitTimeForResume()));
+                          ttsService.resume();
+                          console.log("Resume");
+                          this.ttsResumeTimeout = null; // Reset to null after completion
+                        })();
+                      }
+                      
                       if (this.pendingText.trim()) {
                         // Show accumulated pending text + current partial text in the animated display
                         const combinedPartial = this.pendingText.trim() + ' ' + filteredPartial;

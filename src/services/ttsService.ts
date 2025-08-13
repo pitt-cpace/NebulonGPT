@@ -58,6 +58,8 @@ export class TTSService {
   private backgroundCleanupInterval: NodeJS.Timeout | null = null; // Background cleanup thread
   private isBackgroundCleanupRunning = false; // Flag to prevent multiple cleanup threads
   private backgroundCleanupStopTimeout: NodeJS.Timeout | null = null; // Timeout to stop cleanup after 1 minute
+  private minimumWaitTimeForResume = 2000; // 2 second minimum
+
 
   constructor(serverUrl?: string) {
     // Use environment variable if available, otherwise detect current port dynamically
@@ -165,6 +167,10 @@ export class TTSService {
 
   public getSettings(): TTSSettings {
     return { ...this.settings };
+  }
+
+  public getMinimumWaitTimeForResume(): number {
+    return this.minimumWaitTimeForResume; // 2 seconds minimum wait time for resume
   }
 
   private loadSettings() {
@@ -640,10 +646,9 @@ export class TTSService {
     // Check if at least 1 second has passed since the last pause
     if (this.lastPauseTimestamp > 0) {
       const timeSincePause = Date.now() - this.lastPauseTimestamp;
-      const minimumWaitTime = 2000; // 1 second minimum
       
-      if (timeSincePause < minimumWaitTime) {
-        const remainingWaitTime = minimumWaitTime - timeSincePause;
+      if (timeSincePause < this.minimumWaitTimeForResume) {
+        const remainingWaitTime = this.minimumWaitTimeForResume - timeSincePause;
         await new Promise(resolve => setTimeout(resolve, remainingWaitTime));
       }
     }
