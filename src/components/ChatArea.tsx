@@ -44,6 +44,7 @@ import {
   Image as ImageIcon,
   People as PeopleIcon,
   KeyboardArrowDown as ArrowDownIcon,
+  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
@@ -209,6 +210,20 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       voskRecognition.updateSettings({ micSensitivity: internalValue });
       voskRecognition.saveSettings();
       console.log(`🎚️ Mic sensitivity display: ${displayValue}, internal: ${internalValue}`);
+    }
+  }, [voskRecognition]);
+
+  // Function to set mic sensitivity to 75
+  const handleSetSensitivityTo75 = useCallback(() => {
+    const displayValue = 75;
+    const internalValue = 100 - displayValue; // Inverse relationship
+    
+    setMicSensitivity(displayValue);
+    
+    if (voskRecognition) {
+      voskRecognition.updateSettings({ micSensitivity: internalValue });
+      voskRecognition.saveSettings();
+      console.log(`🎚️ Mic sensitivity set to 75 (internal: ${internalValue})`);
     }
   }, [voskRecognition]);
 
@@ -1876,15 +1891,41 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     
                     {/* Mic Sensitivity Control */}
                     <Box sx={{ width: '100%', px: 1, pb: 1 }}>
-                      <Typography variant="caption" sx={{ 
-                        display: 'block', 
-                        textAlign: 'center', 
-                        mb: 1, 
-                        fontSize: '0.75rem',
-                        opacity: 0.8 
+                      <Box sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        mb: 1,
+                        gap: 1
                       }}>
-                        Mic Sensitivity: {micSensitivity}
-                      </Typography>
+                        <Typography variant="caption" sx={{ 
+                          fontSize: '0.75rem',
+                          opacity: 0.8 
+                        }}>
+                          Mic Sensitivity: {micSensitivity}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={handleSetSensitivityTo75}
+                          title="Set to 75"
+                          sx={{
+                            color: 'white',
+                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                            width: 20,
+                            height: 20,
+                            '&:hover': {
+                              backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                              transform: 'scale(1.1)',
+                            },
+                            '&:active': {
+                              transform: 'scale(0.95)',
+                            },
+                            transition: 'all 0.2s ease-in-out',
+                          }}
+                        >
+                          <RefreshIcon sx={{ fontSize: 12 }} />
+                        </IconButton>
+                      </Box>
                       <Box sx={{ px: 1, pb: 1 }}>
                         <Slider
                           value={micSensitivity}
