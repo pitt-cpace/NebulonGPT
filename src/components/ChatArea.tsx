@@ -50,6 +50,7 @@ import { getSuggestedPrompts } from '../services/api';
 import { VoskRecognitionService } from '../services/vosk';
 import { ttsService } from '../services/ttsService';
 import { useStickyAutoScroll } from '../hooks/useStickyAutoScroll';
+import { getTextDirectionStyles, analyzeMixedContent } from '../services/rtlDetection';
 import * as styles from '../styles/components/ChatArea.styles';
 
 // Set the worker source path
@@ -108,6 +109,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
+  const textFieldRef = useRef<HTMLInputElement>(null);
   const suggestedPrompts = getSuggestedPrompts();
 
   // Initialize the battle-tested auto-scroll system
@@ -542,6 +544,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }, 2000); // 2 seconds gradual fade when mic stops
     }
   }, [isListening, isTurningOff]);
+
+  // Focus input field when LLM response finishes
+  useEffect(() => {
+    // When loading changes from true to false (LLM response finished)
+    if (!loading && textFieldRef.current) {
+      // Add a small delay to ensure the UI has updated
+      setTimeout(() => {
+        textFieldRef.current?.focus();
+      }, 100);
+    }
+  }, [loading]);
 
 
 
@@ -1386,6 +1399,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const renderMessage = (message: MessageType) => {
     const isUser = message.role === 'user';
     
+    // Auto-detect RTL/LTR for both user and assistant messages
+    const textDirectionStyles = getTextDirectionStyles(message.content);
+    const mixedContentAnalysis = analyzeMixedContent(message.content);
+    
     return (
       <Box
         key={message.id}
@@ -1395,12 +1412,20 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           sx={isUser ? styles.userMessage : styles.assistantMessage}
         >
           <Box sx={{ width: '100%' }}>
-            {/* Render message content */}
+            {/* Render message content with RTL/LTR support */}
             <Typography
               variant="body1"
               component="div"
               className="markdown-content"
-              sx={styles.messageContent}
+              sx={{
+                ...styles.messageContent,
+                // Apply RTL/LTR styling for assistant messages
+                ...(textDirectionStyles && {
+                  direction: textDirectionStyles.direction,
+                  textAlign: textDirectionStyles.textAlign,
+                  unicodeBidi: mixedContentAnalysis?.shouldUseBidi ? 'bidi-override' : textDirectionStyles.unicodeBidi,
+                }),
+              }}
             >
               {isUser ? (
                 message.content
@@ -2044,8 +2069,20 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   onChange={(e) => setMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
                   disabled={loading}
+                  inputRef={textFieldRef}
                   InputProps={{
-                    sx: styles.textField,
+                    sx: {
+                      ...styles.textField,
+                      // Apply RTL detection to input field
+                      ...(message && (() => {
+                        const inputDirectionStyles = getTextDirectionStyles(message);
+                        return {
+                          direction: inputDirectionStyles.direction,
+                          textAlign: inputDirectionStyles.textAlign,
+                          unicodeBidi: inputDirectionStyles.unicodeBidi,
+                        };
+                      })()),
+                    },
                     endAdornment: isListening && interimTranscript ? (
                       <Box sx={styles.interimTranscript}>
                         {interimTranscript}
