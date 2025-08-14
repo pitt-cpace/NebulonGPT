@@ -649,7 +649,9 @@ export class TTSService {
       
       if (timeSincePause < this.minimumWaitTimeForResume) {
         const remainingWaitTime = this.minimumWaitTimeForResume - timeSincePause;
-        await new Promise(resolve => setTimeout(resolve, remainingWaitTime));
+        //await new Promise(resolve => setTimeout(resolve, remainingWaitTime));
+        this.resume();
+        return;
       }
     }
     
