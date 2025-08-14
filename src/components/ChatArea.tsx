@@ -1907,7 +1907,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         <IconButton
                           size="small"
                           onClick={handleSetSensitivityTo90}
-                          title="Set to 90"
+                          title="Reset detection sensitivity to optimal level (90)"
                           sx={{
                             color: 'white',
                             backgroundColor: 'rgba(255, 255, 255, 0.1)',
