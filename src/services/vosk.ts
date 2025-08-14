@@ -45,6 +45,10 @@ export class VoskRecognitionService {
   private voiceDetectionEnabled = true;
   private voiceDetectionThreshold = 0.001; // Root Mean Square (RMS) audio level 0.0-1.0 (0.001 = default sensitivity 90) - Audio below this won't be sent to Vosk server
   
+  // Real-time audio level tracking for waveform visualization
+  private currentAudioLevel = 0;
+  private audioLevelCallbacks: ((level: number) => void)[] = [];
+  
   // Event callbacks
   private onResultCallback: ((result: VoskResult) => void) | null = null;
   private onErrorCallback: ((error: string) => void) | null = null;
@@ -1060,6 +1064,18 @@ export class VoskRecognitionService {
       
       const rms = Math.sqrt(sum / int16Array.length);
       
+      // Update current audio level for waveform visualization
+      this.currentAudioLevel = rms;
+      
+      // Notify all audio level callbacks with the real audio level
+      this.audioLevelCallbacks.forEach(callback => {
+        try {
+          callback(rms);
+        } catch (error) {
+          console.error('❌ Error in audio level callback:', error);
+        }
+      });
+      
       // Only send to Vosk if audio level is above voice detection threshold
       const shouldSend = rms > this.voiceDetectionThreshold;
 
@@ -1266,6 +1282,41 @@ export class VoskRecognitionService {
       minSensitivity: 0,
       maxSensitivity: 100,
     };
+  }
+
+  // ========================================
+  // REAL-TIME AUDIO LEVEL METHODS
+  // ========================================
+
+  /**
+   * Register a callback to receive real-time audio levels
+   */
+  public onAudioLevel(callback: (level: number) => void): void {
+    this.audioLevelCallbacks.push(callback);
+  }
+
+  /**
+   * Remove an audio level callback
+   */
+  public offAudioLevel(callback: (level: number) => void): void {
+    const index = this.audioLevelCallbacks.indexOf(callback);
+    if (index > -1) {
+      this.audioLevelCallbacks.splice(index, 1);
+    }
+  }
+
+  /**
+   * Get the current audio level (0.0 to 1.0)
+   */
+  public getCurrentAudioLevel(): number {
+    return this.currentAudioLevel;
+  }
+
+  /**
+   * Clear all audio level callbacks
+   */
+  public clearAudioLevelCallbacks(): void {
+    this.audioLevelCallbacks = [];
   }
 }
 

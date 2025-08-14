@@ -54,6 +54,7 @@ import { ttsService } from '../services/ttsService';
 import { useStickyAutoScroll } from '../hooks/useStickyAutoScroll';
 import { getTextDirectionStyles, analyzeMixedContent } from '../services/rtlDetection';
 import * as styles from '../styles/components/ChatArea.styles';
+import WaveformVisualization from './WaveformVisualization';
 
 // Set the worker source path
 GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
@@ -1862,31 +1863,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         )}
                       </Typography>
                       
-                      {/* Large animated sound waves */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
-                        {[1, 2, 3, 4, 5].map((i) => (
-                          <Box
-                            key={i}
-                            sx={{
-                              width: '4px',
-                              backgroundColor: 'white',
-                              borderRadius: '2px',
-                              animation: `waveRed${i} 1.8s infinite`,
-                              [`@keyframes waveRed${i}`]: {
-                                '0%, 100%': {
-                                  height: '12px',
-                                  opacity: 0.4,
-                                },
-                                '50%': {
-                                  height: '24px',
-                                  opacity: 1,
-                                },
-                              },
-                              animationDelay: `${i * 0.15}s`,
-                            }}
-                          />
-                        ))}
-                      </Box>
+                      {/* Real-time audio waveform visualization */}
+                      <WaveformVisualization 
+                        voskRecognition={voskRecognition}
+                        isListening={isListening}
+                      />
                     </Box>
                     
                     {/* Detection Sensitivity Control */}
