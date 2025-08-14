@@ -31,8 +31,7 @@ export class VoskRecognitionService {
   
   // Silence detection for auto-stop
   private silenceDetectionEnabled = true;
-  private silenceThreshold = 0.25; // Root Mean Square (RMS) audio level 0.0-1.0 (0.05 = 5% of max volume, roughly normal conversation ~65-70dB equivalent) - Audio below this is considered silence
-  private silenceTimeoutNormal = 3500; // 3 seconds of silence before auto-stop in normal mode
+  private silenceTimeoutNormal = 2500; // 2 seconds of silence before auto-stop in normal mode
   private silenceTimeoutFullVoice = 1500; // 1.5 seconds of silence before auto-stop in full voice mode
   private lastAudioTime = 0;
   private silenceTimer: number | null = null;
@@ -44,7 +43,7 @@ export class VoskRecognitionService {
   
   // Voice detection threshold to reduce background noise sensitivity
   private voiceDetectionEnabled = true;
-  private voiceDetectionThreshold = 0.0015; // Root Mean Square (RMS) audio level 0.0-1.0 (0.0015 = 0.15% of max volume, roughly quiet room noise ~30-40dB equivalent) - Audio below this won't be sent to Vosk server
+  private voiceDetectionThreshold = 0.001; // Root Mean Square (RMS) audio level 0.0-1.0 (0.001 = default sensitivity 90) - Audio below this won't be sent to Vosk server
   
   // Event callbacks
   private onResultCallback: ((result: VoskResult) => void) | null = null;
@@ -218,7 +217,6 @@ export class VoskRecognitionService {
                     if (ttsSettings.fullVoiceMode && this.isRecording) {
                       // PAUSE TTS immediately when partial voice recognition appears
                       ttsService.pause();
-                      console.log("Pause");
                       this.clearSilenceTimer();
                       
                       // Check if ttsResumeTimeout is null, only create new timeout if it is
@@ -226,7 +224,6 @@ export class VoskRecognitionService {
                         this.ttsResumeTimeout = (async () => {
                           await new Promise(resolve => setTimeout(resolve, ttsService.getMinimumWaitTimeForResume()));
                           ttsService.resume();
-                          console.log("Resume");
                           this.ttsResumeTimeout = null; // Reset to null after completion
                         })();
                       }
@@ -307,14 +304,9 @@ export class VoskRecognitionService {
         
         this.processor = new AudioWorkletNode(this.audioContext, 'vosk-audio-processor');
 
-        // Handle messages from the AudioWorklet processor with silence detection
+        // Handle messages from the AudioWorklet processor
         this.processor.port.onmessage = (event) => {
           if (event.data.type === 'audioData' && this.isRecording) {
-            // Process audio data for silence detection
-            if (this.silenceDetectionEnabled) {
-              this.processAudioForSilenceDetection(event.data.data);
-            }
-            
             // Check voice detection threshold before sending to Vosk
             if (this.socket && this.socket.readyState === WebSocket.OPEN) {
               if (this.shouldSendAudioToVosk(event.data.data)) {
@@ -397,6 +389,9 @@ export class VoskRecognitionService {
       // Initialize silence detection
       this.lastAudioTime = Date.now();
       this.clearSilenceTimer();
+      
+      // Start silence timer continuously when Vosk starts
+      this.startSilenceTimer();
 
 
     } catch (error) {
@@ -961,61 +956,6 @@ export class VoskRecognitionService {
     return ttsSettings.fullVoiceMode ? this.silenceTimeoutFullVoice : this.silenceTimeoutNormal;
   }
 
-  /**
-   * Process audio data for silence detection
-   */
-  private processAudioForSilenceDetection(audioData: ArrayBuffer): void {
-    if (!this.silenceDetectionEnabled || !this.isRecording) {
-      return;
-    }
-
-    try {
-      // Convert ArrayBuffer to Float32Array for analysis
-      const int16Array = new Int16Array(audioData);
-      
-      // Convert int16 to float32 and calculate RMS (Root Mean Square) for audio level
-      let sum = 0;
-      for (let i = 0; i < int16Array.length; i++) {
-        const sample = int16Array[i] / 32768.0; // Convert to -1.0 to 1.0 range
-        sum += sample * sample;
-      }
-      
-      const rms = Math.sqrt(sum / int16Array.length);
-      
-      // Check if audio level is above silence threshold
-      if (rms > this.silenceThreshold) {
-        // Audio detected - reset silence timer and update last audio time
-        this.lastAudioTime = Date.now();
-        this.accumulatedSilenceTime = Date.now();
-        
-        // Clear any existing silence timer since we have audio
-        this.clearSilenceTimer();
-
-        // Pause TTS if full voice mode is enabled and user starts speaking (above threshold)
-        const ttsSettings = ttsService.getSettings();
-        if (ttsSettings.fullVoiceMode) {
-          ttsService.pause();
-        }
-        
-      } else {
-        // Silence detected - check if we should start/continue silence timer
-        const silenceDuration = Date.now() - this.lastAudioTime;
-        
-        // Resume TTS if full voice mode is enabled and user stops speaking (below threshold)
-        const ttsSettings = ttsService.getSettings();
-        if (ttsSettings.fullVoiceMode && silenceDuration > 200) { // Wait 200ms to avoid rapid pause/resume
-          ttsService.resume();
-        }
-        
-        if (silenceDuration > 500 && !this.silenceTimer) { // Wait 500ms before starting silence timer
-          this.startSilenceTimer();
-        }
-      }
-      
-    } catch (error) {
-      console.error('❌ Error processing audio for silence detection:', error);
-    }
-  }
 
   /**
    * Start silence timer for auto-stop
@@ -1122,6 +1062,13 @@ export class VoskRecognitionService {
       
       // Only send to Vosk if audio level is above voice detection threshold
       const shouldSend = rms > this.voiceDetectionThreshold;
+
+      // Silence detected - check if we should start/continue silence timer
+        const silenceDuration = Date.now() - this.lastAudioTime;
+        
+        if (silenceDuration > 500 && !this.silenceTimer) { // Wait 500ms before starting silence timer
+          this.startSilenceTimer();
+        }
       
       return shouldSend;
       
@@ -1139,20 +1086,18 @@ export class VoskRecognitionService {
    * Get all Vosk settings
    */
   public getSettings(): {
-    silenceThreshold: number;
     voiceDetectionThreshold: number;
     silenceDetectionEnabled: boolean;
     voiceDetectionEnabled: boolean;
     silenceTimeout: number;
-    micSensitivity: number;
+    detectionSensitivity: number;
   } {
     return {
-      silenceThreshold: this.silenceThreshold,
       voiceDetectionThreshold: this.voiceDetectionThreshold,
       silenceDetectionEnabled: this.silenceDetectionEnabled,
       voiceDetectionEnabled: this.voiceDetectionEnabled,
       silenceTimeout: this.silenceTimeout,
-      micSensitivity: this.getMicSensitivity(),
+      detectionSensitivity: this.getDetectionSensitivity(),
     };
   }
 
@@ -1160,24 +1105,18 @@ export class VoskRecognitionService {
    * Update Vosk settings
    */
   public updateSettings(settings: {
-    silenceThreshold?: number;
     voiceDetectionThreshold?: number;
     silenceDetectionEnabled?: boolean;
     voiceDetectionEnabled?: boolean;
     silenceTimeout?: number;
-    micSensitivity?: number;
+    detectionSensitivity?: number;
   }): void {
-    if (settings.micSensitivity !== undefined) {
-      this.setMicSensitivity(settings.micSensitivity);
-    }
-    
-    if (settings.silenceThreshold !== undefined) {
-      this.silenceThreshold = Math.max(0.001, Math.min(1.0, settings.silenceThreshold));
-      console.log(`🔇 Silence threshold updated: ${this.silenceThreshold}`);
+    if (settings.detectionSensitivity !== undefined) {
+      this.setDetectionSensitivity(settings.detectionSensitivity);
     }
     
     if (settings.voiceDetectionThreshold !== undefined) {
-      this.voiceDetectionThreshold = Math.max(0, Math.min(0.05, settings.voiceDetectionThreshold));
+      this.voiceDetectionThreshold = Math.max(0, Math.min(0.01, settings.voiceDetectionThreshold));
       console.log(`🎤 Voice detection threshold updated: ${this.voiceDetectionThreshold}`);
     }
     
@@ -1244,7 +1183,7 @@ export class VoskRecognitionService {
     
     return {
       enabled: this.silenceDetectionEnabled,
-      threshold: this.silenceThreshold,
+      threshold: this.voiceDetectionThreshold,
       timeout: this.silenceTimeout,
       currentLevel: 0, // No longer tracking current level without caching
       silenceDuration: silenceDuration,
@@ -1264,7 +1203,7 @@ export class VoskRecognitionService {
    * Set voice detection threshold (higher = less sensitive to background noise)
    */
   public setVoiceDetectionThreshold(threshold: number): void {
-    this.voiceDetectionThreshold = Math.max(0.001, Math.min(0.5, threshold)); // Clamp between 0.001 and 0.5
+    this.voiceDetectionThreshold = Math.max(0, Math.min(0.01, threshold)); // Clamp between 0 and 0.01 (matches 0-100 sensitivity range with 10000 scaling)
     console.log(`🎤 Voice detection threshold updated: ${this.voiceDetectionThreshold} (higher = less sensitive to background noise)`);
   }
 
@@ -1282,52 +1221,47 @@ export class VoskRecognitionService {
   }
 
   // ========================================
-  // MIC SENSITIVITY METHODS
+  // DETECTION SENSITIVITY METHODS
   // ========================================
 
   /**
-   * Set microphone sensitivity (0-100 range)
-   * This controls both silenceThreshold and voiceDetectionThreshold with the relationship:
-   * - silenceThreshold = sensitivity / 100
-   * - voiceDetectionThreshold = (sensitivity - 10) / 10000
+   * Set detection sensitivity (0-100 range)
+   * This controls voiceDetectionThreshold with the relationship:
+   * - voiceDetectionThreshold = sensitivity / 10000 (maps 0-100 to 0.0000-0.0100, with 20→0.002)
    */
-  public setMicSensitivity(sensitivity: number): void {
+  public setDetectionSensitivity(sensitivity: number): void {
     // Clamp sensitivity between 0 and 100
     const clampedSensitivity = Math.max(0, Math.min(100, sensitivity));
     
-    // Calculate new thresholds based on sensitivity
-    const newSilenceThreshold = clampedSensitivity / 100;
-    const newVoiceDetectionThreshold = Math.max(0, (clampedSensitivity - 10) / 10000);
+    // Calculate new threshold based on sensitivity (20 → 0.002)
+    const newVoiceDetectionThreshold = clampedSensitivity / 10000;
     
-    // Update the thresholds
-    this.silenceThreshold = newSilenceThreshold;
+    // Update the threshold
     this.voiceDetectionThreshold = newVoiceDetectionThreshold;
     
-    console.log(`🎚️ Mic sensitivity updated to ${clampedSensitivity}: silenceThreshold=${this.silenceThreshold}, voiceDetectionThreshold=${this.voiceDetectionThreshold}`);
+    console.log(`🎚️ Detection sensitivity updated to ${clampedSensitivity}: voiceDetectionThreshold=${this.voiceDetectionThreshold}`);
   }
 
   /**
-   * Get current microphone sensitivity (0-100 range)
-   * Calculated from current silenceThreshold
+   * Get current detection sensitivity (0-100 range)
+   * Calculated from current voiceDetectionThreshold
    */
-  public getMicSensitivity(): number {
-    // Calculate sensitivity from current silenceThreshold
-    return Math.round(this.silenceThreshold * 100);
+  public getDetectionSensitivity(): number {
+    // Calculate sensitivity from current voiceDetectionThreshold (20 → 0.002)
+    return Math.round(this.voiceDetectionThreshold * 10000);
   }
 
   /**
-   * Get microphone sensitivity settings including current values and ranges
+   * Get detection sensitivity settings including current values and ranges
    */
-  public getMicSensitivityStatus(): {
+  public getDetectionSensitivityStatus(): {
     sensitivity: number;
-    silenceThreshold: number;
     voiceDetectionThreshold: number;
     minSensitivity: number;
     maxSensitivity: number;
   } {
     return {
-      sensitivity: this.getMicSensitivity(),
-      silenceThreshold: this.silenceThreshold,
+      sensitivity: this.getDetectionSensitivity(),
       voiceDetectionThreshold: this.voiceDetectionThreshold,
       minSensitivity: 0,
       maxSensitivity: 100,

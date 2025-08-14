@@ -106,7 +106,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [micSensitivity, setMicSensitivity] = useState<number>(75); // Default sensitivity display value (inverse of internal 25)
+  const [detectionSensitivity, setDetectionSensitivity] = useState<number>(90); // Default sensitivity display value (inverse of internal 10)
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -190,40 +190,40 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, []);
 
-  // Initialize mic sensitivity from Vosk service (inverse relationship)
+  // Initialize detection sensitivity from Vosk service (inverse relationship)
   useEffect(() => {
     if (voskRecognition) {
-      const internalSensitivity = voskRecognition.getMicSensitivity();
+      const internalSensitivity = voskRecognition.getDetectionSensitivity();
       const displayValue = 100 - internalSensitivity; // Inverse for display
-      setMicSensitivity(displayValue);
+      setDetectionSensitivity(displayValue);
     }
   }, [voskRecognition]);
 
-  // Handle mic sensitivity change (inverse relationship)
-  const handleMicSensitivityChange = useCallback((event: Event, newValue: number | number[]) => {
+  // Handle detection sensitivity change (inverse relationship)
+  const handleDetectionSensitivityChange = useCallback((event: Event, newValue: number | number[]) => {
     const displayValue = Array.isArray(newValue) ? newValue[0] : newValue;
     const internalValue = 100 - displayValue; // Inverse relationship
     
-    setMicSensitivity(displayValue);
+    setDetectionSensitivity(displayValue);
     
     if (voskRecognition) {
-      voskRecognition.updateSettings({ micSensitivity: internalValue });
+      voskRecognition.updateSettings({ detectionSensitivity: internalValue });
       voskRecognition.saveSettings();
-      console.log(`🎚️ Mic sensitivity display: ${displayValue}, internal: ${internalValue}`);
+      console.log(`🎚️ Detection sensitivity display: ${displayValue}, internal: ${internalValue}`);
     }
   }, [voskRecognition]);
 
-  // Function to set mic sensitivity to 75
-  const handleSetSensitivityTo75 = useCallback(() => {
-    const displayValue = 75;
+  // Function to set detection sensitivity to 90
+  const handleSetSensitivityTo90 = useCallback(() => {
+    const displayValue = 90;
     const internalValue = 100 - displayValue; // Inverse relationship
     
-    setMicSensitivity(displayValue);
+    setDetectionSensitivity(displayValue);
     
     if (voskRecognition) {
-      voskRecognition.updateSettings({ micSensitivity: internalValue });
+      voskRecognition.updateSettings({ detectionSensitivity: internalValue });
       voskRecognition.saveSettings();
-      console.log(`🎚️ Mic sensitivity set to 75 (internal: ${internalValue})`);
+      console.log(`🎚️ Detection sensitivity set to 90 (internal: ${internalValue})`);
     }
   }, [voskRecognition]);
 
@@ -1889,7 +1889,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       </Box>
                     </Box>
                     
-                    {/* Mic Sensitivity Control */}
+                    {/* Detection Sensitivity Control */}
                     <Box sx={{ width: '100%', px: 1, pb: 1 }}>
                       <Box sx={{ 
                         display: 'flex', 
@@ -1902,12 +1902,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                           fontSize: '0.75rem',
                           opacity: 0.8 
                         }}>
-                          Mic Sensitivity: {micSensitivity}
+                          Detection Sensitivity: {detectionSensitivity}
                         </Typography>
                         <IconButton
                           size="small"
-                          onClick={handleSetSensitivityTo75}
-                          title="Set to 75"
+                          onClick={handleSetSensitivityTo90}
+                          title="Set to 90"
                           sx={{
                             color: 'white',
                             backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -1928,8 +1928,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       </Box>
                       <Box sx={{ px: 1, pb: 1 }}>
                         <Slider
-                          value={micSensitivity}
-                          onChange={handleMicSensitivityChange}
+                          value={detectionSensitivity}
+                          onChange={handleDetectionSensitivityChange}
                           min={0}
                           max={100}
                           step={1}
