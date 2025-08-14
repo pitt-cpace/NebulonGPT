@@ -58,7 +58,7 @@ export class TTSService {
   private backgroundCleanupInterval: NodeJS.Timeout | null = null; // Background cleanup thread
   private isBackgroundCleanupRunning = false; // Flag to prevent multiple cleanup threads
   private backgroundCleanupStopTimeout: NodeJS.Timeout | null = null; // Timeout to stop cleanup after 1 minute
-  private minimumWaitTimeForResume = 2000; // 2 second minimum
+  private minimumWaitTimeForResume = 3000; // 3 second minimum
 
 
   constructor(serverUrl?: string) {

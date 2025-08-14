@@ -224,13 +224,13 @@ export class VoskRecognitionService {
                       this.clearSilenceTimer();
                       
                       // Check if ttsResumeTimeout is null, only create new timeout if it is
-                      if (this.ttsResumeTimeout === null) {
-                        this.ttsResumeTimeout = (async () => {
-                          await new Promise(resolve => setTimeout(resolve, ttsService.getMinimumWaitTimeForResume()));
-                          ttsService.resume();
-                          this.ttsResumeTimeout = null; // Reset to null after completion
-                        })();
-                      }
+                      //if (this.ttsResumeTimeout === null) {
+                      //  this.ttsResumeTimeout = (async () => {
+                      //    await new Promise(resolve => setTimeout(resolve, ttsService.getMinimumWaitTimeForResume() - 1000));
+                      //    ttsService.resume();
+                      //    this.ttsResumeTimeout = null; // Reset to null after completion
+                      //  })();
+                      // }
                       
                       if (this.pendingText.trim()) {
                         // Show accumulated pending text + current partial text in the animated display
