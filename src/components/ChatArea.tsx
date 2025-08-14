@@ -107,7 +107,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [detectionSensitivity, setDetectionSensitivity] = useState<number>(90); // Default sensitivity display value (inverse of internal 10)
+  const [detectionSensitivity, setDetectionSensitivity] = useState<number>(100); // Default sensitivity display value (inverse of internal 0)
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -214,9 +214,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [voskRecognition]);
 
-  // Function to set detection sensitivity to 90
-  const handleSetSensitivityTo90 = useCallback(() => {
-    const displayValue = 90;
+  // Function to set detection sensitivity to 100
+  const handleSetSensitivityTo100 = useCallback(() => {
+    const displayValue = 100;
     const internalValue = 100 - displayValue; // Inverse relationship
     
     setDetectionSensitivity(displayValue);
@@ -224,7 +224,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if (voskRecognition) {
       voskRecognition.updateSettings({ detectionSensitivity: internalValue });
       voskRecognition.saveSettings();
-      console.log(`🎚️ Detection sensitivity set to 90 (internal: ${internalValue})`);
+      console.log(`🎚️ Detection sensitivity set to 100 (internal: ${internalValue})`);
     }
   }, [voskRecognition]);
 
@@ -1887,8 +1887,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         </Typography>
                         <IconButton
                           size="small"
-                          onClick={handleSetSensitivityTo90}
-                          title="Reset detection sensitivity to optimal level (90)"
+                          onClick={handleSetSensitivityTo100}
+                          title="Reset detection sensitivity to optimal level (100)"
                           sx={{
                             color: 'white',
                             backgroundColor: 'rgba(255, 255, 255, 0.1)',

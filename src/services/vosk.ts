@@ -43,7 +43,7 @@ export class VoskRecognitionService {
   
   // Voice detection threshold to reduce background noise sensitivity
   private voiceDetectionEnabled = true;
-  private voiceDetectionThreshold = 0.001; // Root Mean Square (RMS) audio level 0.0-1.0 (0.001 = default sensitivity 90) - Audio below this won't be sent to Vosk server
+  private voiceDetectionThreshold = 0.0; // Root Mean Square (RMS) audio level 0.0-1.0 (0.0 = default sensitivity 100) - Audio below this won't be sent to Vosk server
   
   // Real-time audio level tracking for waveform visualization
   private currentAudioLevel = 0;
