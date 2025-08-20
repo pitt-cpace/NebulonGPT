@@ -61,13 +61,66 @@ app.get('/api/chats', (req, res) => {
   }
 });
 
-app.post('/api/chats', (req, res) => {
+// Save or update a specific chat by ID
+app.post('/api/chats/:chatId', (req, res) => {
   try {
-    const chats = req.body;
+    const chatId = req.params.chatId;
+    const chatData = req.body;
+    
+    if (!chatId || !chatData) {
+      console.error('Missing chat ID or chat data');
+      return res.status(400).json({ error: 'Chat ID and chat data are required' });
+    }
+    
+    // Read existing chats
+    let chats = [];
+    try {
+      const chatsData = fs.readFileSync(CHATS_FILE, 'utf8');
+      chats = JSON.parse(chatsData);
+    } catch (error) {
+      console.log('No existing chats file, starting with empty array');
+      chats = [];
+    }
+    
+    // Find existing chat by ID
+    const existingChatIndex = chats.findIndex(chat => chat.id === chatId);
+    
+    if (existingChatIndex >= 0) {
+      // Update existing chat
+      chats[existingChatIndex] = { ...chats[existingChatIndex], ...chatData, id: chatId };
+      console.log(`Updated existing chat: ${chatId}`);
+    } else {
+      // Add new chat
+      chats.unshift({ ...chatData, id: chatId });
+      console.log(`Added new chat: ${chatId}`);
+    }
+    
+    // Save updated chats
     fs.writeFileSync(CHATS_FILE, JSON.stringify(chats, null, 2));
+    console.log(`Saved chat ${chatId} to file (total: ${chats.length} chats)`);
     res.json({ success: true });
   } catch (error) {
-    console.error('Error writing chats file:', error);
+    console.error('Error saving chat:', error);
+    res.status(500).json({ error: 'Failed to save chat' });
+  }
+});
+
+// Legacy endpoint for backward compatibility - now just saves entire array
+app.post('/api/chats', (req, res) => {
+  try {
+    // Handle both simple array format and session-based format for backward compatibility
+    const chats = Array.isArray(req.body) ? req.body : req.body.chats || req.body;
+    
+    if (!chats) {
+      console.error('No chats data received in request body');
+      return res.status(400).json({ error: 'No chats data provided' });
+    }
+    
+    fs.writeFileSync(CHATS_FILE, JSON.stringify(chats, null, 2));
+    console.log(`Saved ${chats.length} chats to file (legacy endpoint)`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error writing chats:', error);
     res.status(500).json({ error: 'Failed to save chats' });
   }
 });

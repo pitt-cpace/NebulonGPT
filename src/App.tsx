@@ -84,7 +84,27 @@ const App: React.FC = () => {
     return isProduction ? '/api/chats' : 'http://localhost:3001/api/chats';
   }, []);
 
-  // Function to save chats to the server
+  // Function to save a specific chat by ID to the server
+  const saveChatToServer = useCallback(async (chat: ChatType) => {
+    try {
+      const response = await fetch(`${getChatApiUrl()}/${chat.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(chat),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      console.log(`✅ Saved chat ${chat.id} to server`);
+    } catch (error) {
+      console.error(`Failed to save chat ${chat.id} to server:`, error);
+    }
+  }, [getChatApiUrl]);
+
+  // Legacy function to save all chats (for bulk operations like deletions)
   const saveChatsToServer = useCallback(async (chatsToSave: ChatType[]) => {
     try {
       const response = await fetch(getChatApiUrl(), {
@@ -154,13 +174,9 @@ const App: React.FC = () => {
     fetchChats();
   }, [loadChatsFromServer, models]);
 
-  // Save chats to server whenever they change (including when empty after deletions)
-  useEffect(() => {
-    // Only save if the app has been initialized to avoid saving empty array on startup
-    if (initialized) {
-      saveChatsToServer(chats);
-    }
-  }, [chats, saveChatsToServer, initialized]);
+  // NOTE: Removed the useEffect that saved entire chats array on every change.
+  // Now using individual chat saving with saveChatToServer() for better performance
+  // and proper multi-tab support. Only bulk saving is used for deletions.
 
   useEffect(() => {
     const loadModels = async () => {
@@ -248,7 +264,7 @@ const App: React.FC = () => {
     }
   }, [models, initialized]); // Removed 'chats' from dependency array
 
-  const handleCreateNewChat = () => {
+  const handleCreateNewChat = async () => {
     if (!selectedModel) return;
     
     const newChat: ChatType = {
@@ -258,6 +274,9 @@ const App: React.FC = () => {
       messages: [],
       createdAt: new Date().toISOString(),
     };
+    
+    // Save the new chat to server immediately
+    await saveChatToServer(newChat);
     
     setChats([newChat, ...chats]);
     setCurrentChat(newChat);
@@ -334,7 +353,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUpdateChatTitle = (chatId: string, newTitle: string) => {
+  const handleUpdateChatTitle = async (chatId: string, newTitle: string) => {
     const updatedChats = chats.map(chat => 
       chat.id === chatId 
         ? { ...chat, title: newTitle } 
@@ -344,7 +363,17 @@ const App: React.FC = () => {
     setChats(updatedChats);
     
     if (currentChat?.id === chatId) {
-      setCurrentChat({ ...currentChat, title: newTitle });
+      const updatedCurrentChat = { ...currentChat, title: newTitle };
+      setCurrentChat(updatedCurrentChat);
+      
+      // Save the updated chat to server immediately
+      await saveChatToServer(updatedCurrentChat);
+    } else {
+      // Find and save the updated chat
+      const updatedChat = updatedChats.find(chat => chat.id === chatId);
+      if (updatedChat) {
+        await saveChatToServer(updatedChat);
+      }
     }
   };
 
@@ -529,6 +558,9 @@ const App: React.FC = () => {
               chat.id === prevChat.id ? updatedChat : chat
             )
           );
+          
+          // Save the updated chat to server immediately (individual chat saving)
+          saveChatToServer(updatedChat);
           
           return updatedChat;
         });
