@@ -99,7 +99,6 @@ const App: React.FC = () => {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      console.log(`✅ Saved chat ${chat.id} to server`);
     } catch (error) {
       console.error(`Failed to save chat ${chat.id} to server:`, error);
     }
@@ -542,7 +541,6 @@ const App: React.FC = () => {
       
       // Check if chat needs a title and start generation immediately in parallel
       if (currentChat.title.toLowerCase() === 'new chat') {
-        console.log('🏷️ Chat needs a title, starting TRUE parallel generation...');
         
         // Start title generation in parallel (don't await) - this runs simultaneously with main LLM
         titleGenerationPromise = (async () => {
@@ -552,7 +550,6 @@ const App: React.FC = () => {
               modelIdForTitle
             );
             
-            console.log('✅ Generated title:', newTitle);
             
             // Update title in state and persist to server
             let updatedChatForSaving: ChatType | null = null;
@@ -579,7 +576,6 @@ const App: React.FC = () => {
             // Save the updated chat to server
             if (updatedChatForSaving) {
               await saveChatToServer(updatedChatForSaving);
-              console.log('✅ Title updated in state and saved to server');
             }
           } catch (error) {
             console.error('Error in parallel title generation:', error);

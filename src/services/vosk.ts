@@ -1133,7 +1133,6 @@ export class VoskRecognitionService {
     
     if (settings.voiceDetectionThreshold !== undefined) {
       this.voiceDetectionThreshold = Math.max(0, Math.min(0.01, settings.voiceDetectionThreshold));
-      console.log(`🎤 Voice detection threshold updated: ${this.voiceDetectionThreshold}`);
     }
     
     if (settings.silenceDetectionEnabled !== undefined) {
@@ -1167,7 +1166,6 @@ export class VoskRecognitionService {
       if (savedSettings) {
         const settings = JSON.parse(savedSettings);
         this.updateSettings(settings);
-        console.log('📂 Vosk settings loaded from localStorage');
       }
     } catch (error) {
       console.error('❌ Failed to load Vosk settings:', error);
@@ -1212,7 +1210,6 @@ export class VoskRecognitionService {
    */
   public setVoiceDetectionEnabled(enabled: boolean): void {
     this.voiceDetectionEnabled = enabled;
-    console.log(`🎤 Voice detection threshold ${enabled ? 'enabled' : 'disabled'}`);
   }
 
   /**
@@ -1220,7 +1217,6 @@ export class VoskRecognitionService {
    */
   public setVoiceDetectionThreshold(threshold: number): void {
     this.voiceDetectionThreshold = Math.max(0, Math.min(0.01, threshold)); // Clamp between 0 and 0.01 (matches 0-100 sensitivity range with 10000 scaling)
-    console.log(`🎤 Voice detection threshold updated: ${this.voiceDetectionThreshold} (higher = less sensitive to background noise)`);
   }
 
   /**
@@ -1255,7 +1251,6 @@ export class VoskRecognitionService {
     // Update the threshold
     this.voiceDetectionThreshold = newVoiceDetectionThreshold;
     
-    console.log(`🎚️ Detection sensitivity updated to ${clampedSensitivity}: voiceDetectionThreshold=${this.voiceDetectionThreshold}`);
   }
 
   /**

@@ -159,7 +159,6 @@ export const generateChatTitle = async (
   modelId: string
 ): Promise<string> => {
   try {
-    console.log('🏷️ Generating chat title candidates from user message...');
     
     // Pre-process the message
     const processedMessage = preprocessMessage(userMessage);
@@ -221,8 +220,6 @@ Persian input: ["مقایسه گارانتی تویوتا", "تفاوت گلد �
       throw new Error('No valid candidates generated');
     }
 
-    console.log('🏷️ Generated candidates:', candidates);
-
     // Score and rank candidates
     const scoredCandidates = candidates
       .map(candidate => ({
@@ -232,14 +229,12 @@ Persian input: ["مقایسه گارانتی تویوتا", "تفاوت گلد �
       .filter(item => item.title.length >= 3) // Filter out too short titles
       .sort((a, b) => b.score - a.score); // Sort by score descending
 
-    console.log('🏷️ Scored candidates:', scoredCandidates);
 
     if (scoredCandidates.length === 0) {
       throw new Error('No valid candidates after scoring');
     }
 
     const bestTitle = scoredCandidates[0].title;
-    console.log('✅ Best title selected:', bestTitle, 'Score:', scoredCandidates[0].score);
     
     return bestTitle;
 

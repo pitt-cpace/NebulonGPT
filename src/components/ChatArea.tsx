@@ -548,12 +548,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Function to clear chat input
   const clearChatInput = useCallback(() => {
-    console.log('🧹 Clearing chat input box...');
     setMessage('');
     setAttachments([]);
     setInterimTranscript('');
     finalTranscriptRef.current = '';
-    console.log('✅ Chat input box cleared');
   }, []);
 
   // Expose mic functions and clear function to parent components

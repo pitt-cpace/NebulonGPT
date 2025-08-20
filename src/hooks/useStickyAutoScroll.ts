@@ -65,7 +65,6 @@ export function useStickyAutoScroll({
 
     
     if (!el || !endEl) {
-      console.warn('❌ Container or end element not found for scroll listener - waiting...');
       return;
     }
     
