@@ -383,7 +383,6 @@ const App: React.FC = () => {
     // Also stop TTS if full voice mode is enabled
     const ttsSettings = ttsService.getSettings();
     if (ttsSettings.fullVoiceMode) {
-      console.log('🛑 Stopping TTS due to response cancellation');
       ttsService.pause();
       ttsService.clear(); // Clear any queued TTS audio
     }
@@ -456,7 +455,6 @@ const App: React.FC = () => {
       
       while (!allCleared && clearAttempt < maxClearAttempts) {
         clearAttempt++;
-        // console.log(`💥 Pre-LLM TTS clearing attempt ${clearAttempt}/${maxClearAttempts}...`);
         
         try {
           // Enhanced TTS stop inside the loop
@@ -480,7 +478,6 @@ const App: React.FC = () => {
               await new Promise(resolve => setTimeout(resolve, 500));
             }
           } else {
-            console.warn(`⚠️ Pre-LLM TTS clearing attempt ${clearAttempt} verification timeout - retrying...`);
             
             // Wait 500ms before next attempt (shorter for LLM start)
             await new Promise(resolve => setTimeout(resolve, 500));

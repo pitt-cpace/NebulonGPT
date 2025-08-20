@@ -340,7 +340,6 @@ export class TTSService {
 
     // Only process English text for TTS - skip other languages
     if (!this.isEnglishLanguage()) {
-      console.log(`🚫 Skipping TTS for non-English language: ${this.settings.language}`);
       return;
     }
 
@@ -801,7 +800,6 @@ export class TTSService {
     }
     
     if (!cleared) {
-      console.warn(`⚠️ TTS buffer clearing verification timeout after ${maxAttempts * 100}ms`);
       // Force final cleanup even if verification failed
       this.audioQueue = [];
       this.currentSession = null;
@@ -1082,10 +1080,6 @@ export class TTSService {
     
     // Check if the Vosk model is English based on model name
     const isEnglishModel = this.isEnglishVoskModel(currentModel);
-    
-    if (!isEnglishModel) {
-      console.log(`🌐 Current Vosk model "${currentModel}" is not English - TTS will be skipped`);
-    }
     
     return isEnglishModel;
   }
