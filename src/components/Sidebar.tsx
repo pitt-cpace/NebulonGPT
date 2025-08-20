@@ -53,6 +53,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingChatTitle, setEditingChatTitle] = useState('');
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const [tooltipContent, setTooltipContent] = useState('');
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [tooltipTimeout, setTooltipTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const handleToggleChats = () => {
     setChatsOpen(!chatsOpen);
@@ -77,6 +81,42 @@ const Sidebar: React.FC<SidebarProps> = ({
     } else if (e.key === 'Escape') {
       setEditingChatId(null);
     }
+  };
+
+  const handleMouseEnter = (e: React.MouseEvent, title: string) => {
+    // Clear any existing timeout
+    if (tooltipTimeout) {
+      clearTimeout(tooltipTimeout);
+    }
+    
+    setMousePosition({ 
+      x: e.clientX, 
+      y: e.clientY 
+    });
+    setTooltipContent(title);
+    
+    // Set tooltip to show after 2 seconds
+    const timeout = setTimeout(() => {
+      setTooltipOpen(true);
+    }, 1000);
+    
+    setTooltipTimeout(timeout);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    setMousePosition({ 
+      x: e.clientX, 
+      y: e.clientY 
+    });
+  };
+
+  const handleMouseLeave = () => {
+    // Clear timeout if mouse leaves before 2 seconds
+    if (tooltipTimeout) {
+      clearTimeout(tooltipTimeout);
+      setTooltipTimeout(null);
+    }
+    setTooltipOpen(false);
   };
 
   const filteredChats = chats.filter(chat =>
@@ -194,17 +234,23 @@ const Sidebar: React.FC<SidebarProps> = ({
                     />
                   ) : (
                     <ListItemText 
-                      primary={chat.title} 
-                      primaryTypographyProps={{
-                        noWrap: true,
-                        sx: { maxWidth: '150px' }
-                      }}
-                      onClick={(e) => {
-                        if (chat.title === 'New Chat') {
-                          handleStartEditing(chat.id, chat.title, e);
-                        }
-                      }}
-                      onDoubleClick={(e) => handleStartEditing(chat.id, chat.title, e)}
+                      primary={
+                        <Typography
+                          noWrap
+                          sx={{ maxWidth: '150px', cursor: 'pointer' }}
+                          onMouseEnter={(e) => handleMouseEnter(e, chat.title)}
+                          onMouseMove={handleMouseMove}
+                          onMouseLeave={handleMouseLeave}
+                          onClick={(e) => {
+                            if (chat.title === 'New Chat') {
+                              handleStartEditing(chat.id, chat.title, e);
+                            }
+                          }}
+                          onDoubleClick={(e) => handleStartEditing(chat.id, chat.title, e)}
+                        >
+                          {chat.title}
+                        </Typography>
+                      }
                     />
                   )}
                   <Box sx={{ display: 'flex' }}>
@@ -237,6 +283,29 @@ const Sidebar: React.FC<SidebarProps> = ({
           </List>
         </Collapse>
       </List>
+      
+      {/* Custom Tooltip */}
+      {tooltipOpen && (
+        <Box
+          sx={{
+            position: 'fixed',
+            left: mousePosition.x + 10,
+            top: mousePosition.y + 30,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: 'white',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            fontSize: '12px',
+            pointerEvents: 'none',
+            zIndex: 9999,
+            maxWidth: '200px',
+            wordWrap: 'break-word',
+            whiteSpace: 'normal',
+          }}
+        >
+          {tooltipContent}
+        </Box>
+      )}
     </Drawer>
   );
 };

@@ -8,6 +8,7 @@ import { ModelType, ChatType, MessageType, FileAttachment } from './types';
 import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
 import { voskRecognition } from './services/vosk';
 import { ttsService } from './services/ttsService';
+import { generateChatTitle } from './services/titleGenerator';
 
 const App: React.FC = () => {
   const [models, setModels] = useState<ModelType[]>([]);
@@ -532,6 +533,62 @@ const App: React.FC = () => {
       // Buffer for accumulating text chunks for TTS
       let ttsBuffer = '';
       
+      // Start title generation in parallel BEFORE the main LLM call if chat needs a title
+      const chatIdForTitle = currentChat.id;
+      const userContentForTitle = content;
+      const modelIdForTitle = selectedModel.id;
+      
+      let titleGenerationPromise: Promise<void> | null = null;
+      
+      // Check if chat needs a title and start generation immediately in parallel
+      if (currentChat.title.toLowerCase() === 'new chat') {
+        console.log('🏷️ Chat needs a title, starting TRUE parallel generation...');
+        
+        // Start title generation in parallel (don't await) - this runs simultaneously with main LLM
+        titleGenerationPromise = (async () => {
+          try {
+            const newTitle = await generateChatTitle(
+              userContentForTitle,
+              modelIdForTitle
+            );
+            
+            console.log('✅ Generated title:', newTitle);
+            
+            // Update title in state and persist to server
+            let updatedChatForSaving: ChatType | null = null;
+            
+            setChats(prevChats => {
+              const updatedChats = prevChats.map(chat => 
+                chat.id === chatIdForTitle 
+                  ? { ...chat, title: newTitle }
+                  : chat
+              );
+              
+              // Store the updated chat for saving
+              updatedChatForSaving = updatedChats.find(chat => chat.id === chatIdForTitle) || null;
+              
+              return updatedChats;
+            });
+            
+            setCurrentChat(prevChat => 
+              prevChat?.id === chatIdForTitle 
+                ? { ...prevChat, title: newTitle }
+                : prevChat
+            );
+            
+            // Save the updated chat to server
+            if (updatedChatForSaving) {
+              await saveChatToServer(updatedChatForSaving);
+              console.log('✅ Title updated in state and saved to server');
+            }
+          } catch (error) {
+            console.error('Error in parallel title generation:', error);
+          }
+        })(); // Immediately invoke the async function
+      } else {
+        console.log('🏷️ Chat already has a title, skipping generation');
+      }
+
       // Function to handle streaming updates
       const handleStreamUpdate = (chunk: string) => {
         // Set the current message ID from the first chunk received
@@ -626,8 +683,8 @@ const App: React.FC = () => {
         }
       };
       
-      // Call the Ollama API with the current messages and streaming handler
-      await sendMessage(
+      // Start both operations in parallel using Promise.all or separate promises
+      const mainResponsePromise = sendMessage(
         selectedModel.id,
         [...updatedChat.messages], // Include the new user message
         {
@@ -638,11 +695,20 @@ const App: React.FC = () => {
         isListening // Pass listening state for system message logic
       );
       
+      // Wait for the main response to complete (title generation continues in background)
+      await mainResponsePromise;
       
       // Send any remaining text in the TTS buffer after streaming is complete
       if (isFullVoiceMode && isListening && ttsBuffer.trim()) {
         // console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
         ttsService.speak(ttsBuffer.trim(), aiMessageId); // Pass the current message ID
+      }
+
+      // Optional: Wait for title generation to complete (but don't block the main flow)
+      if (titleGenerationPromise) {
+        titleGenerationPromise.catch(error => {
+          console.error('Title generation promise rejected:', error);
+        });
       }
       
     } catch (error) {
