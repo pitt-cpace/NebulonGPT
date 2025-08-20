@@ -203,14 +203,48 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
       }
       
       // Set current model based on priority:
-      // 1. Server's currently loaded model (highest priority)
-      // 2. Local current model
-      // 3. Auto-select default model
+      // 1. Saved model from localStorage (highest priority - user's last choice)
+      // 2. Server's currently loaded model (fallback if no saved model)
+      // 3. Local current model
+      // 4. Auto-select default model
       
-      if (serverCurrentModel && serverCurrentModel !== 'none' && models.includes(serverCurrentModel)) {
-        console.log(`✅ VoskModelSelector: Using server's currently loaded model: ${serverCurrentModel}`);
+      // Check for saved model first (highest priority)
+      const savedModel = localStorage.getItem('nebulongpt_vosk_selected_model');
+      if (savedModel && models.includes(savedModel)) {
+        console.log(`✅ VoskModelSelector: Found saved model in localStorage: ${savedModel}`);
+        
+        // If saved model is different from server's current model, load it
+        if (serverCurrentModel !== savedModel) {
+          console.log(`🔄 VoskModelSelector: Loading saved model ${savedModel} (server has: ${serverCurrentModel || 'none'})`);
+          try {
+            setLoadingModel(true);
+            await voskRecognition.selectModel(savedModel);
+            setSelectedModel(savedModel);
+            console.log(`✅ VoskModelSelector: Successfully loaded saved model: ${savedModel}`);
+            
+            if (onModelSelected) {
+              onModelSelected(savedModel);
+            }
+          } catch (error) {
+            console.error(`❌ VoskModelSelector: Failed to load saved model ${savedModel}:`, error);
+            // Fall back to server model if saved model fails to load
+            if (serverCurrentModel && serverCurrentModel !== 'none' && models.includes(serverCurrentModel)) {
+              setSelectedModel(serverCurrentModel);
+            }
+          } finally {
+            setLoadingModel(false);
+          }
+        } else {
+          // Saved model is already loaded on server
+          console.log(`✅ VoskModelSelector: Saved model ${savedModel} is already loaded on server`);
+          setSelectedModel(savedModel);
+          if (onModelSelected) {
+            onModelSelected(savedModel);
+          }
+        }
+      } else if (serverCurrentModel && serverCurrentModel !== 'none' && models.includes(serverCurrentModel)) {
+        console.log(`✅ VoskModelSelector: No saved model, using server's current model: ${serverCurrentModel}`);
         setSelectedModel(serverCurrentModel);
-        // Note: VoskRecognitionService will update its internal state automatically
       } else {
         const localCurrentModel = voskRecognition.getCurrentModel();
         if (localCurrentModel && models.includes(localCurrentModel)) {
@@ -242,9 +276,8 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
           }
           
           // Show default model in UI without loading it
-          // This helps user know which model is the default
           console.log(`🔧 Setting UI to show default model without loading: ${defaultModel}`);
-          setSelectedModel(defaultModel); // Show default model in dropdown but don't load it
+          setSelectedModel(defaultModel);
         }
       }
     } catch (err) {
@@ -317,6 +350,10 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
 
       await voskRecognition.selectModel(modelName);
       setSelectedModel(modelName);
+      
+      // Save selected model to localStorage for persistence across page refreshes
+      localStorage.setItem('nebulongpt_vosk_selected_model', modelName);
+      console.log(`💾 VoskModelSelector: Saved model to localStorage: ${modelName}`);
       
       // Trigger automatic language detection for TTS when model changes
       const { ttsService } = await import('../services/ttsService');
