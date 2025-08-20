@@ -460,7 +460,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               await new Promise(resolve => setTimeout(resolve, 500));
             }
           } else {
-            console.warn(`⚠️ TTS clearing attempt ${clearAttempt} verification timeout - retrying...`);
             
             // Wait 500ms before next attempt
             await new Promise(resolve => setTimeout(resolve, 500));
