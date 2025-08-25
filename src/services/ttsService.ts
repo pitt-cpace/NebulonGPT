@@ -371,6 +371,40 @@ export class TTSService {
   }
 
   /**
+   * Check if the audio item should be played based on message ID match
+   * If message IDs don't match, shift (remove) the item from queue and return false
+   * If they match or no check needed, return true
+   */
+  private shouldPlayAudioItem(audioItem: TTSQueueItem): boolean {
+    const currentMsgId = this.getCurrentMsgId ? this.getCurrentMsgId() : null;
+    
+    // Check if message IDs match
+    if (currentMsgId === audioItem.assistantMessageId) {
+      return true; // Message IDs match, allow playing
+    }
+    
+    // Message IDs don't match - shift (remove) this audio from queue
+    console.log(`🔇 Shifting audio from queue - message ID mismatch: current=${currentMsgId}, audio=${audioItem.assistantMessageId}`);
+    
+    // Remove the first item from queue using shift
+    const removedItem = this.audioQueue.shift();
+    if (removedItem) {
+      // Clean up the removed audio
+      const audio = removedItem.audio;
+      if (!audio.paused) {
+        audio.pause();
+      }
+      audio.onended = null;
+      audio.onerror = null;
+      if (audio.src && audio.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audio.src);
+      }
+    }
+    
+    return false; // Audio was removed, don't play
+  }
+
+  /**
    * Destroy all audio threads that belong to old assistant messages
    * Only keep threads for the current assistant message
    * Uses centralized getCurrentMsgId function to get the current message ID
@@ -657,8 +691,18 @@ export class TTSService {
     // Reset paused state for client-side audio
     this.isPaused = false;
     
-    // Check if we have a paused thread to resume
+      // Check if we have a paused thread to resume
     if (this.currentPlayingAudio && this.pausedAudioTime > 0) {
+      
+      // Check if the paused audio should still be played
+      if (!this.shouldPlayAudioItem(this.currentPlayingAudio)) {
+        // Audio was removed due to message ID mismatch, try next in queue
+        this.currentPlayingAudio = null;
+        this.pausedAudioTime = 0;
+        this.isPlayingAudio = false;
+        this.playNextInQueue();
+        return;
+      }
       
       const currentAudio = this.currentPlayingAudio.audio;
       try {
@@ -1441,6 +1485,14 @@ export class TTSService {
     }
     
     const audio = item.audio;
+    
+    // Check if the audio item should be played based on message ID match
+    if (!this.shouldPlayAudioItem(item)) {
+      // Audio was removed due to message ID mismatch, try next in queue
+      this.isPlayingAudio = false;
+      this.playNextInQueue();
+      return;
+    }
     
     // CRITICAL: Additional check if audio is already playing
     if (!audio.paused) {

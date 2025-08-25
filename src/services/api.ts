@@ -108,7 +108,7 @@ export const sendMessage = async (
   modelId: string,
   messages: MessageType[],
   options?: Record<string, any>,
-  onStreamUpdate?: (chunk: string) => void,
+  onStreamUpdate?: (chunk: string, responseData?: any) => void,
   isListening?: boolean
 ): Promise<string> => {
   try {
@@ -244,7 +244,7 @@ const endpoint = isProduction ? '/chat' : '/chat';
               if (data.message && data.message.content) {
                 // For streaming, we get partial content
                 const content = data.message.content;
-                onStreamUpdate(content);
+                onStreamUpdate(content, data);
                 fullResponse += content;
               }
             } catch (e) {
