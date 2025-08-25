@@ -294,15 +294,12 @@ const App: React.FC = () => {
           const savedDefaultModel = models.find(m => m.id === savedDefaultModelId);
           if (savedDefaultModel) {
             defaultModel = savedDefaultModel;
-          } else {
-            console.log(`⚠️ Saved default model '${savedDefaultModelId}' not found, using first available model`);
-          }
+          } 
         }
       } catch (error) {
         console.error('Failed to load default model from localStorage:', error);
       }
       
-      console.log(`🎯 Setting default model on initialization: ${defaultModel.name}`);
       setSelectedModel(defaultModel);
     }
   }, [initialized, models, selectedModel]);

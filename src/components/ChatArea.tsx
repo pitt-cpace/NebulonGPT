@@ -626,9 +626,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     // Check Ollama status when dropdown is opened
     const status = await onRefreshOllamaStatus();
-    
-    console.log(models);
-    
+        
     // If Ollama is available, models are loaded, and no model is currently selected, select default
     if (status.isAvailable && models.length > 0 && !model) {
       // Try to get default model from localStorage first
