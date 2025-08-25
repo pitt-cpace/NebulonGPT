@@ -45,6 +45,9 @@ import {
   People as PeopleIcon,
   KeyboardArrowDown as ArrowDownIcon,
   Refresh as RefreshIcon,
+  Error as ErrorIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
@@ -53,6 +56,7 @@ import { VoskRecognitionService } from '../services/vosk';
 import { ttsService } from '../services/ttsService';
 import { useStickyAutoScroll } from '../hooks/useStickyAutoScroll';
 import { getTextDirectionStyles, analyzeMixedContent } from '../services/rtlDetection';
+import { OllamaStatus } from '../services/ollamaStatus';
 import * as styles from '../styles/components/ChatArea.styles';
 import WaveformVisualization from './WaveformVisualization';
 
@@ -76,6 +80,8 @@ interface ChatAreaProps {
   onListeningStateChange?: (listening: boolean) => void;
   onClearChatInput?: React.MutableRefObject<(() => void) | null>;
   getCurrentMsgId?: () => string | null;
+  ollamaStatus: OllamaStatus;
+  onRefreshOllamaStatus: () => Promise<OllamaStatus>;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -94,6 +100,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onMicStop,
   onListeningStateChange,
   onClearChatInput,
+  ollamaStatus,
+  onRefreshOllamaStatus,
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
@@ -126,6 +134,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   });
 
   const handleSendMessage = useCallback(async () => {
+    // Check Ollama status before sending message
+    // Refresh status to get latest state
+    const status = await onRefreshOllamaStatus();
+    if (!status.isAvailable) {
+      alert('Cannot send message: Ollama is not available. Please check your Ollama connection.');
+      return;
+    }
+    
+    
     // Allow sending if there's a message OR attachments
     if ((message.trim() || attachments.length > 0) && !loading) {
       let messageText = message.trim();
@@ -596,6 +613,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
 
 
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -603,8 +621,33 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
-  const handleOpenModelMenu = (event: React.MouseEvent<HTMLElement>) => {
+  const handleOpenModelMenu = async (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchor(event.currentTarget);
+    
+    // Check Ollama status when dropdown is opened
+    const status = await onRefreshOllamaStatus();
+    
+    console.log(models);
+    
+    // If Ollama is available, models are loaded, and no model is currently selected, select default
+    if (status.isAvailable && models.length > 0 && !model) {
+      // Try to get default model from localStorage first
+      try {
+        const savedDefaultModelId = localStorage.getItem('defaultModelId');
+        if (savedDefaultModelId) {
+          const defaultModel = models.find(m => m.id === savedDefaultModelId);
+          if (defaultModel) {
+            onSelectModel(defaultModel);
+            return;
+          }
+        }
+      }finally{}
+      
+      // If no saved default or saved default not found, select first available model
+      if (models.length > 0) {
+        onSelectModel(models[0]);
+      }
+    }
   };
 
   const handleCloseModelMenu = () => {
@@ -1662,24 +1705,128 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <Button
             onClick={handleOpenModelMenu}
             endIcon={<KeyboardArrowDownIcon />}
-            sx={styles.modelSelector}
+            sx={{
+              ...styles.modelSelector,
+              // Change to red background with white text when Ollama has an error
+              ...((!ollamaStatus.isAvailable && ollamaStatus.error) && {
+                backgroundColor: 'error.main',
+                color: 'white',
+                borderColor: 'error.main',
+                '&:hover': {
+                  backgroundColor: 'error.dark',
+                  borderColor: 'error.dark',
+                },
+              }),
+            }}
           >
-            {model?.name || 'Select Model'}
+            {(!ollamaStatus.isAvailable && ollamaStatus.error) 
+              ? 'Error' 
+              : (model?.name || 'Select Model')
+            }
           </Button>
           <Menu
             anchorEl={modelMenuAnchor}
             open={Boolean(modelMenuAnchor)}
             onClose={handleCloseModelMenu}
           >
+            {/* Show Ollama status error if there's an issue */}
+            {!ollamaStatus.isAvailable && ollamaStatus.error && (
+              <>
+                <MenuItem
+                  disabled
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    color: 'error.main',
+                    backgroundColor: 'rgba(244, 67, 54, 0.08)',
+                    '&.Mui-disabled': {
+                      opacity: 1,
+                    },
+                  }}
+                >
+                  <ErrorIcon sx={{ fontSize: 18, color: 'error.main' }} />
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                      Ollama Connection Error
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {ollamaStatus.error}
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem
+                  onClick={async () => {
+                    handleCloseModelMenu();
+                    await onRefreshOllamaStatus();
+                  }}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    color: 'primary.main',
+                  }}
+                >
+                  <RefreshIcon sx={{ fontSize: 18 }} />
+                  <Typography variant="body2">
+                    Retry Connection
+                  </Typography>
+                </MenuItem>
+                <Divider sx={{ my: 1 }} />
+              </>
+            )}
+            
+            {/* Show warning if Ollama is available but there are no models */}
+            {ollamaStatus.isAvailable && models.length === 0 && (
+              <>
+                <MenuItem
+                  disabled
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    color: 'warning.main',
+                    backgroundColor: 'rgba(255, 152, 0, 0.08)',
+                    '&.Mui-disabled': {
+                      opacity: 1,
+                    },
+                  }}
+                >
+                  <WarningIcon sx={{ fontSize: 18, color: 'warning.main' }} />
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                      No Models Available
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Ollama is running but no models are installed
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <Divider sx={{ my: 1 }} />
+              </>
+            )}
+            
+            
+            {/* Model list */}
             {models.map((m) => (
               <MenuItem
                 key={m.id}
                 selected={m.id === model?.id}
                 onClick={() => handleSelectModel(m)}
+                disabled={!ollamaStatus.isAvailable}
               >
                 {m.name}
               </MenuItem>
             ))}
+            
+            {/* Show message when no models and Ollama is offline */}
+            {!ollamaStatus.isAvailable && models.length === 0 && (
+              <MenuItem disabled>
+                <Typography variant="body2" color="text.secondary">
+                  Connect to Ollama to see available models
+                </Typography>
+              </MenuItem>
+            )}
           </Menu>
 
           <Typography

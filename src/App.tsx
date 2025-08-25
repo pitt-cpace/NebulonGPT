@@ -9,6 +9,7 @@ import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
 import { voskRecognition } from './services/vosk';
 import { ttsService } from './services/ttsService';
 import { generateChatTitle } from './services/titleGenerator';
+import { checkOllamaStatus, OllamaStatus } from './services/ollamaStatus';
 
 const App: React.FC = () => {
   const [models, setModels] = useState<ModelType[]>([]);
@@ -18,6 +19,9 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  
+  // Ollama status state
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({ isAvailable: true });
   
   // Current message ID from last response
   const [currentMsgId, setCurrentMsgId] = useState<string | null>(null);
@@ -182,6 +186,15 @@ const App: React.FC = () => {
     const loadModels = async () => {
       try {
         setLoading(true);
+        
+        // Check Ollama status first
+        const status = await checkOllamaStatus();
+        setOllamaStatus(status);
+        
+        if (!status.isAvailable) {
+          console.warn('Ollama is not available:', status.error);
+        }
+        
         const modelList = await fetchModels();
         setModels(modelList);
         
@@ -220,6 +233,11 @@ const App: React.FC = () => {
         }
       } catch (error) {
         console.error('Failed to load models:', error);
+        // Set error status if model loading fails
+        setOllamaStatus({
+          isAvailable: false,
+          error: 'Failed to load models from Ollama'
+        });
       } finally {
         setLoading(false);
       }
@@ -263,6 +281,31 @@ const App: React.FC = () => {
       }
     }
   }, [models, initialized]); // Removed 'chats' from dependency array
+
+  // Ensure default model is selected after initialization
+  useEffect(() => {
+    if (initialized && models.length > 0 && !selectedModel) {
+      // Try to get default model from localStorage first
+      let defaultModel = models[0]; // fallback to first model
+      
+      try {
+        const savedDefaultModelId = localStorage.getItem('defaultModelId');
+        if (savedDefaultModelId) {
+          const savedDefaultModel = models.find(m => m.id === savedDefaultModelId);
+          if (savedDefaultModel) {
+            defaultModel = savedDefaultModel;
+          } else {
+            console.log(`⚠️ Saved default model '${savedDefaultModelId}' not found, using first available model`);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load default model from localStorage:', error);
+      }
+      
+      console.log(`🎯 Setting default model on initialization: ${defaultModel.name}`);
+      setSelectedModel(defaultModel);
+    }
+  }, [initialized, models, selectedModel]);
 
   const handleCreateNewChat = async () => {
     if (!selectedModel) return;
@@ -808,6 +851,38 @@ const App: React.FC = () => {
     }
   };
 
+  // Function to refresh Ollama status
+  const handleRefreshOllamaStatus = useCallback(async () => {
+    try {
+      const status = await checkOllamaStatus();
+      setOllamaStatus(status);
+      
+      // If Ollama becomes available, try to reload models
+      if (status.isAvailable && (!models.length || models.every(m => m.name.includes('llama3.3:70b-instruct-q8_0')))) {
+        const modelList = await fetchModels();
+        setModels(modelList);
+      }
+      // If Ollama is not available, clear the models array
+      else if (!status.isAvailable) {
+        setModels([]);
+        setSelectedModel(null);
+      }
+      
+      return status;
+    } catch (error) {
+      console.error('Failed to refresh Ollama status:', error);
+      const errorStatus: OllamaStatus = {
+        isAvailable: false,
+        error: 'Failed to check Ollama status'
+      };
+      setOllamaStatus(errorStatus);
+      // Clear models when there's an error
+      setModels([]);
+      setSelectedModel(null);
+      return errorStatus;
+    }
+  }, [models]);
+
   return (
     <Box sx={styles.container}>
       <CssBaseline />
@@ -852,6 +927,8 @@ const App: React.FC = () => {
         onListeningStateChange={handleListeningStateChange}
         onClearChatInput={onClearChatInput}
         getCurrentMsgId={getCurrentMsgId}
+        ollamaStatus={ollamaStatus}
+        onRefreshOllamaStatus={handleRefreshOllamaStatus}
       />
     </Box>
   );

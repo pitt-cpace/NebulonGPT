@@ -34,57 +34,13 @@ export const fetchModels = async (): Promise<ModelType[]> => {
       }));
     }
     
-    // Fallback for testing when API is not available
-    return [
-      {
-        id: 'llama3.3:70b-instruct-q8_0',
-        name: 'llama3.3:70b-instruct-q8_0',
-        size: '70B',
-        quantization: 'q8_0',
-        isDefault: true,
-      },
-      {
-        id: 'llama3:8b-instruct-q4_0',
-        name: 'llama3:8b-instruct-q4_0',
-        size: '8B',
-        quantization: 'q4_0',
-        isDefault: false,
-      },
-      {
-        id: 'mistral:7b-instruct-q4_0',
-        name: 'mistral:7b-instruct-q4_0',
-        size: '7B',
-        quantization: 'q4_0',
-        isDefault: false,
-      }
-    ];
+    // Return empty array when API is not available
+    return [];
   } catch (error) {
     console.error('Error fetching models:', error);
     
-    // Return mock data for development
-    return [
-      {
-        id: 'llama3.3:70b-instruct-q8_0',
-        name: 'llama3.3:70b-instruct-q8_0',
-        size: '70B',
-        quantization: 'q8_0',
-        isDefault: true,
-      },
-      {
-        id: 'llama3:8b-instruct-q4_0',
-        name: 'llama3:8b-instruct-q4_0',
-        size: '8B',
-        quantization: 'q4_0',
-        isDefault: false,
-      },
-      {
-        id: 'mistral:7b-instruct-q4_0',
-        name: 'mistral:7b-instruct-q4_0',
-        size: '7B',
-        quantization: 'q4_0',
-        isDefault: false,
-      }
-    ];
+    // Return empty array when there's an error
+    return [];
   }
 };
 
