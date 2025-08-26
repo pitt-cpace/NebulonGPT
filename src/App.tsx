@@ -508,9 +508,16 @@ const App: React.FC = () => {
         // Start title generation in parallel (don't await) - this runs simultaneously with main LLM
         titleGenerationPromise = (async () => {
           try {
+            // Get existing chat titles to prevent duplicates
+            const existingTitles = chats
+              .filter(chat => chat.id !== chatIdForTitle) // Exclude current chat
+              .map(chat => chat.title)
+              .filter(title => title && title.toLowerCase() !== 'new chat'); // Filter out empty and "New Chat" titles
+            
             const newTitle = await generateChatTitle(
               userContentForTitle,
-              modelIdForTitle
+              modelIdForTitle,
+              existingTitles
             );
             
             
@@ -758,7 +765,6 @@ const App: React.FC = () => {
     try {
       localStorage.setItem('contextLength', newContextLength.toString());
       localStorage.setItem('temperature', newTemperature.toString());
-      console.log(`✅ Saved settings - Context: ${newContextLength}, Temperature: ${newTemperature}`);
     } catch (error) {
       console.error('Failed to save settings to localStorage:', error);
     }

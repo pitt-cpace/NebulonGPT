@@ -227,7 +227,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if (voskRecognition) {
       voskRecognition.updateSettings({ detectionSensitivity: internalValue });
       voskRecognition.saveSettings();
-      console.log(`🎚️ Detection sensitivity display: ${displayValue}, internal: ${internalValue}`);
     }
   }, [voskRecognition]);
 

@@ -1151,7 +1151,6 @@ export class VoskRecognitionService {
     try {
       const settings = this.getSettings();
       localStorage.setItem('nebulongpt_vosk_settings', JSON.stringify(settings));
-      console.log('💾 Vosk settings saved to localStorage');
     } catch (error) {
       console.error('❌ Failed to save Vosk settings:', error);
     }

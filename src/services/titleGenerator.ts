@@ -154,9 +154,37 @@ const parseJsonTitles = (response: string): string[] => {
     .slice(0, 5);
 };
 
+/**
+ * Check if a title is duplicate (case-insensitive comparison)
+ */
+const isDuplicateTitle = (title: string, existingTitles: string[]): boolean => {
+  const normalizedTitle = title.toLowerCase().trim();
+  return existingTitles.some(existing => existing.toLowerCase().trim() === normalizedTitle);
+};
+
+/**
+ * Generate a unique title by appending a number if needed
+ */
+const makeUniqueTitle = (baseTitle: string, existingTitles: string[]): string => {
+  if (!isDuplicateTitle(baseTitle, existingTitles)) {
+    return baseTitle;
+  }
+  
+  let counter = 2;
+  let uniqueTitle = `${baseTitle} ${counter}`;
+  
+  while (isDuplicateTitle(uniqueTitle, existingTitles)) {
+    counter++;
+    uniqueTitle = `${baseTitle} ${counter}`;
+  }
+  
+  return uniqueTitle;
+};
+
 export const generateChatTitle = async (
   userMessage: string,
-  modelId: string
+  modelId: string,
+  existingTitles: string[] = []
 ): Promise<string> => {
   try {
     
@@ -220,18 +248,32 @@ Persian input: ["مقایسه گارانتی تویوتا", "تفاوت گلد �
       throw new Error('No valid candidates generated');
     }
 
-    // Score and rank candidates
+    // Score and rank candidates, filtering out duplicates
     const scoredCandidates = candidates
       .map(candidate => ({
         title: cleanTitle(candidate),
         score: scoreTitle(candidate, processedMessage)
       }))
       .filter(item => item.title.length >= 3) // Filter out too short titles
+      .filter(item => !isDuplicateTitle(item.title, existingTitles)) // Filter out duplicates
       .sort((a, b) => b.score - a.score); // Sort by score descending
 
-
     if (scoredCandidates.length === 0) {
-      throw new Error('No valid candidates after scoring');
+      // If all candidates are duplicates, try to make the best one unique
+      const allCandidates = candidates
+        .map(candidate => ({
+          title: cleanTitle(candidate),
+          score: scoreTitle(candidate, processedMessage)
+        }))
+        .filter(item => item.title.length >= 3)
+        .sort((a, b) => b.score - a.score);
+      
+      if (allCandidates.length === 0) {
+        throw new Error('No valid candidates after scoring');
+      }
+      
+      const bestTitle = makeUniqueTitle(allCandidates[0].title, existingTitles);
+      return bestTitle;
     }
 
     const bestTitle = scoredCandidates[0].title;
@@ -250,7 +292,10 @@ Persian input: ["مقایسه گارانتی تویوتا", "تفاوت گلد �
       .join(' ')
       .substring(0, 30);
     
-    return cleanTitle(fallbackTitle) || 'New Chat';
+    const cleanedFallback = cleanTitle(fallbackTitle) || 'New Chat';
+    
+    // Ensure fallback title is also unique
+    return makeUniqueTitle(cleanedFallback, existingTitles);
   }
 };
 
