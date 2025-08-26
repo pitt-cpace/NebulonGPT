@@ -299,6 +299,10 @@ export class TTSService {
     
     // Only return true if both message IDs are exactly the same
     if (currentMsgId && audioItem && audioItem.assistantMessageId && currentMsgId === audioItem.assistantMessageId) {
+      // Check if mic is listening and full voice mode is enabled before allowing play
+      if (!this.isMicListeningAndFullVoiceMode()) {
+        return false;
+      }
       return true; // Message IDs match exactly, allow playing
     }
     
@@ -384,9 +388,6 @@ export class TTSService {
       this.ws.send(JSON.stringify(message));
     }
     
-    // Set paused state first
-    this.isPaused = true;
-    
     // Find and pause the CURRENTLY PLAYING audio thread
     if (this.audioQueue.length > 0) {
       const currentItem = this.audioQueue[0];
@@ -406,6 +407,9 @@ export class TTSService {
           
           // Pause the audio thread
           currentAudio.pause();
+
+          // Set paused state
+          this.isPaused = true;
           
           // Reset the playing flag since we paused
           this.isPlayingAudio = false;
@@ -911,9 +915,9 @@ public async resume() {
       };
       
       this.audioQueue.push(queueItem);
-      
+
       // CRITICAL: Only start playing if this is the first audio AND no audio is currently playing
-      if (this.audioQueue.length === 1 && !this.isPaused) {
+      if (!this.isPaused) {
         this.playNextInQueue();
       } 
     } catch (error) {
@@ -945,7 +949,7 @@ public async resume() {
       this.playNextInQueue();
       return;
     }
-    
+
     
     // Check if the audio item should be played based on message ID match
     if (!this.shouldPlayAudioItem(audioItem)) {
@@ -1058,6 +1062,26 @@ public async resume() {
       supportedLanguage: isSupported,
       message
     };
+  }
+
+  /**
+   * Check if both microphone is listening and full voice mode is enabled
+   * @returns true if both conditions are met, false otherwise
+   */
+  public isMicListeningAndFullVoiceMode(): boolean {
+    // Check if full voice mode is enabled
+    if (!this.settings.fullVoiceMode) {
+      return false;
+    }
+    
+    // Check if microphone is currently listening using the callback
+    if (this.getIsListening) {
+      const isListening = this.getIsListening();
+      return isListening;
+    }
+    
+    // If no listening state callback is available, return false for safety
+    return false;
   }
 
   /**

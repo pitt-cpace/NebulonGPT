@@ -255,23 +255,37 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Set up event handlers for the VoskRecognitionService instance
     voskRecognition.onResult(async (result: { text?: string; partial?: string }) => {
       if (result.partial) {
-        // Update interim transcript for real-time display
-        setInterimTranscript(result.partial);
-        
+
         // In full voice mode: if user starts speaking while LLM is generating, stop the LLM and TTS
         const ttsSettings = ttsService.getSettings();
         const isFullVoiceMode = ttsSettings.fullVoiceMode;
+
+        ttsService.pause();
+        voskRecognition.clearSilenceTimer();
+
+        // Update interim transcript for real-time display
+        setInterimTranscript(result.partial);        
         
         if (isFullVoiceMode && loading && result.partial.trim().length > 0) {
           onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
         }
       }
       
-      if (result.text) {
+      if (result.text) {  
         // Final transcript received
         finalTranscriptRef.current += result.text + ' ';
         setMessage(finalTranscriptRef.current);
         setInterimTranscript(''); // Clear interim transcript
+        
+        const ttsSettings = ttsService.getSettings();
+        const isFullVoiceMode = ttsSettings.fullVoiceMode;
+
+        ttsService.pause();
+        voskRecognition.clearSilenceTimer();
+        
+        if (isFullVoiceMode && loading && finalTranscriptRef.current.length > 0) {
+          onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
+        }
       }
     });
     

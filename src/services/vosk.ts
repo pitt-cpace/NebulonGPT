@@ -219,18 +219,6 @@ export class VoskRecognitionService {
                     // Check if we're in full voice mode
                     const ttsSettings = ttsService.getSettings();
                     if (ttsSettings.fullVoiceMode && this.isRecording) {
-                      // PAUSE TTS immediately when partial voice recognition appears
-                      ttsService.pause();
-                      this.clearSilenceTimer();
-                      
-                      // Check if ttsResumeTimeout is null, only create new timeout if it is
-                      //if (this.ttsResumeTimeout === null) {
-                      //  this.ttsResumeTimeout = (async () => {
-                      //    await new Promise(resolve => setTimeout(resolve, ttsService.getMinimumWaitTimeForResume() - 1000));
-                      //    ttsService.resume();
-                      //    this.ttsResumeTimeout = null; // Reset to null after completion
-                      //  })();
-                      // }
                       
                       if (this.pendingText.trim()) {
                         // Show accumulated pending text + current partial text in the animated display
@@ -1032,7 +1020,7 @@ export class VoskRecognitionService {
   /**
    * Clear silence timer
    */
-  private clearSilenceTimer(): void {
+  public clearSilenceTimer(): void {
     if (this.silenceTimer) {
       clearInterval(this.silenceTimer);
       this.silenceTimer = null;
