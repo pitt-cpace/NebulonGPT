@@ -295,7 +295,7 @@ export class TTSService {
    */
   private shouldPlayAudioItem(audioItem: TTSQueueItem): boolean {
     const currentMsgId = this.getCurrentMsgId ? this.getCurrentMsgId() : null;
-    
+
     
     // Only return true if both message IDs are exactly the same
     if (currentMsgId && audioItem && audioItem.assistantMessageId && currentMsgId === audioItem.assistantMessageId) {
@@ -369,8 +369,23 @@ export class TTSService {
     // STEP 3.5: Wait 500ms for server and processes to respond properly
     await new Promise(resolve => setTimeout(resolve, 500));
     
-    // STEP 4: Clear the audio queue
-    this.audioQueue.length = 0;
+    // STEP 4: Clean up audio sources and clear the audio queue
+    this.audioQueue.forEach((item, index) => {
+      try {
+        const audio = item.audio;
+        // Clean up event listeners
+        audio.onended = null;
+        audio.onerror = null;
+        // Revoke blob URL to free memory
+        if (audio.src && audio.src.startsWith('blob:')) {
+          URL.revokeObjectURL(audio.src);
+        }
+      } catch (error) {
+        console.warn(`⚠️ Error cleaning up audio ${index}:`, error);
+      }
+    });
+    
+    // Clear the audio queue
     this.audioQueue = [];
     
     // STEP 5: Reset all flags and state for fresh start
@@ -378,6 +393,11 @@ export class TTSService {
     this.isPlayingAudio = false;
     this.currentSession = null;
     
+    // Force garbage collection if available
+    if (window.gc) {
+      window.gc();
+    }
+
   }
 
   public  pause() {
@@ -833,6 +853,9 @@ public async resume() {
 
   private playAudio(audioData: string, assistantMessageId?: string) {
     try {
+      if (this.getCurrentMsgId && this.getCurrentMsgId() !== assistantMessageId){
+      return;
+      }
       // Only play audio if Full Voice Mode is enabled AND microphone is listening
       if (!this.settings.fullVoiceMode) {
         return;
@@ -863,7 +886,7 @@ public async resume() {
       const audio = new Audio(audioUrl);
       
       // Set up event handlers before adding to queue
-      audio.onended = () => {
+      audio.onended = () => {        
         URL.revokeObjectURL(audioUrl);
         
         // CRITICAL: Reset the playing flag
@@ -874,7 +897,7 @@ public async resume() {
         if (currentItem && currentItem.audio === audio) {
           this.audioQueue.shift();
         }
-        
+
         // Clean up event listeners
         audio.onended = null;
         audio.onerror = null;
@@ -891,12 +914,12 @@ public async resume() {
         
         // CRITICAL: Reset the playing flag
         this.isPlayingAudio = false;
-        
+
         // CRITICAL: Only remove THIS specific audio from queue
         const currentItem = this.audioQueue[0];
         if (currentItem && currentItem.audio === audio) {
           this.audioQueue.shift();
-        }
+        }      
         
         // Clean up event listeners
         audio.onended = null;
@@ -926,7 +949,7 @@ public async resume() {
   }
 
   private  playNextInQueue() {
-    
+
     // Don't play if paused
     if (this.isPaused) {
       return;
@@ -960,7 +983,7 @@ public async resume() {
     }
     
     const audio = audioItem.audio;
-    
+
     // CRITICAL: Additional check if audio is already playing
     if (!audio.paused) {
       return;
