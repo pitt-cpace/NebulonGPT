@@ -31,6 +31,15 @@ const App: React.FC = () => {
   const [temperature, setTemperature] = useState(0.1); // Default temperature
   const [maxContextLength, setMaxContextLength] = useState(32768); // Default max context length for modern models
 
+  // Lazy loading state
+  const [chatPagination, setChatPagination] = useState({
+    page: 0,
+    limit: 50,
+    hasMore: true,
+    isLoading: false,
+  });
+  const [allChats, setAllChats] = useState<ChatType[]>([]); // Store all chats from server
+
   // Load saved settings from localStorage on app start
   useEffect(() => {
     try {
@@ -125,28 +134,81 @@ const App: React.FC = () => {
     }
   }, [getChatApiUrl]);
 
-  // Function to load chats from the server
-  const loadChatsFromServer = useCallback(async (): Promise<ChatType[]> => {
+  // Function to load chats from the server with pagination
+  const loadChatsFromServer = useCallback(async (page: number = 0, limit: number = 50): Promise<{ chats: ChatType[], hasMore: boolean }> => {
     try {
-      const response = await fetch(getChatApiUrl());
+      const response = await fetch(`${getChatApiUrl()}?page=${page}&limit=${limit}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const chats = await response.json();
-      return chats;
+      const data = await response.json();
+      
+      // If the server doesn't support pagination, return all chats
+      if (Array.isArray(data)) {
+        const startIndex = page * limit;
+        const endIndex = startIndex + limit;
+        const paginatedChats = data.slice(startIndex, endIndex);
+        return {
+          chats: paginatedChats,
+          hasMore: endIndex < data.length
+        };
+      }
+      
+      // If server supports pagination, use the response structure
+      return {
+        chats: data.chats || data,
+        hasMore: data.hasMore || false
+      };
     } catch (error) {
       console.error('Failed to load chats from server:', error);
-      return [];
+      return { chats: [], hasMore: false };
     }
   }, [getChatApiUrl]);
+
+  // Function to load more chats (lazy loading)
+  const handleLoadMoreChats = useCallback(async () => {
+    if (chatPagination.isLoading || !chatPagination.hasMore) return;
+
+    setChatPagination(prev => ({ ...prev, isLoading: true }));
+
+    try {
+      const nextPage = chatPagination.page + 1;
+      const { chats: newChats, hasMore } = await loadChatsFromServer(nextPage, chatPagination.limit);
+      
+      if (newChats.length > 0) {
+        setChats(prevChats => [...prevChats, ...newChats]);
+        setAllChats(prevAllChats => [...prevAllChats, ...newChats]);
+      }
+
+      setChatPagination(prev => ({
+        ...prev,
+        page: nextPage,
+        hasMore,
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('Failed to load more chats:', error);
+      setChatPagination(prev => ({ ...prev, isLoading: false }));
+    }
+  }, [chatPagination, loadChatsFromServer]);
 
   // Load chats from server when the app starts
   useEffect(() => {
     const fetchChats = async () => {
-      const savedChats = await loadChatsFromServer();
+      const { chats: savedChats, hasMore } = await loadChatsFromServer(0, chatPagination.limit);
+      
       if (savedChats.length > 0) {
         setChats(savedChats);
+        setAllChats(savedChats);
         setCurrentChat(savedChats[0]);
+        
+        // Update pagination state
+        setChatPagination(prev => ({
+          ...prev,
+          page: 0,
+          hasMore,
+          isLoading: false
+        }));
         
         // If models are already loaded, set the selected model based on the first chat's model ID
         // BUT only if no default model has been set from localStorage
@@ -170,11 +232,18 @@ const App: React.FC = () => {
             }
           }
         }
+      } else {
+        // No chats loaded, set hasMore to false
+        setChatPagination(prev => ({
+          ...prev,
+          hasMore: false,
+          isLoading: false
+        }));
       }
     };
     
     fetchChats();
-  }, [loadChatsFromServer, models]);
+  }, [loadChatsFromServer, models, chatPagination.limit]);
 
   // NOTE: Removed the useEffect that saved entire chats array on every change.
   // Now using individual chat saving with saveChatToServer() for better performance
@@ -828,6 +897,9 @@ const App: React.FC = () => {
         onDeleteChat={handleDeleteChat}
         onUpdateChatTitle={handleUpdateChatTitle}
         currentChatId={currentChat?.id}
+        onLoadMoreChats={handleLoadMoreChats}
+        hasMoreChats={chatPagination.hasMore}
+        isLoadingChats={chatPagination.isLoading}
       />
       <ChatArea 
         chat={currentChat}

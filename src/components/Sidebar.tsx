@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Drawer,
@@ -16,6 +16,7 @@ import {
   Tooltip,
   Avatar,
   Button,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -38,6 +39,9 @@ interface SidebarProps {
   onSelectChat: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
   onUpdateChatTitle: (chatId: string, newTitle: string) => void;
+  onLoadMoreChats?: () => void;
+  hasMoreChats?: boolean;
+  isLoadingChats?: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -48,6 +52,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   onSelectChat,
   onDeleteChat,
   onUpdateChatTitle,
+  onLoadMoreChats,
+  hasMoreChats = false,
+  isLoadingChats = false,
 }) => {
   const [chatsOpen, setChatsOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -57,6 +64,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [tooltipContent, setTooltipContent] = useState('');
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [tooltipTimeout, setTooltipTimeout] = useState<NodeJS.Timeout | null>(null);
+  
+  // Refs for scroll detection
+  const chatListRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef<HTMLLIElement>(null);
 
   const handleToggleChats = () => {
     setChatsOpen(!chatsOpen);
@@ -118,6 +129,40 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
     setTooltipOpen(false);
   };
+
+  // Scroll detection for lazy loading
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100; // Load when 100px from bottom
+    
+    if (isNearBottom && hasMoreChats && !isLoadingChats && onLoadMoreChats) {
+      onLoadMoreChats();
+    }
+  }, [hasMoreChats, isLoadingChats, onLoadMoreChats]);
+
+  // Intersection Observer for loading indicator
+  useEffect(() => {
+    if (!loadingRef.current || !hasMoreChats || !onLoadMoreChats) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && !isLoadingChats) {
+          onLoadMoreChats();
+        }
+      },
+      {
+        threshold: 0.1,
+        rootMargin: '50px',
+      }
+    );
+
+    observer.observe(loadingRef.current);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasMoreChats, isLoadingChats, onLoadMoreChats]);
 
   const filteredChats = chats.filter(chat =>
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
@@ -209,78 +254,110 @@ const Sidebar: React.FC<SidebarProps> = ({
           {chatsOpen ? <ExpandLess /> : <ExpandMore />}
         </ListItemButton>
         <Collapse in={chatsOpen} timeout="auto" unmountOnExit>
-          <List component="div" disablePadding>
-            {filteredChats.length > 0 ? (
-              filteredChats.map((chat) => (
-                <ListItemButton
-                  key={chat.id}
-                  selected={chat.id === currentChatId}
-                  onClick={() => onSelectChat(chat.id)}
-                  sx={styles.chatListItem}
-                >
-                  <ListItemIcon sx={styles.chatListItemIcon}>
-                    <ChatIcon fontSize="small" />
-                  </ListItemIcon>
-                  {editingChatId === chat.id ? (
-                    <TextField
-                      size="small"
-                      value={editingChatTitle}
-                      onChange={(e) => setEditingChatTitle(e.target.value)}
-                      onKeyDown={(e) => handleTitleKeyDown(chat.id, e)}
-                      onBlur={() => handleSaveTitle(chat.id)}
-                      autoFocus
-                      onClick={(e) => e.stopPropagation()}
-                      sx={styles.editTextField}
-                    />
-                  ) : (
-                    <ListItemText 
-                      primary={
-                        <Typography
-                          noWrap
-                          sx={{ maxWidth: '150px', cursor: 'pointer' }}
-                          onMouseEnter={(e) => handleMouseEnter(e, chat.title)}
-                          onMouseMove={handleMouseMove}
-                          onMouseLeave={handleMouseLeave}
-                          onClick={(e) => {
-                            if (chat.title === 'New Chat') {
-                              handleStartEditing(chat.id, chat.title, e);
-                            }
-                          }}
-                          onDoubleClick={(e) => handleStartEditing(chat.id, chat.title, e)}
-                        >
-                          {chat.title}
+          <Box
+            ref={chatListRef}
+            onScroll={handleScroll}
+            sx={{
+              maxHeight: 'calc(100vh - 400px)', // Adjust based on your layout
+              overflowY: 'auto',
+              overflowX: 'hidden',
+            }}
+          >
+            <List component="div" disablePadding>
+              {filteredChats.length > 0 ? (
+                <>
+                  {filteredChats.map((chat) => (
+                    <ListItemButton
+                      key={chat.id}
+                      selected={chat.id === currentChatId}
+                      onClick={() => onSelectChat(chat.id)}
+                      sx={styles.chatListItem}
+                    >
+                      <ListItemIcon sx={styles.chatListItemIcon}>
+                        <ChatIcon fontSize="small" />
+                      </ListItemIcon>
+                      {editingChatId === chat.id ? (
+                        <TextField
+                          size="small"
+                          value={editingChatTitle}
+                          onChange={(e) => setEditingChatTitle(e.target.value)}
+                          onKeyDown={(e) => handleTitleKeyDown(chat.id, e)}
+                          onBlur={() => handleSaveTitle(chat.id)}
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                          sx={styles.editTextField}
+                        />
+                      ) : (
+                        <ListItemText 
+                          primary={
+                            <Typography
+                              noWrap
+                              sx={{ maxWidth: '150px', cursor: 'pointer' }}
+                              onMouseEnter={(e) => handleMouseEnter(e, chat.title)}
+                              onMouseMove={handleMouseMove}
+                              onMouseLeave={handleMouseLeave}
+                              onClick={(e) => {
+                                if (chat.title === 'New Chat') {
+                                  handleStartEditing(chat.id, chat.title, e);
+                                }
+                              }}
+                              onDoubleClick={(e) => handleStartEditing(chat.id, chat.title, e)}
+                            >
+                              {chat.title}
+                            </Typography>
+                          }
+                        />
+                      )}
+                      <Box sx={{ display: 'flex' }}>
+                        {!editingChatId && (
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteChat(chat.id);
+                            }}
+                            sx={styles.deleteButton}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                      </Box>
+                    </ListItemButton>
+                  ))}
+                  
+                  {/* Loading indicator */}
+                  {hasMoreChats && (
+                    <ListItem
+                      ref={loadingRef}
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        py: 2,
+                      }}
+                    >
+                      {isLoadingChats ? (
+                        <CircularProgress size={20} />
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          Scroll to load more...
                         </Typography>
-                      }
-                    />
+                      )}
+                    </ListItem>
                   )}
-                  <Box sx={{ display: 'flex' }}>
-                    {!editingChatId && (
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteChat(chat.id);
-                        }}
-                        sx={styles.deleteButton}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    )}
-                  </Box>
-                </ListItemButton>
-              ))
-            ) : (
-              <ListItem sx={styles.noChatFound}>
-                <ListItemText 
-                  primary="No chats found" 
-                  primaryTypographyProps={{ 
-                    variant: 'body2',
-                    color: 'text.secondary',
-                  }} 
-                />
-              </ListItem>
-            )}
-          </List>
+                </>
+              ) : (
+                <ListItem sx={styles.noChatFound}>
+                  <ListItemText 
+                    primary="No chats found" 
+                    primaryTypographyProps={{ 
+                      variant: 'body2',
+                      color: 'text.secondary',
+                    }} 
+                  />
+                </ListItem>
+              )}
+            </List>
+          </Box>
         </Collapse>
       </List>
       
