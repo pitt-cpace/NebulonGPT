@@ -155,7 +155,7 @@ const endpoint = isProduction ? '/chat' : '/chat';
       
       
       // Log the complete payload with messages containing images
-      console.log('Complete Ollama API request payload:', JSON.stringify(payload, null, 2));
+      //console.log('Complete Ollama API request payload:', JSON.stringify(payload, null, 2));
       
       // Use fetch for streaming
       const response = await fetch(`${baseURL}${endpoint}`, {

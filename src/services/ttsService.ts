@@ -55,9 +55,6 @@ export class TTSService {
   private currentPlayingAudio: TTSQueueItem | null = null; // Track current playing thread
   private pausedAudioTime: number = 0; // Store paused position for resume
   private lastPauseTimestamp: number = 0; // Store when the last pause occurred
-  private backgroundCleanupInterval: NodeJS.Timeout | null = null; // Background cleanup thread
-  private isBackgroundCleanupRunning = false; // Flag to prevent multiple cleanup threads
-  private backgroundCleanupStopTimeout: NodeJS.Timeout | null = null; // Timeout to stop cleanup after 1 minute
   private minimumWaitTimeForResume = 500; // 0.5 second minimum
 
 
@@ -83,7 +80,6 @@ export class TTSService {
     const targetPort = port || '3000';
     
     const url = `${protocol}//${host}:${targetPort}/tts`;
-    // console.log(`🔗 TTS Service auto-detected URL: ${url}`);
     return url;
   }
 
@@ -103,46 +99,6 @@ export class TTSService {
     this.getIsListening = getIsListening;
   }
 
-  /**
-   * Start background cleanup thread that runs every 50ms when TTS is active
-   */
-  private startBackgroundCleanup() {
-    if (this.isBackgroundCleanupRunning) {
-      // console.log('🧹 Background cleanup thread already running');
-      return;
-    }
-
-    // console.log('🚀 Starting background cleanup thread (50ms interval)');
-    this.isBackgroundCleanupRunning = true;
-
-    this.backgroundCleanupInterval = setInterval(() => {
-      // Only run cleanup when TTS is active (has audio queue or active session)
-      const isTTSActive = this.audioQueue.length > 0 || this.currentSession !== null || this.isPlayingAudio;
-      
-      if (isTTSActive) {
-        // Get current message ID from centralized function and destroy old threads
-        this.destroyThreadsForOldMessages();
-      }
-    }, 50); // Run every 50ms
-  }
-
-  /**
-   * Stop background cleanup thread
-   */
-  private stopBackgroundCleanup() {
-    if (!this.isBackgroundCleanupRunning) {
-      return;
-    }
-
-    // console.log('🛑 Stopping background cleanup thread');
-    
-    if (this.backgroundCleanupInterval) {
-      clearInterval(this.backgroundCleanupInterval);
-      this.backgroundCleanupInterval = null;
-    }
-    
-    this.isBackgroundCleanupRunning = false;
-  }
 
   public updateSettings(settings: Partial<TTSSettings>) {
     this.settings = { ...this.settings, ...settings };
@@ -203,25 +159,18 @@ export class TTSService {
 
   public connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      // console.log(`🔌 TTS Connect: Starting connection attempt to ${this.serverUrl}`);
-      // console.log(`🔌 TTS Connect: Current WebSocket state: ${this.ws ? this.getWebSocketStateString(this.ws.readyState) : 'null'}`);
-      // console.log(`🔌 TTS Connect: Reconnect attempts so far: ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
-      
+
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        // console.log('✅ TTS Connect: WebSocket already open, resolving immediately');
         resolve();
         return;
       }
 
       if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
-        // console.log('⏳ TTS Connect: WebSocket already connecting, waiting for result...');
         // Wait for the existing connection attempt
         const checkConnection = () => {
           if (this.ws?.readyState === WebSocket.OPEN) {
-            // console.log('✅ TTS Connect: Existing connection attempt succeeded');
             resolve();
           } else if (this.ws?.readyState === WebSocket.CLOSED || this.ws?.readyState === WebSocket.CLOSING) {
-            // console.log('❌ TTS Connect: Existing connection attempt failed, starting new attempt');
             this.connect().then(resolve).catch(reject);
           } else {
             setTimeout(checkConnection, 100);
@@ -231,48 +180,23 @@ export class TTSService {
         return;
       }
 
-      // console.log('🔄 TTS Connect: Updating status to connecting...');
       this.updateStatus('connecting');
 
       try {
-        // console.log(`🚀 TTS Connect: Creating new WebSocket connection to ${this.serverUrl}`);
-        // console.log(`🚀 TTS Connect: Browser location: ${window.location.href}`);
-        // console.log(`🚀 TTS Connect: Protocol: ${window.location.protocol}, Host: ${window.location.hostname}, Port: ${window.location.port}`);
-        
+
         this.ws = new WebSocket(this.serverUrl);
-        // console.log(`✅ TTS Connect: WebSocket object created successfully`);
-        // console.log(`🔍 TTS Connect: Initial WebSocket state: ${this.getWebSocketStateString(this.ws.readyState)}`);
 
         this.ws.onopen = (event) => {
-          // console.log('🎉 TTS WebSocket CONNECTED successfully!');
-          // console.log('🎉 TTS Connect: Connection event details:', {
-          //   url: this.serverUrl,
-          //   readyState: this.getWebSocketStateString(this.ws!.readyState),
-          //   protocol: this.ws!.protocol,
-          //   extensions: this.ws!.extensions,
-          //   timestamp: new Date().toISOString()
-          // });
-          
+
           this.reconnectAttempts = 0;
-          // console.log('🔄 TTS Connect: Reset reconnect attempts to 0');
-          // console.log('🔄 TTS Connect: Updating status to connected...');
+
           this.updateStatus('connected');
           
-          // console.log('✅ TTS Connect: Resolving connection promise');
           resolve();
         };
 
         this.ws.onclose = (event) => {
-          // console.log('🔌 TTS WebSocket CLOSED');
-          // console.log('🔌 TTS Close: Event details:', {
-          //   code: event.code,
-          //   reason: event.reason || 'No reason provided',
-          //   wasClean: event.wasClean,
-          //   timestamp: new Date().toISOString(),
-          //   url: this.serverUrl
-          // });
-          // console.log('🔌 TTS Close: Close code meaning:', this.getCloseCodeMeaning(event.code));
-          
+
           this.handleDisconnection();
         };
 
@@ -291,20 +215,16 @@ export class TTSService {
             console.error('❌ TTS Error: Event target:', error.target);
           }
           
-          // console.log('🔄 TTS Error: Updating status to disconnected...');
           this.updateStatus('disconnected');
           
-          // console.log('❌ TTS Error: Rejecting connection promise');
           reject(error);
         };
 
         this.ws.onmessage = (event) => {
-          //console.log('📨 TTS WebSocket: Received message');
-          //console.log('📨 TTS Message: Data preview:', event.data.substring(0, 200) + (event.data.length > 200 ? '...' : ''));
+
           this.handleMessage(event.data);
         };
 
-        // console.log('🔧 TTS Connect: All event handlers attached');
 
       } catch (error) {
         console.error('💥 TTS Connect: EXCEPTION during WebSocket creation!');
@@ -316,10 +236,8 @@ export class TTSService {
           url: this.serverUrl
         });
         
-        // console.log('🔄 TTS Connect: Updating status to disconnected due to exception...');
         this.updateStatus('disconnected');
         
-        // console.log('❌ TTS Connect: Rejecting promise due to exception');
         reject(error);
       }
     });
@@ -343,8 +261,6 @@ export class TTSService {
       return;
     }
 
-    // Start background cleanup thread when TTS becomes active
-    this.startBackgroundCleanup();
 
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.connect();
@@ -358,6 +274,8 @@ export class TTSService {
       return;
     }
 
+    await this.resume();
+    
     // Use the current settings for voice, speed, and language
     const message = {
       text: cleanedText,
@@ -372,19 +290,22 @@ export class TTSService {
 
   /**
    * Check if the audio item should be played based on message ID match
-   * If message IDs don't match, shift (remove) the item from queue and return false
-   * If they match or no check needed, return true
+   * Only return true if both message IDs are exactly the same
+   * Otherwise always shift (remove) the item from queue and return false
    */
   private shouldPlayAudioItem(audioItem: TTSQueueItem): boolean {
     const currentMsgId = this.getCurrentMsgId ? this.getCurrentMsgId() : null;
     
-    // Check if message IDs match
-    if (currentMsgId === audioItem.assistantMessageId) {
-      return true; // Message IDs match, allow playing
+    
+    // Only return true if both message IDs are exactly the same
+    if (currentMsgId && audioItem && audioItem.assistantMessageId && currentMsgId === audioItem.assistantMessageId) {
+      return true; // Message IDs match exactly, allow playing
     }
     
-    // Message IDs don't match - shift (remove) this audio from queue
-    console.log(`🔇 Shifting audio from queue - message ID mismatch: current=${currentMsgId}, audio=${audioItem.assistantMessageId}`);
+    // Log queue length before shifting
+    const queueLengthBefore = this.audioQueue.length;
+
+    // Message IDs don't match (including null cases) - shift (remove) this audio from queue
     
     // Remove the first item from queue using shift
     const removedItem = this.audioQueue.shift();
@@ -401,187 +322,21 @@ export class TTSService {
       }
     }
     
+    // Log queue length after shifting
+    const queueLengthAfter = this.audioQueue.length;
+    
     return false; // Audio was removed, don't play
   }
 
-  /**
-   * Destroy all audio threads that belong to old assistant messages
-   * Only keep threads for the current assistant message
-   * Uses centralized getCurrentMsgId function to get the current message ID
-   */
-  private destroyThreadsForOldMessages() {
-    // Always use the centralized getCurrentMsgId function to get the current message ID
-    const currentMsgId = this.getCurrentMsgId ? this.getCurrentMsgId() : null;
-    
-    // console.log(`🧹 Using centralized getCurrentMsgId: ${currentMsgId} (function exists: ${!!this.getCurrentMsgId})`);
-    if (currentMsgId === null || currentMsgId === "DESTROY_ALL") {
-      // console.log(`💥 DESTROYING ALL MESSAGE THREADS - No filtering, destroy everything`);      
-      // Destroy ALL threads regardless of message ID
-      const threadsToDestroy = [...this.audioQueue]; // Copy all threads for destruction
-      const threadsToKeep: TTSQueueItem[] = []; // Keep nothing
-      
-      if (threadsToDestroy.length > 0) {
-        // console.log(`💥 Destroying ALL ${threadsToDestroy.length} threads (DESTROY_ALL mode)`);
-        
-        // Destroy all threads
-        threadsToDestroy.forEach((item, index) => {
-          try {
-            const audio = item.audio;
-            
-            // Stop playback if playing
-            if (!audio.paused) {
-              audio.pause();
-              // console.log(`💥 Force stopped audio ${index} (msg: ${item.assistantMessageId || 'unknown'}) - DESTROY_ALL`);
-            }
-            
-            // Reset audio completely
-            audio.currentTime = 0;
-            audio.volume = 0;
-            
-            // Remove all event listeners
-            audio.onended = null;
-            audio.onerror = null;
-            audio.onloadstart = null;
-            audio.oncanplay = null;
-            audio.onloadeddata = null;
-            audio.onpause = null;
-            audio.onplay = null;
-            
-            // Destroy blob URL to free memory
-            if (audio.src && audio.src.startsWith('blob:')) {
-              URL.revokeObjectURL(audio.src);
-              // console.log(`💥 Destroyed blob URL for audio ${index} - DESTROY_ALL`);
-            }
-            
-            // Clear source and force reload
-            audio.src = '';
-            audio.srcObject = null;
-            audio.load();
-            
-            // console.log(`💥 DESTROYED audio thread ${index} (msg: ${item.assistantMessageId || 'unknown'}) - DESTROY_ALL`);
-          } catch (error) {
-            console.warn(`⚠️ Error destroying audio thread ${index} in DESTROY_ALL mode:`, error);
-          }
-        });
-        
-        // Update the queue to be empty
-        this.audioQueue = threadsToKeep; // Empty array
-        
-        // Reset current playing audio since we destroyed everything
-        // console.log(`💥 Resetting current playing audio - DESTROY_ALL mode`);
-        this.currentPlayingAudio = null;
-        this.pausedAudioTime = 0;
-        this.isPlayingAudio = false;
-        
-        // console.log(`✅ DESTROYED ALL ${threadsToDestroy.length} threads - DESTROY_ALL completed`);
-      } else {
-        // console.log(`✅ No threads to destroy in DESTROY_ALL mode`);
-      }
-      
-      return; // Exit early for DESTROY_ALL mode
-    }
-    
-    // console.log(`🧹 DESTROYING OLD MESSAGE THREADS AND NULL MESSAGE IDs - keeping only: ${currentMsgId}`);
-    
-    // Find threads that are NOT equal to current message ID (destroy old/different message threads)
-    const threadsToDestroy = this.audioQueue.filter(item => 
-      item.assistantMessageId !== currentMsgId
-    );
-    
-    // Keep threads that match the current message ID exactly
-    const threadsToKeep = this.audioQueue.filter(item => 
-      item.assistantMessageId === currentMsgId
-    );
-    
-    if (threadsToDestroy.length > 0) {
-      // console.log(`💥 Destroying ${threadsToDestroy.length} old message threads`);
-      
-      // Destroy old threads
-      threadsToDestroy.forEach((item, index) => {
-        try {
-          const audio = item.audio;
-          
-          // Stop playback if playing
-          if (!audio.paused) {
-            audio.pause();
-            // console.log(`💥 Force stopped old message audio ${index} (msg: ${item.assistantMessageId})`);
-          }
-          
-          // Reset audio completely
-          audio.currentTime = 0;
-          audio.volume = 0;
-          
-          // Remove all event listeners
-          audio.onended = null;
-          audio.onerror = null;
-          audio.onloadstart = null;
-          audio.oncanplay = null;
-          audio.onloadeddata = null;
-          audio.onpause = null;
-          audio.onplay = null;
-          
-          // Destroy blob URL to free memory
-          if (audio.src && audio.src.startsWith('blob:')) {
-            URL.revokeObjectURL(audio.src);
-            // console.log(`💥 Destroyed blob URL for old message audio ${index}`);
-          }
-          
-          // Clear source and force reload
-          audio.src = '';
-          audio.srcObject = null;
-          audio.load();
-          
-          // console.log(`💥 DESTROYED old message audio thread ${index} (msg: ${item.assistantMessageId})`);
-        } catch (error) {
-          console.warn(`⚠️ Error destroying old message audio thread ${index}:`, error);
-        }
-      });
-      
-      // Update the queue to only contain current message threads
-      this.audioQueue = threadsToKeep;
-      
-      // Reset current playing audio ONLY if it belonged to an old message (different message ID)
-      // If we're still on the same message ID, PROTECT the paused audio reference
-      if (this.currentPlayingAudio && 
-          this.currentPlayingAudio.assistantMessageId && 
-          this.currentPlayingAudio.assistantMessageId !== currentMsgId) {
-        console.log(`💥 Clearing paused audio reference - message ID changed from ${this.currentPlayingAudio.assistantMessageId} to ${currentMsgId}`);
-        this.currentPlayingAudio = null;
-        this.pausedAudioTime = 0;
-        this.isPlayingAudio = false;
-      } else if (this.currentPlayingAudio && 
-                 this.currentPlayingAudio.assistantMessageId === currentMsgId) {
-        console.log(`🛡️ PROTECTING paused audio reference - still on same message ID: ${currentMsgId}`);
-        // Keep the paused audio reference since we're still on the same message
-      }
-      
-      // console.log(`✅ Kept ${threadsToKeep.length} threads for current message: ${currentMsgId}`);
-    } else {
-      // console.log(`✅ No old message threads to destroy for: ${currentMsgId}`);
-    }
-  }
 
   public async stop() {
     
-    // STEP 0: Set centralized message ID to null to trigger background cleanup to destroy ALL threads
+    // STEP 0: Generate new message ID and set it to trigger background cleanup to destroy ALL threads
+    const aiMessageId = `msg-${Date.now() + 1}`;
     if (this.setCurrentMsgId) {
-      this.setCurrentMsgId(null); // This will trigger destroyThreadsForOldMessages to destroy ALL threads
+      this.setCurrentMsgId(aiMessageId); // This will trigger destroyThreadsForOldMessages to destroy ALL threads
     }
     
-    // STEP 0.5: Schedule background cleanup thread to stop after 1 minute
-    if (this.isBackgroundCleanupRunning) {
-      
-      // Clear any existing stop timeout
-      if (this.backgroundCleanupStopTimeout) {
-        clearTimeout(this.backgroundCleanupStopTimeout);
-      }
-      
-      // Schedule stop after 1 minute (60000ms)
-      this.backgroundCleanupStopTimeout = setTimeout(() => {
-        this.stopBackgroundCleanup();
-        this.backgroundCleanupStopTimeout = null;
-      }, 60000); // 1 minute
-    }
     
     // STEP 1: Immediately stop all currently playing audio
     this.audioQueue.forEach((item, index) => {
@@ -610,8 +365,9 @@ export class TTSService {
     // STEP 3.5: Wait 500ms for server and processes to respond properly
     await new Promise(resolve => setTimeout(resolve, 500));
     
-    // STEP 4: Force destroy all audio threads and reset everything
-    this.forceDestroyAllAudioThreads();
+    // STEP 4: Clear the audio queue
+    this.audioQueue.length = 0;
+    this.audioQueue = [];
     
     // STEP 5: Reset all flags and state for fresh start
     this.isPaused = false;
@@ -620,8 +376,9 @@ export class TTSService {
     
   }
 
-  public pause() {
-    
+  public  pause() {
+    if(this.isPaused) {return;}
+
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { action: 'pause' };
       this.ws.send(JSON.stringify(message));
@@ -667,10 +424,15 @@ export class TTSService {
       this.currentPlayingAudio = null;
       this.pausedAudioTime = 0;
     }
+    
+    // Wait a brief moment to ensure pause operations complete
+    new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  public async resume() {
-    
+public async resume() {
+  
+  if (!this.isPaused) 
+    {return;}
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { action: 'resume' };
       this.ws.send(JSON.stringify(message));
@@ -682,9 +444,7 @@ export class TTSService {
       
       if (timeSincePause < this.minimumWaitTimeForResume) {
         const remainingWaitTime = this.minimumWaitTimeForResume - timeSincePause;
-        //await new Promise(resolve => setTimeout(resolve, remainingWaitTime));
-        this.resume();
-        return;
+        await new Promise(resolve => setTimeout(resolve, remainingWaitTime));
       }
     }
     
@@ -748,276 +508,8 @@ export class TTSService {
     }
   }
 
-  public async clear(): Promise<boolean> {
-    
-    // STEP 1: End streaming session first if active
-    if (this.currentSession) {
-      this.endStreaming();
-      await new Promise(resolve => setTimeout(resolve, 50)); // Wait for server to process
-    }
-    
-    // STEP 2: Send multiple clear commands to server to ensure buffer clearing
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      
-      // Send stop command first
-      this.ws.send(JSON.stringify({ action: 'stop' }));
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // Send clear command
-      this.ws.send(JSON.stringify({ action: 'clear' }));
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // Send additional clear command to ensure server buffer is empty
-      this.ws.send(JSON.stringify({ action: 'clear' }));
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    
-    // STEP 3: Reset all client state immediately
-    this.isPaused = false;
-    this.currentSession = null;
-    
-    // STEP 4: Aggressively clear client-side audio buffers
-    this.clearAudioQueue();
-    
-    // STEP 5: Additional client-side buffer clearing
-    
-    // Clear any pending audio that might be in browser's audio pipeline
-    try {
-      // Stop all audio contexts that might be playing TTS audio
-      const allAudioElements = document.querySelectorAll('audio');
-      allAudioElements.forEach((audio) => {
-        if (audio.src && audio.src.startsWith('blob:')) {
-          audio.pause();
-          audio.currentTime = 0;
-          audio.volume = 0;
-          audio.src = '';
-          audio.load();
-        }
-      });
-    } catch (error) {
-      console.warn('⚠️ Error during additional audio clearing:', error);
-    }
-    
-    // STEP 6: Wait for server confirmation and verify clearing
-    
-    const maxAttempts = 20; // Maximum 2 seconds (20 * 100ms)
-    let attempt = 0;
-    let cleared = false;
-    
-    while (!cleared && attempt < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
-      attempt++;
-      
-      // Check if everything is properly cleared on client side
-      const audioQueueEmpty = this.audioQueue.length === 0;
-      const notPaused = !this.isPaused;
-      const noActiveSession = this.currentSession === null;
-      
-      // Check if all audio elements are stopped
-      const allAudioStopped = this.audioQueue.every(item => 
-        item.audio.paused && item.audio.currentTime === 0 && item.audio.volume === 0
-      );
-      
-      // Additional check: ensure no audio is currently playing in the browser
-      let noAudioPlaying = true;
-      try {
-        const allAudio = Array.from(document.querySelectorAll('audio'));
-        for (const audio of allAudio) {
-          if (!audio.paused && audio.src.startsWith('blob:')) {
-            noAudioPlaying = false;
-            console.log('🔊 Found still playing audio, forcing stop...');
-            audio.pause();
-            audio.currentTime = 0;
-            audio.volume = 0;
-            break;
-          }
-        }
-      } catch (error) {
-        // Ignore errors in audio checking
-      }
-      
-      cleared = audioQueueEmpty && notPaused && noActiveSession && allAudioStopped && noAudioPlaying;
-      
-      if (cleared) {
-        break;
-      }
-    }
-    
-    if (!cleared) {
-      // Force final cleanup even if verification failed
-      this.audioQueue = [];
-      this.currentSession = null;
-      this.isPaused = false;
-    }
-    
-    // STEP 7: Force garbage collection
-    if (window.gc) {
-      window.gc();
-      console.log('🧹 Forced garbage collection after buffer clearing');
-    }
-    
-    return cleared;
-  }
 
-  private clearAudioQueue() {
-    
-    // Stop and destroy ALL audio elements in queue
-    this.audioQueue.forEach((item, index) => {
-      try {
-        const audio = item.audio;
-        
-        // Stop playback immediately
-        if (!audio.paused) {
-          audio.pause();
-        }
-        
-        // Reset to beginning
-        audio.currentTime = 0;
-        
-        // Remove all event listeners to prevent memory leaks and callback loops
-        audio.onended = null;
-        audio.onerror = null;
-        audio.onloadstart = null;
-        audio.oncanplay = null;
-        audio.onloadeddata = null;
-        audio.onpause = null;
-        audio.onplay = null;
-        
-        // Revoke any blob URLs to free memory
-        if (audio.src && audio.src.startsWith('blob:')) {
-          URL.revokeObjectURL(audio.src);
-        }
-        
-        // Clear the src to release audio data
-        audio.src = '';
-        audio.load(); // Force reload to clear internal buffers
-        
-      } catch (error) {
-        console.warn(`⚠️ Error destroying audio element ${index}:`, error);
-      }
-    });
-    
-    // Completely replace the array (don't just clear it)
-    this.audioQueue = [];
-    
-    // Reset all session state
-    this.currentSession = null;
-    this.isPaused = false;
-    this.isPlayingAudio = false; // Reset the playing flag
-    this.currentPlayingAudio = null; // Reset thread tracking
-    this.pausedAudioTime = 0; // Reset paused position
-    
-    // Force garbage collection hint (browser may or may not honor this)
-    if (window.gc) {
-      window.gc();
-    }
-  }
 
-  private forceDestroyAllAudioThreads() {
-    
-    // STEP 1: Immediately stop and destroy all audio in queue
-    this.audioQueue.forEach((item, index) => {
-      try {
-        const audio = item.audio;
-        
-        // Force stop playback
-        if (!audio.paused) {
-          audio.pause();
-        }
-        
-        // Reset audio completely
-        audio.currentTime = 0;
-        audio.volume = 0;
-        
-        // Remove ALL possible event listeners to kill threads
-        audio.onended = null;
-        audio.onerror = null;
-        audio.onloadstart = null;
-        audio.oncanplay = null;
-        audio.onloadeddata = null;
-        audio.onpause = null;
-        audio.onplay = null;
-        audio.onplaying = null;
-        audio.onstalled = null;
-        audio.onsuspend = null;
-        audio.ontimeupdate = null;
-        audio.onvolumechange = null;
-        audio.onwaiting = null;
-        audio.onabort = null;
-        audio.oncanplaythrough = null;
-        audio.ondurationchange = null;
-        audio.onemptied = null;
-        audio.onloadedmetadata = null;
-        audio.onloadstart = null;
-        audio.onprogress = null;
-        audio.onratechange = null;
-        audio.onseeked = null;
-        audio.onseeking = null;
-        
-        // Destroy blob URL to free memory and kill processes
-        if (audio.src && audio.src.startsWith('blob:')) {
-          URL.revokeObjectURL(audio.src);
-          console.log(`💥 Destroyed blob URL for audio thread ${index} (msg: ${item.assistantMessageId || 'unknown'})`);
-        }
-        
-        // Clear source and force reload to kill internal threads
-        audio.src = '';
-        audio.srcObject = null;
-        audio.load(); // Force browser to release internal audio threads
-        
-        // Set audio to null-like state
-        audio.preload = 'none';
-        
-        console.log(`💥 DESTROYED audio thread ${index} completely (msg: ${item.assistantMessageId || 'unknown'})`);
-      } catch (error) {
-        console.warn(`⚠️ Error force destroying audio thread ${index}:`, error);
-      }
-    });
-    
-    // STEP 2: Clear the entire queue array
-    this.audioQueue.length = 0; // Clear array efficiently
-    this.audioQueue = []; // Create new array to ensure no references remain
-    
-    // STEP 3: Force stop any remaining audio in the browser
-    try {
-      const allBrowserAudio = document.querySelectorAll('audio');
-      allBrowserAudio.forEach((audio, index) => {
-        if (audio.src && audio.src.startsWith('blob:')) {
-          audio.pause();
-          audio.currentTime = 0;
-          audio.volume = 0;
-          audio.src = '';
-          audio.load();
-          console.log(`💥 Force stopped browser audio element ${index}`);
-        }
-      });
-    } catch (error) {
-      console.warn('⚠️ Error force stopping browser audio elements:', error);
-    }
-    
-    // STEP 4: Reset all internal state completely
-    this.isPlayingAudio = false;
-    this.isPaused = false;
-    this.currentSession = null;
-    this.currentPlayingAudio = null; // Reset thread tracking
-    this.pausedAudioTime = 0; // Reset paused position
-    
-    // STEP 5: Force aggressive garbage collection
-    if (window.gc) {
-      window.gc();
-    }
-    
-    // STEP 6: Additional cleanup - clear any potential audio contexts
-    try {
-      // Clear any Web Audio API contexts that might be lingering
-      if (window.AudioContext || (window as any).webkitAudioContext) {
-        // Note: We don't create audio contexts in this service, but this is for safety
-      }
-    } catch (error) {
-      // Ignore errors in audio context cleanup
-    }
-    
-  }
 
   public async startStreaming(assistantMessageId?: string | null): Promise<number | null> {
     if (!this.settings.fullVoiceMode) {
@@ -1029,8 +521,6 @@ export class TTSService {
       return null;
     }
 
-    // Destroy threads using centralized message ID
-    this.destroyThreadsForOldMessages();
 
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.connect();
@@ -1058,21 +548,6 @@ export class TTSService {
     });
   }
 
-  public sendTextChunk(textChunk: string, assistantMessageId?: string | null) {
-    // Only send text chunks for English language
-    if (!this.isEnglishLanguage()) {
-      console.log(`🚫 Skipping TTS text chunk for non-English language: ${this.settings.language}`);
-      return;
-    }
-
-    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.currentSession) {
-      const message = {
-        text_chunk: textChunk,
-        assistantMessageId: assistantMessageId // Include message ID in the request
-      };
-      this.ws.send(JSON.stringify(message));
-    }
-  }
 
   public endStreaming() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.currentSession) {
@@ -1118,7 +593,6 @@ export class TTSService {
     const currentModel = voskRecognition.getCurrentModel();
     
     if (!currentModel) {
-      console.log(`🌐 No Vosk model selected - TTS will be skipped`);
       return false;
     }
     
@@ -1152,7 +626,6 @@ export class TTSService {
     // Check if any English pattern matches
     const isEnglish = englishPatterns.some(pattern => pattern.test(lowerModelName));
     
-    // console.log(`🔍 Checking Vosk model "${modelName}" for English: ${isEnglish ? 'YES' : 'NO'}`);
     
     return isEnglish;
   }
@@ -1162,11 +635,10 @@ export class TTSService {
     let cleaned = text
       // First, protect mathematical expressions by temporarily replacing them
       .replace(/(\d+\s*\*\s*\d+)/g, '___MATH_MULT_$1___') // Protect math like "2 * 2"
-      .replace(/(\w+\s*\*\s*\w+)/g, '___WORD_MULT_$1___') // Protect expressions like "x * y"
       
-      // Remove markdown bold/italic formatting (but not math)
+      // Remove markdown bold/italic formatting
       .replace(/\*\*(.*?)\*\*/g, '$1') // Remove **bold** formatting, keep content
-      .replace(/(?<!\w)\*([^*\s][^*]*[^*\s])\*(?!\w)/g, '$1') // Remove *italic* but not math
+      .replace(/(?<!\w)\*([^*\s][^*]*[^*\s])\*(?!\w)/g, '$1') // Remove *italic* formatting, keep content
       
       // Remove standalone asterisks (not part of math or formatting)
       .replace(/(?<!\w)\*+(?!\w)/g, '') // Remove standalone asterisks
@@ -1186,7 +658,6 @@ export class TTSService {
       
       // Restore protected mathematical expressions
       .replace(/___MATH_MULT_(.*?)___/g, '$1') // Restore math expressions
-      .replace(/___WORD_MULT_(.*?)___/g, '$1') // Restore word expressions
       
       // Normalize whitespace
       .replace(/\s+/g, ' ')
@@ -1285,10 +756,9 @@ export class TTSService {
     }
   }
 
-  private handleMessage(data: string) {
+  private  handleMessage(data: string) {
     try {
       const message = JSON.parse(data);
-      
       switch (message.type) {
         case 'complete_audio':
           // Handle complete audio response from regular TTS
@@ -1303,7 +773,6 @@ export class TTSService {
           }
           break;
         case 'streaming_started':
-          console.log('TTS Streaming started:', message.session_id);
           this.currentSession = {
             sessionId: message.session_id,
             isActive: true,
@@ -1318,8 +787,7 @@ export class TTSService {
           break;
         case 'queue_cleared':
           if (message.action === 'stop' || message.action === 'clear') {
-            // Server confirmed cache clearing - do additional client-side cleanup
-            this.clearAudioQueue(); // Double-clear to be absolutely sure
+            // Server confirmed cache clearing - reset session and state
             this.currentSession = null; // Reset session
             this.isPaused = false; // Reset state
           }
@@ -1340,13 +808,10 @@ export class TTSService {
           break;
         case 'chunk_received':
           // Acknowledgment of text chunk processing
-          console.log('TTS Chunk processed:', message.processed_sentences);
           break;
         case 'request_queued':
-          console.log('TTS Request queued:', message.message);
           break;
         case 'status':
-          console.log('TTS Status:', message.status);
           break;
         case 'error':
           console.error('TTS Error:', message.error);
@@ -1413,7 +878,7 @@ export class TTSService {
         // CRITICAL: Only play next if we're not paused and there are more items
         if (!this.isPaused && this.audioQueue.length > 0) {
           this.playNextInQueue();
-        } 
+        }
       };
       
       audio.onerror = (error) => {
@@ -1427,7 +892,6 @@ export class TTSService {
         const currentItem = this.audioQueue[0];
         if (currentItem && currentItem.audio === audio) {
           this.audioQueue.shift();
-          console.log(`🎵 Removed failed audio from queue (msg: ${currentItem.assistantMessageId || 'unknown'}). Remaining: ${this.audioQueue.length}`);
         }
         
         // Clean up event listeners
@@ -1452,65 +916,65 @@ export class TTSService {
       if (this.audioQueue.length === 1 && !this.isPaused) {
         this.playNextInQueue();
       } 
-      
     } catch (error) {
       console.error('Failed to process TTS audio:', error);
     }
   }
 
-  private playNextInQueue() {
-    // Don't play if paused or queue is empty
-    if (this.isPaused) {
-      console.log(`🎵 Queue playback paused. Queue length: ${this.audioQueue.length}`);
-      return;
-    }
+  private  playNextInQueue() {
     
-    if (this.audioQueue.length === 0) {
-      console.log('🎵 Queue is empty, nothing to play');
-      this.isPlayingAudio = false; // Reset flag when queue is empty
+    // Don't play if paused
+    if (this.isPaused) {
       return;
     }
     
     // CRITICAL: Prevent double-play with flag
     if (this.isPlayingAudio) {
-      //console.log('🎵 Audio is already being played, preventing double-play');
       return;
     }
     
-    const item = this.audioQueue[0];
-    if (!item) {
-      console.log('🎵 No audio item found at queue position 0');
-      this.isPlayingAudio = false;
+    // Check if queue is empty
+    if (this.audioQueue.length === 0) {
+      this.isPlayingAudio = false; // Reset flag when queue is empty
       return;
     }
     
-    const audio = item.audio;
-    
-    // Check if the audio item should be played based on message ID match
-    if (!this.shouldPlayAudioItem(item)) {
-      // Audio was removed due to message ID mismatch, try next in queue
-      this.isPlayingAudio = false;
+    const audioItem = this.audioQueue[0];
+    if (!audioItem) {
+      this.audioQueue.shift();
       this.playNextInQueue();
       return;
     }
+    
+    
+    // Check if the audio item should be played based on message ID match
+    if (!this.shouldPlayAudioItem(audioItem)) {
+      // Audio was removed by shouldPlayAudioItem, continue with next item
+      // Note: shouldPlayAudioItem already removed the item from queue
+      this.playNextInQueue();
+      return;
+    }
+    
+    const audio = audioItem.audio;
     
     // CRITICAL: Additional check if audio is already playing
     if (!audio.paused) {
       return;
     }
     
-    
     // Set flag to prevent double-play
     this.isPlayingAudio = true;
     
     // Play the audio
-    audio.play().then(() => {}).catch((error: any) => {
+    audio.play().then(() => {
+      // Audio started successfully
+    }).catch((error: any) => {
       console.error('🎵 Failed to start audio playback:', error);
       
       // Reset flag on failure
       this.isPlayingAudio = false;
       
-      // Remove failed audio and try next
+      // Remove failed audio and clean up
       const failedItem = this.audioQueue.shift();
       if (failedItem) {
         const failedAudio = failedItem.audio;
@@ -1521,10 +985,9 @@ export class TTSService {
         }
       }
       
-      // CRITICAL: Recursively try next audio after a small delay to prevent stack overflow
+      // Try next audio after a small delay to prevent stack overflow
       setTimeout(() => {
         if (!this.isPaused && this.audioQueue.length > 0) {
-          console.log('🎵 Retrying with next audio after failure...');
           this.playNextInQueue();
         }
       }, 10);
@@ -1585,10 +1048,8 @@ export class TTSService {
       
       if (isSupported) {
         message = `TTS language automatically switched to ${mapping.kokoroLanguageName} based on Vosk model: ${voskModelName}`;
-        console.log(`🌐 ${message}`);
       } else {
         message = getUnsupportedLanguageMessage(voskModelName);
-        console.log(`⚠️ ${message}`);
       }
     }
 
