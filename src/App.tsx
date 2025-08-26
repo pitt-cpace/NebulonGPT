@@ -372,6 +372,18 @@ const App: React.FC = () => {
   const handleCreateNewChat = async () => {
     if (!selectedModel) return;
     
+    try {
+      // Stop LLM response if it's currently responding
+      if (loading) {
+        await handleStopResponse();
+      }
+      
+      // Stop TTS when creating a new chat
+      await ttsService.stop();
+    } catch (error) {
+      console.error('Error stopping TTS or LLM response:', error);
+    }
+
     const newChat: ChatType = {
       id: `chat-${Date.now()}`,
       title: 'New Chat',

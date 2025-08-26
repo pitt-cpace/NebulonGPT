@@ -69,7 +69,7 @@ interface ChatAreaProps {
   models: ModelType[];
   loading: boolean;
   onSendMessage: (content: string, attachments?: FileAttachment[]) => void;
-  onStopResponse: () => void;
+  onStopResponse: () => Promise<void>;
   onToggleSidebar: () => void;
   onSelectModel: (model: ModelType) => void;
   sidebarOpen: boolean;
@@ -267,7 +267,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         setInterimTranscript(result.partial);        
         
         if (isFullVoiceMode && loading && result.partial.trim().length > 0) {
-          onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
+          await onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
         }
       }
       
@@ -284,7 +284,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         voskRecognition.clearSilenceTimer();
         
         if (isFullVoiceMode && loading && finalTranscriptRef.current.length > 0) {
-          onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
+          await onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
         }
       }
     });
@@ -438,7 +438,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     // Stop LLM generation if it's currently running
     if (loading) {
-      onStopResponse();
+      await onStopResponse();
     }
     
     // Stop TTS playback
