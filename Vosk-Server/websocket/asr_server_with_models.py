@@ -286,9 +286,9 @@ async def recognize_loop(websocket, path=None):
             update_session_activity()
             
             # Log periodic activity to track connection health
-            if message_count % 100 == 0:
-                connection_duration = last_activity_time - connection_start_time
-                logging.info(f'Session {session_id}: {message_count} messages processed, active for {connection_duration:.1f}s')
+            # if message_count % 100 == 0:
+            #     connection_duration = last_activity_time - connection_start_time
+            #     logging.info(f'Session {session_id}: {message_count} messages processed, active for {connection_duration:.1f}s')
             
             # Log first few messages for debugging
             if message_count <= 10:

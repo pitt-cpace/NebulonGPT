@@ -88,7 +88,7 @@ app.post('/api/chats/:chatId', (req, res) => {
     if (existingChatIndex >= 0) {
       // Update existing chat
       chats[existingChatIndex] = { ...chats[existingChatIndex], ...chatData, id: chatId };
-      console.log(`Updated existing chat: ${chatId}`);
+      //console.log(`Updated existing chat: ${chatId}`);
     } else {
       // Add new chat
       chats.unshift({ ...chatData, id: chatId });
@@ -97,7 +97,7 @@ app.post('/api/chats/:chatId', (req, res) => {
     
     // Save updated chats
     fs.writeFileSync(CHATS_FILE, JSON.stringify(chats, null, 2));
-    console.log(`Saved chat ${chatId} to file (total: ${chats.length} chats)`);
+    //console.log(`Saved chat ${chatId} to file (total: ${chats.length} chats)`);
     res.json({ success: true });
   } catch (error) {
     console.error('Error saving chat:', error);

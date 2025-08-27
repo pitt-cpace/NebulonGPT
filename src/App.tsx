@@ -378,8 +378,12 @@ const App: React.FC = () => {
         await handleStopResponse();
       }
       
-      // Stop TTS when creating a new chat
-      await ttsService.stop();
+      
+      // Stop TTS when creating a new chat - only if in full voice mode and mic is listening
+      const ttsSettings = ttsService.getSettings();
+      if (ttsSettings.fullVoiceMode && isListening) {
+        await ttsService.stop();
+      }
     } catch (error) {
       console.error('Error stopping TTS or LLM response:', error);
     }
@@ -537,7 +541,15 @@ const App: React.FC = () => {
             
     // Set the current message ID from the LLM response or fallback to local ID
     setCurrentMsgId(aiMessageId);
-      
+    
+    // Set active message ID for TTS if full voice mode is enabled and mic is listening
+    if (ttsSettings.fullVoiceMode && isListening) {
+      const success = await ttsService.setActiveMessageId(aiMessageId);
+      if (!success) {
+        console.error('Srart : Failed to set active message ID for TTS:', aiMessageId);
+      }
+    }
+       
     const aiMessage: MessageType = {
       id: aiMessageId,
       role: 'assistant',
@@ -568,9 +580,6 @@ const App: React.FC = () => {
       // Import the sendMessage function from our API service
       const { sendMessage } = await import('./services/api');
       
-      // Check if full voice mode is enabled for TTS
-      const ttsSettings = ttsService.getSettings();
-      const isFullVoiceMode = ttsSettings.fullVoiceMode;
       
       
       // Buffer for accumulating text chunks for TTS
@@ -635,16 +644,6 @@ const App: React.FC = () => {
       } 
       // Function to handle streaming updates
       const handleStreamUpdate = (chunk: string, responseData?: any) => {
-        // Extract message ID from LLM response if available, otherwise use local aiMessageId
-        let currentMsgIdToSet = aiMessageId;
-        if (responseData && responseData.message && responseData.message.id) {
-          currentMsgIdToSet = responseData.message.id;
-        } else if (responseData && responseData.id) {
-          currentMsgIdToSet = responseData.id;
-        }
-        
-        // Set the current message ID from the LLM response or fallback to local ID
-        setCurrentMsgId(currentMsgIdToSet);
         
         // Update the AI message with the new chunk
         setCurrentChat(prevChat => {
@@ -676,7 +675,7 @@ const App: React.FC = () => {
         });
         
         // Send to TTS if full voice mode is enabled AND microphone is listening
-        if (isFullVoiceMode && isListening) {
+        if (ttsSettings.fullVoiceMode && isListening) {
           ttsBuffer += chunk;
           
           // Enhanced sentence detection for multiple languages and punctuation patterns
@@ -690,7 +689,7 @@ const App: React.FC = () => {
           while ((match = sentenceEndings.exec(ttsBuffer)) !== null) {
             const sentence = ttsBuffer.substring(lastIndex, match.index + match[0].length).trim();
             if (sentence) {
-              ttsService.speak(sentence, currentMsgIdToSet); // Pass the extracted message ID from LLM
+              ttsService.speak(sentence, getCurrentMsgId()); // Pass the extracted message ID from LLM
             }
             lastIndex = match.index + match[0].length;
           }
@@ -704,7 +703,7 @@ const App: React.FC = () => {
             if (lineBreakIndex > 0) {
               const chunk = ttsBuffer.substring(0, lineBreakIndex).trim();
               if (chunk) {
-                ttsService.speak(chunk, currentMsgIdToSet); // Pass the extracted message ID from LLM
+                ttsService.speak(chunk, getCurrentMsgId()); // Pass the extracted message ID from LLM
               }
               // Update buffer to remove sent chunk including the line break
               ttsBuffer = ttsBuffer.substring(lineBreakIndex + 1);
@@ -716,7 +715,7 @@ const App: React.FC = () => {
               if (words.length > 15) {
                 // Send first 15 words as a chunk
                 const chunk = words.slice(0, 15).join(' ');
-                ttsService.speak(chunk, currentMsgIdToSet); // Pass the extracted message ID from LLM
+                ttsService.speak(chunk, getCurrentMsgId()); // Pass the extracted message ID from LLM
                 
                 // Update buffer to remove sent chunk
                 ttsBuffer = words.slice(15).join(' ');
@@ -727,7 +726,7 @@ const App: React.FC = () => {
             // Keep remaining text in buffer
             ttsBuffer = ttsBuffer.substring(lastIndex);
           }
-        } else if (isFullVoiceMode && !isListening) {
+        } else if (ttsSettings.fullVoiceMode && !isListening) {
           // Full voice mode is on but mic is not listening - don't send to TTS
           console.log('🔇 Full voice mode enabled but microphone not listening - skipping TTS');
         }
@@ -749,11 +748,10 @@ const App: React.FC = () => {
       await mainResponsePromise;
       
       // Send any remaining text in the TTS buffer after streaming is complete
-      if (isFullVoiceMode && isListening && ttsBuffer.trim()) {
+      if (ttsSettings.fullVoiceMode && isListening && ttsBuffer.trim()) {
         // console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
         // Use the current message ID from the centralized function (which now contains the LLM response ID)
-        const finalMsgId = getCurrentMsgId(); // Fallback to local ID if needed
-        ttsService.speak(ttsBuffer.trim(), finalMsgId); // Pass the extracted message ID from LLM
+        ttsService.speak(ttsBuffer.trim(), getCurrentMsgId()); // Pass the extracted message ID from LLM
       }
 
       // Optional: Wait for title generation to complete (but don't block the main flow)

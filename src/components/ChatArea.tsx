@@ -268,6 +268,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         if (isFullVoiceMode && loading && result.partial.trim().length > 0) {
           await onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
+          //await ttsService.stop();
         }
       }
       
@@ -285,6 +286,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         if (isFullVoiceMode && loading && finalTranscriptRef.current.length > 0) {
           await onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
+          //await ttsService.stop();
         }
       }
     });
@@ -436,13 +438,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
     }
     
-    // Stop LLM generation if it's currently running
-    if (loading) {
-      await onStopResponse();
-    }
-    
     // Stop TTS playback
     try {
+      // Stop LLM generation if it's currently running
+      if (loading) {
+        await onStopResponse();
+      }
       await ttsService.stop();
     } catch (error) {
       console.error('❌ Error stopping TTS:', error);

@@ -221,6 +221,26 @@ class BrowserTTSServer:
         self.active_sessions = {}
         self.audio_queues = {}  # Per-session audio queues
         self.session_states = {}  # Per-session state management (paused/resumed)
+    
+    def set_active_msg_id(self, websocket, assistant_message_id=None):
+        """Initialize session state if not exists and set active message ID"""
+        try:
+            if websocket not in self.session_states:
+                self.session_states[websocket] = {
+                    'paused': False,
+                    'queued_audio': [],
+                    'processing': False,
+                    'active_assistantMessageId': None,
+                    'tts_queue': [],  # Queue for TTS requests
+                    'current_task': None  # Currently running task
+                }
+            else:
+                # Always update the active message ID
+                self.session_states[websocket]['active_assistantMessageId'] = assistant_message_id
+            return True
+        except Exception as e:
+            logger.error(f"Error setting active message ID: {str(e)}")
+            return False
         
     async def initialize_pipeline(self):
         """Initialize Kokoro TTS pipeline with proper cache setup"""
@@ -259,6 +279,10 @@ class BrowserTTSServer:
         """Handle WebSocket client connections"""
         client_address = websocket.remote_address
         logger.info(f"Browser TTS Connection from {client_address}")
+        
+        # Initialize session state if not exists
+        if websocket not in self.session_states:
+            self.set_active_msg_id(websocket)
         
         try:
             async for message in websocket:
@@ -312,7 +336,24 @@ class BrowserTTSServer:
         
         # Handle regular TTS request
         elif 'text' in data:
-            return await self.process_regular_tts(websocket, data)
+            session_state = self.session_states[websocket]
+            tts_queue = session_state['tts_queue']
+            current_task = session_state.get('current_task')
+            
+            # Create a function to be queued
+            async def tts_task():
+                return await self.process_regular_tts(websocket, data)
+            
+            # Add function to queue
+            tts_queue.append(tts_task)
+            
+            # If no current task or current task is done, start processing
+            if not current_task or current_task.done():
+                fn = tts_queue.pop(0)                       
+                task = asyncio.create_task(fn())            
+                session_state['current_task'] = task            
+                
+            return None  # Always return None for queued requests
         
         else:
             return {'error': 'No recognized command in request'}
@@ -479,13 +520,6 @@ class BrowserTTSServer:
                 session_data = sdata
                 break
         
-        # Initialize session state if not exists
-        if websocket not in self.session_states:
-            self.session_states[websocket] = {
-                'paused': False,
-                'queued_audio': [],
-                'processing': False
-            }
         
         session_state = self.session_states[websocket]
         
@@ -505,6 +539,9 @@ class BrowserTTSServer:
             session_state['paused'] = False
             session_state['queued_audio'] = []
             session_state['processing'] = False
+            session_state['active_assistantMessageId'] = None
+            session_state['tts_queue'] = []  # Clear TTS queue
+            session_state['current_task'] = None  # Clear current task
             
             # MODERATE: Clear only runtime state, keep model cache
             try:
@@ -578,6 +615,9 @@ class BrowserTTSServer:
             session_state['paused'] = False
             #logger.info(f"Resumed audio generation for client {websocket.remote_address}")
             
+            # Process next item in queue after resuming
+            self.process_next_in_queue(websocket)
+            
             # Process any queued audio that was paused
             if session_state['queued_audio']:
                 logger.info(f"Processing {len(session_state['queued_audio'])} queued audio chunks")
@@ -598,8 +638,41 @@ class BrowserTTSServer:
                 'processed_queued': len(session_state['queued_audio']) if session_state['queued_audio'] else 0
             }
         
+        elif action == 'set_active_msg_id':
+            
+            # Handle set active message ID request
+            assistant_message_id = data.get('assistantMessageId')
+
+            # set active msg id
+            session_state['active_assistantMessageId'] = assistant_message_id
+            #logger.info(f"Paused audio generation for client {websocket.remote_address}")
+
+            request_id = data.get('requestId')  # Get request ID for matching response
+            
+            response = {
+                'type': 'active_msg_id_set',
+                'success': True,
+                'assistantMessageId': assistant_message_id,
+                'requestId' : request_id
+            }
+            
+            return response
+        
         else:
             return {'error': f'Unknown action: {action}'}
+
+    def process_next_in_queue(self, websocket):
+        """Process the next item in the TTS queue"""
+        session_state = self.session_states[websocket]
+        tts_queue = session_state['tts_queue']
+        is_puased = session_state['paused']
+
+        if tts_queue and not is_puased:
+            fn = tts_queue.pop(0)                       
+            task = asyncio.create_task(fn())            
+            session_state['current_task'] = task
+        else:
+            session_state['current_task'] = None
 
     async def process_regular_tts(self, websocket, data):
         """Process regular (non-streaming) TTS request"""
@@ -610,24 +683,27 @@ class BrowserTTSServer:
         assistant_message_id = data.get('assistantMessageId')  # Extract message ID from request
         
         if not text:
-            return {'error': 'No text provided'}
+
+            # Process next item in queue if exists
+            self.process_next_in_queue(websocket)
+
+            return
         
-        # Initialize session state if not exists
-        if websocket not in self.session_states:
-            self.session_states[websocket] = {
-                'paused': False,
-                'queued_audio': [],
-                'processing': False
-            }
         
-        # Check if session is paused - for real-time conversation, don't queue, just skip
-        if self.session_states[websocket]['paused']:
-            logger.info(f"Skipping TTS request for paused session: {text[:50]}...")
-            return {
-                'type': 'request_skipped',
-                'message': 'TTS request skipped - session is paused',
-                'text': text[:50] + '...' if len(text) > 50 else text
-            }
+        # Check if active message ID matches the incoming message ID
+        session_state = self.session_states[websocket]
+        active_msg_id = session_state.get('active_assistantMessageId')
+        
+        if active_msg_id is None or active_msg_id != assistant_message_id:
+            logger.info(f"🚫 SKIPPING TTS - Message ID mismatch! Active: '{active_msg_id}' vs Incoming: '{assistant_message_id}' | Text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+            
+            # Process next item in queue if exists
+            self.process_next_in_queue(websocket)
+            
+            return
+
+        # Log successful message ID match
+        logger.info(f"✅ TTS PROCESSING - Message ID match confirmed: '{assistant_message_id}' | Text: '{text[:50]}{'...' if len(text) > 50 else ''}'")
         
         try:
             audio_data = await self.generate_audio(text, voice, speed, language)
@@ -646,14 +722,31 @@ class BrowserTTSServer:
                     'assistantMessageId': assistant_message_id  # Include message ID in response
                 }
                 
-                # Send immediately if not paused
+                # Send the result to client
+                await websocket.send(json.dumps(audio_response))
+                
+                # Process next item in queue if exists
+                self.process_next_in_queue(websocket)
+               
+
+                
                 return audio_response
             else:
+                # Process next item in queue even on failure
+                self.process_next_in_queue(websocket)
+                
+                logger.error('error: Failed to generate audio')
+                
                 return {'error': 'Failed to generate audio'}
                 
         except Exception as e:
             logger.error(f"Error in regular TTS: {str(e)}")
-            return {'error': f'TTS generation failed: {str(e)}'}
+            
+            # Process next item in queue even on error
+            self.process_next_in_queue(websocket)
+            return
+            
+            #return {'error': f'TTS generation failed: {str(e)}'}
 
     async def generate_audio(self, text, voice, speed, language):
         """Generate audio using Kokoro pipeline"""

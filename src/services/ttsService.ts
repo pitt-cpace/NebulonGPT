@@ -99,6 +99,47 @@ export class TTSService {
     this.getIsListening = getIsListening;
   }
 
+  // Store pending setActiveMessageId promises
+  private pendingSetActiveMessageId: Map<string, (success: boolean) => void> = new Map();
+
+  /**
+   * Set active message ID on server
+   * Returns true if successful, false if failed
+   */
+  public async setActiveMessageId(assistantMessageId: string | null): Promise<boolean> {
+    try {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        await this.connect();
+      }
+
+      // Generate a unique request ID to match response
+      const requestId = `set_active_msg_id_${Date.now()}_${Math.random()}`;
+
+      const message = {
+        action: 'set_active_msg_id',
+        assistantMessageId: assistantMessageId,
+        requestId: requestId // Add request ID to match response
+      };
+
+      return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          this.pendingSetActiveMessageId.delete(requestId);
+          resolve(false);
+        }, 10000);
+        
+        // Store the resolver with cleanup
+        this.pendingSetActiveMessageId.set(requestId, (success: boolean) => {
+          clearTimeout(timeout);
+          this.pendingSetActiveMessageId.delete(requestId);
+          resolve(success);
+        });
+        
+        this.ws?.send(JSON.stringify(message));
+      });
+    } catch (error) {
+      return false;
+    }
+  }
 
   public updateSettings(settings: Partial<TTSSettings>) {
     this.settings = { ...this.settings, ...settings };
@@ -334,15 +375,28 @@ export class TTSService {
 
 
   public async stop() {
-    
-    // STEP 0: Generate new message ID and set it to trigger background cleanup to destroy ALL threads
-    const aiMessageId = `msg-${Date.now() + 1}`;
+
+    this.pause();
+
+    // Generate new message ID to invalidate any remaining client-side audio
+    const newMessageId = `msg-${Date.now() + 1}`;
     if (this.setCurrentMsgId) {
-      this.setCurrentMsgId(aiMessageId); // This will trigger destroyThreadsForOldMessages to destroy ALL threads
+      this.setCurrentMsgId(newMessageId); // Update current message ID to filter out old audio
     }
-    
-    
-    // STEP 1: Immediately stop all currently playing audio
+
+    const success = await ttsService.setActiveMessageId(newMessageId);
+    if (!success) {
+      console.error('Stop : Failed to set active message ID for TTS:', newMessageId);
+    }
+    // Send stop command to server
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const message = { 
+        action: 'stop',
+      };
+      this.ws.send(JSON.stringify(message));
+    }
+
+    // Immediately stop all currently playing audio on client side
     this.audioQueue.forEach((item, index) => {
       try {
         const audio = item.audio;
@@ -351,32 +405,21 @@ export class TTSService {
           audio.currentTime = 0;
         }
       } catch (error) {
-        console.warn(`⚠️ Error force stopping audio ${index}:`, error);
+        console.warn(`⚠️ Error stopping audio ${index}:`, error);
       }
     });
-    
-    // STEP 2: End streaming session first if active
-    if (this.currentSession) {
-      this.endStreaming();
-    }
-    
-    // STEP 3: Send stop command to server
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      const message = { action: 'stop' };
-      this.ws.send(JSON.stringify(message));
-    }
-    
-    // STEP 3.5: Wait 500ms for server and processes to respond properly
+
+    // Wait for server to process stop command and cancel tasks
     await new Promise(resolve => setTimeout(resolve, 500));
     
-    // STEP 4: Clean up audio sources and clear the audio queue
+    // Clean up audio resources and clear the queue
     this.audioQueue.forEach((item, index) => {
       try {
         const audio = item.audio;
-        // Clean up event listeners
+        // Remove event listeners
         audio.onended = null;
         audio.onerror = null;
-        // Revoke blob URL to free memory
+        // Free memory by revoking blob URLs
         if (audio.src && audio.src.startsWith('blob:')) {
           URL.revokeObjectURL(audio.src);
         }
@@ -388,7 +431,7 @@ export class TTSService {
     // Clear the audio queue
     this.audioQueue = [];
     
-    // STEP 5: Reset all flags and state for fresh start
+    // Reset all TTS state for fresh start
     this.isPaused = false;
     this.isPlayingAudio = false;
     this.currentSession = null;
@@ -397,7 +440,6 @@ export class TTSService {
     if (window.gc) {
       window.gc();
     }
-
   }
 
   public  pause() {
@@ -573,10 +615,11 @@ public async resume() {
   }
 
 
-  public endStreaming() {
+  public endStreaming(currentMsgId?: string | null) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.currentSession) {
       const message = {
-        end_stream: true
+        end_stream: true,
+        assistantMessageId: currentMsgId
       };
       this.ws.send(JSON.stringify(message));
     }
@@ -833,6 +876,15 @@ public async resume() {
         case 'chunk_received':
           // Acknowledgment of text chunk processing
           break;
+        case 'active_msg_id_set':
+          // Handle set active message ID response
+          if (message.requestId && this.pendingSetActiveMessageId.has(message.requestId)) {
+            const resolver = this.pendingSetActiveMessageId.get(message.requestId);
+            if (resolver) {
+              resolver(message.success === true);
+            }
+          }
+          break;
         case 'request_queued':
           break;
         case 'status':
@@ -854,7 +906,7 @@ public async resume() {
   private playAudio(audioData: string, assistantMessageId?: string) {
     try {
       if (this.getCurrentMsgId && this.getCurrentMsgId() !== assistantMessageId){
-      return;
+        //return;
       }
       // Only play audio if Full Voice Mode is enabled AND microphone is listening
       if (!this.settings.fullVoiceMode) {
