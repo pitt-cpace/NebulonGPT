@@ -122,6 +122,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
   const textFieldRef = useRef<HTMLInputElement>(null);
+  const interimTranscriptRef = useRef<string>('');
   const suggestedPrompts = getSuggestedPrompts();
 
   // Initialize the battle-tested auto-scroll system
@@ -244,6 +245,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [voskRecognition]);
 
+  // Keep ref in sync with state
+  useEffect(() => {
+    interimTranscriptRef.current = interimTranscript;
+  }, [interimTranscript]);
+
   // Initialize Vosk speech recognition event handlers
   useEffect(() => {
     if (!voskRecognition) {
@@ -260,11 +266,26 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const ttsSettings = ttsService.getSettings();
         const isFullVoiceMode = ttsSettings.fullVoiceMode;
 
+        // Update interim transcript for real-time display
+        setInterimTranscript(result.partial);   
+        
         ttsService.pause();
         voskRecognition.clearSilenceTimer();
-
-        // Update interim transcript for real-time display
-        setInterimTranscript(result.partial);        
+        
+        // Wait 1000ms then check if partial result disappeared (filtered out as noise)
+        setTimeout(() => {
+          // Check if interim transcript has been cleared (indicating partial result disappeared)
+          // Use ref to get current value, not closure variable
+          if (interimTranscriptRef.current === '' || interimTranscriptRef.current === undefined) {
+            // Partial result disappeared - resume TTS if in full voice mode and mic is listening
+            const ttsSettings = ttsService.getSettings();
+            if (ttsSettings.fullVoiceMode && isListening) {
+              ttsService.resume();
+              voskRecognition.clearSilenceTimer();
+            }
+            return;
+          }
+        }, 1000);
         
         if (isFullVoiceMode && loading && result.partial.trim().length > 0) {
           await onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
