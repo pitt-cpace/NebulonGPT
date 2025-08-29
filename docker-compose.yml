@@ -1,10 +1,12 @@
-version: '3.8'
+name: nebulon-gpt-integrated
+
 
 services:
   nebulon-gpt-integrated:
     build:
       context: .
       dockerfile: Dockerfile
+    image: nebulon-gpt-integrated
     container_name: nebulon-gpt-integrated
     ports:
       - "3000:80"

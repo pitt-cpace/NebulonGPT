@@ -2470,6 +2470,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {[
               'Prof. Hooman H. Rashidi',
+              'Prof. Liron Pantanowitz',
               'Dr. Quincy Gu',
               'Dr. Matthew Hanna',
               'Dr. Yanshan Wang',
