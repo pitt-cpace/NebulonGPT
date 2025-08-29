@@ -143,6 +143,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       return;
     }
     
+    // Check if models are available after refreshing status
+    if (models.length === 0) {
+      alert('Cannot send message: No models are installed. Please install a model first using the commands shown in the model dropdown.');
+      return;
+    }
     
     // Allow sending if there's a message OR attachments
     if ((message.trim() || attachments.length > 0) && !loading) {
@@ -575,7 +580,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const handleOpenModelMenu = async (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchor(event.currentTarget);
     
-    // Check Ollama status when dropdown is opened
+    // Check Ollama status and refresh models when dropdown is opened
     const status = await onRefreshOllamaStatus();
         
     // If Ollama is available, models are loaded, and no model is currently selected, select default
@@ -1751,6 +1756,91 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     </Typography>
                   </Box>
                 </MenuItem>
+                <Divider sx={{ my: 1 }} />
+                
+                {/* Model installation suggestions */}
+                <Box sx={{ px: 2, py: 2 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 1 }}>
+                    📥 Suggested Models to Install:
+                  </Typography>
+                  
+                  {/* High-performance model suggestion */}
+                  <Box sx={{ 
+                    width: '100%', 
+                    p: 1.5, 
+                    borderRadius: 1, 
+                    bgcolor: 'rgba(76, 175, 80, 0.08)',
+                    border: '1px solid rgba(76, 175, 80, 0.2)',
+                    mb: 1
+                  }}>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
+                      🚀 For High-Performance Computers:
+                    </Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                      ollama pull gpt-oss:20b
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      Advanced 20B parameter model - requires 16GB+ RAM
+                    </Typography>
+                    <Typography 
+                      variant="caption" 
+                      component="a"
+                      href="https://ollama.com/library/gpt-oss"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ 
+                        color: 'primary.main', 
+                        textDecoration: 'underline',
+                        cursor: 'pointer',
+                        display: 'inline-block',
+                        mt: 0.5,
+                        '&:hover': { color: 'primary.dark' }
+                      }}
+                    >
+                      📖 View Documentation
+                    </Typography>
+                  </Box>
+                  
+                  {/* Light-weight model suggestion */}
+                  <Box sx={{ 
+                    width: '100%', 
+                    p: 1.5, 
+                    borderRadius: 1, 
+                    bgcolor: 'rgba(33, 150, 243, 0.08)',
+                    border: '1px solid rgba(33, 150, 243, 0.2)'
+                  }}>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'info.main' }}>
+                      💻 For Light Computers:
+                    </Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                      ollama pull mistral:7b
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      Efficient 7B parameter model - requires 4GB+ RAM
+                    </Typography>
+                    <Typography 
+                      variant="caption" 
+                      component="a"
+                      href="https://ollama.com/library/mistral"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ 
+                        color: 'primary.main', 
+                        textDecoration: 'underline',
+                        cursor: 'pointer',
+                        display: 'inline-block',
+                        mt: 0.5,
+                        '&:hover': { color: 'primary.dark' }
+                      }}
+                    >
+                      📖 View Documentation
+                    </Typography>
+                  </Box>
+                  
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, fontStyle: 'italic', display: 'block' }}>
+                    💡 Run these commands in your terminal to install models
+                  </Typography>
+                </Box>
                 <Divider sx={{ my: 1 }} />
               </>
             )}

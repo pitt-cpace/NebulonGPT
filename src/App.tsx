@@ -499,13 +499,13 @@ const App: React.FC = () => {
   };
 
   const handleStopResponse = async () => {
-    await cancelStream();
     
     // Also stop TTS if full voice mode is enabled
     const ttsSettings = ttsService.getSettings();
-    if (ttsSettings.fullVoiceMode) {
+    if (ttsSettings.fullVoiceMode && isListening) {
       ttsService.pause();
     }
+    await cancelStream();
   };
 
   const handleSendMessage = async (content: string, attachments?: FileAttachment[]) => {
@@ -855,13 +855,18 @@ const App: React.FC = () => {
       const status = await checkOllamaStatus();
       setOllamaStatus(status);
       
-      // If Ollama becomes available, try to reload models
-      if (status.isAvailable && (!models.length || models.every(m => m.name.includes('llama3.3:70b-instruct-q8_0')))) {
+      // If Ollama is available, always refresh the models list to detect changes
+      if (status.isAvailable) {
         const modelList = await fetchModels();
         setModels(modelList);
+        
+        // If no models are available, the UI will show installation suggestions
+        if (modelList.length === 0) {
+          setSelectedModel(null);
+        }
       }
       // If Ollama is not available, clear the models array
-      else if (!status.isAvailable) {
+      else {
         setModels([]);
         setSelectedModel(null);
       }
