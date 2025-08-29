@@ -1847,16 +1847,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             
             
             {/* Model list */}
-            {models.map((m) => (
-              <MenuItem
-                key={m.id}
-                selected={m.id === model?.id}
-                onClick={() => handleSelectModel(m)}
-                disabled={!ollamaStatus.isAvailable}
-              >
-                {m.name}
-              </MenuItem>
-            ))}
+            {models
+              .filter((m) => !m.name.toLowerCase().startsWith('nomic'))
+              .map((m) => (
+                <MenuItem
+                  key={m.id}
+                  selected={m.id === model?.id}
+                  onClick={() => handleSelectModel(m)}
+                  disabled={!ollamaStatus.isAvailable}
+                >
+                  {m.name}
+                </MenuItem>
+              ))}
             
             {/* Show message when no models and Ollama is offline */}
             {!ollamaStatus.isAvailable && models.length === 0 && (
