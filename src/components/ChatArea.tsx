@@ -645,8 +645,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     try {
       // Store the default model in localStorage
       localStorage.setItem('defaultModelId', model.id);
-      console.log(`✅ Set ${model.name} as default model`);
-      
+           
       // Update state to trigger re-render and change button text
       setDefaultModelId(model.id);
     } catch (error) {

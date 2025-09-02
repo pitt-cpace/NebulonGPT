@@ -726,9 +726,6 @@ const App: React.FC = () => {
             // Keep remaining text in buffer
             ttsBuffer = ttsBuffer.substring(lastIndex);
           }
-        } else if (ttsSettings.fullVoiceMode && !isListening) {
-          // Full voice mode is on but mic is not listening - don't send to TTS
-          console.log('🔇 Full voice mode enabled but microphone not listening - skipping TTS');
         }
       };
       
