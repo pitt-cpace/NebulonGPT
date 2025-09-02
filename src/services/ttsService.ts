@@ -906,7 +906,7 @@ public async resume() {
   private playAudio(audioData: string, assistantMessageId?: string) {
     try {
       if (this.getCurrentMsgId && this.getCurrentMsgId() !== assistantMessageId){
-        //return;
+        return;
       }
       // Only play audio if Full Voice Mode is enabled AND microphone is listening
       if (!this.settings.fullVoiceMode) {

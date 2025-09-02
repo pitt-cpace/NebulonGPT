@@ -1705,7 +1705,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       Ollama Connection Error
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {ollamaStatus.error}
+                      Make sure Ollama is installed and running properly.
                     </Typography>
                   </Box>
                 </MenuItem>
@@ -1774,7 +1774,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     mb: 1
                   }}>
                     <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
-                      🚀 For High-Performance Computers:
+                      🚀 For High-Performance Computers(More Than 16GB RAM):
                     </Typography>
                     <Typography variant="body2" sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: '0.85rem' }}>
                       ollama pull gpt-oss:20b
@@ -1810,7 +1810,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     border: '1px solid rgba(33, 150, 243, 0.2)'
                   }}>
                     <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'info.main' }}>
-                      💻 For Light Computers:
+                      💻 For Light Computers(Less Than 16GB RAM):
                     </Typography>
                     <Typography variant="body2" sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: '0.85rem' }}>
                       ollama pull mistral:7b
@@ -1862,9 +1862,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             
             {/* Show message when no models and Ollama is offline */}
             {!ollamaStatus.isAvailable && models.length === 0 && (
-              <MenuItem disabled>
+                <MenuItem disabled>
                 <Typography variant="body2" color="text.secondary">
-                  Connect to Ollama to see available models
+                  {ollamaStatus.error}
                 </Typography>
               </MenuItem>
             )}
