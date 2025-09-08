@@ -1,298 +1,83 @@
 #!/bin/sh
 
-echo "🚀 =============================================="
-echo "🚀 STARTING NebulonGPT INTEGRATED SERVICES"
-echo "🚀 =============================================="
+echo "🚀 Starting NebulonGPT Services"
 echo "🚀 Timestamp: $(date)"
-echo "🚀 Container ID: $(hostname)"
-echo "🚀 Working Directory: $(pwd)"
-echo "🚀 User: $(whoami)"
-echo "🚀 =============================================="
 
-# System Information
-echo ""
-echo "📊 SYSTEM INFORMATION:"
-echo "📊 OS: $(uname -a)"
-echo "📊 Memory: $(free -h | grep Mem 2>/dev/null || echo 'free command not available')"
-echo "📊 Disk Space: $(df -h /)"
-echo "📊 Python Version: $(python --version 2>&1 || echo 'Python not found')"
-echo "📊 Node Version: $(node --version 2>&1 || echo 'Node not found')"
-echo "📊 Nginx Version: $(nginx -v 2>&1 || echo 'Nginx not found')"
+# NGINX FIRST
+echo "🌐 Starting Nginx..."
+nginx &
+NGINX_PID=$!
+echo "🌐 Nginx started with PID: $NGINX_PID"
 
-# Directory Structure Check
-echo ""
-echo "📁 DIRECTORY STRUCTURE CHECK:"
-echo "📁 /app exists: $([ -d /app ] && echo 'YES' || echo 'NO')"
-echo "📁 /app/vosk-server exists: $([ -d /app/vosk-server ] && echo 'YES' || echo 'NO')"
-echo "📁 /app/kokoro-tts exists: $([ -d /app/kokoro-tts ] && echo 'YES' || echo 'NO')"
-echo "📁 /app/vosk-server/websocket exists: $([ -d /app/vosk-server/websocket ] && echo 'YES' || echo 'NO')"
-echo "📁 /app/kokoro-tts/websocket exists: $([ -d /app/kokoro-tts/websocket ] && echo 'YES' || echo 'NO')"
+# NODE.JS SECOND
+echo "🟢 Starting Node.js..."
+cd /app
+node server.js 2>&1 | sed 's/^/[NODE] /' &
+NODE_PID=$!
+echo "🟢 Node.js started with PID: $NODE_PID"
 
-# File Existence Check
-echo ""
-echo "📄 CRITICAL FILES CHECK:"
-echo "📄 Vosk server script: $([ -f /app/vosk-server/websocket/asr_server_with_models.py ] && echo 'EXISTS' || echo 'MISSING')"
-echo "📄 TTS server script: $([ -f /app/kokoro-tts/websocket/browser_tts_server.py ] && echo 'EXISTS' || echo 'MISSING')"
-echo "📄 Node.js server: $([ -f /app/server.js ] && echo 'EXISTS' || echo 'MISSING')"
-echo "📄 Nginx config: $([ -f /etc/nginx/sites-available/default ] && echo 'EXISTS' || echo 'MISSING')"
-echo "📄 React build directory: $([ -d /app/build ] && echo 'EXISTS' || echo 'MISSING')"
-echo "📄 React index.html: $([ -f /app/build/index.html ] && echo 'EXISTS' || echo 'MISSING')"
-if [ -d /app/build ]; then
-    echo "📄 Build directory contents:"
-    ls -la /app/build/ | sed 's/^/📄   /'
-fi
+# Wait for nginx and node.js
+sleep 5
 
-# Models Check
-echo ""
-echo "🤖 MODELS CHECK:"
-echo "🤖 Vosk models directory: $([ -d /app/vosk-server/models ] && echo 'EXISTS' || echo 'MISSING')"
-if [ -d /app/vosk-server/models ]; then
-    echo "🤖 Vosk models found: $(ls -la /app/vosk-server/models/ | wc -l) items"
-    echo "🤖 Vosk models list:"
-    ls -la /app/vosk-server/models/ | sed 's/^/🤖   /'
-fi
-
-echo "🤖 Kokoro cache directory: $([ -d /app/.cache/huggingface ] && echo 'EXISTS' || echo 'MISSING')"
-if [ -d /app/.cache/huggingface ]; then
-    echo "🤖 Kokoro cache size: $(du -sh /app/.cache/huggingface 2>/dev/null || echo 'Cannot calculate')"
-    echo "🤖 Kokoro cache contents:"
-    ls -la /app/.cache/huggingface/ 2>/dev/null | sed 's/^/🤖   /' || echo "🤖   Cannot list contents"
-fi
-
-# Environment Variables Setup
-echo ""
-echo "🔧 SETTING UP ENVIRONMENT VARIABLES:"
+# Environment Variables
 export PYTHONPATH="/app/vosk-server:/app/kokoro-tts:$PYTHONPATH"
-echo "🔧 PYTHONPATH set to: $PYTHONPATH"
-
 export HF_HOME=/app/.cache/huggingface
-echo "🔧 HF_HOME set to: $HF_HOME"
-
 export TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
-echo "🔧 TRANSFORMERS_CACHE set to: $TRANSFORMERS_CACHE"
-
 export HF_DATASETS_CACHE=/app/.cache/huggingface/datasets
-echo "🔧 HF_DATASETS_CACHE set to: $HF_DATASETS_CACHE"
-
 export HF_HUB_OFFLINE=1
-echo "🔧 HF_HUB_OFFLINE set to: $HF_HUB_OFFLINE"
-
 export KOKORO_SERVER_HOST=0.0.0.0
-echo "🔧 KOKORO_SERVER_HOST set to: $KOKORO_SERVER_HOST"
-
 export KOKORO_SERVER_PORT=2701
-echo "🔧 KOKORO_SERVER_PORT set to: $KOKORO_SERVER_PORT"
-
 export VOSK_MODELS_DIR=/app/vosk-server/models
-echo "🔧 VOSK_MODELS_DIR set to: $VOSK_MODELS_DIR"
 
-# Hugging Face Cache Extraction (Runtime)
-echo ""
-echo "📦 HUGGING FACE CACHE EXTRACTION:"
-echo "📦 Checking if Hugging Face cache needs to be extracted..."
-
-# Check if cache is already extracted and populated
+# Hugging Face Cache Extraction
+echo "📦 Checking Hugging Face cache..."
 if [ -d "/app/.cache/huggingface/hub" ] && [ "$(ls -A /app/.cache/huggingface/hub 2>/dev/null)" ]; then
-    echo "✅ Hugging Face cache already exists and is populated"
-    echo "📦 Cache size: $(du -sh /app/.cache/huggingface 2>/dev/null || echo 'Cannot calculate')"
+    echo "✅ Hugging Face cache already exists"
 else
-    echo "📦 Hugging Face cache is empty or missing, extracting from zip files..."
-    
-    # Check if zip files exist
-    if [ -f "/app/kokoro-tts/huggingface-cache.zip.001" ] && [ -f "/app/kokoro-tts/huggingface-cache.zip.002" ] && [ -f "/app/kokoro-tts/huggingface-cache.zip.003" ] && [ -f "/app/kokoro-tts/huggingface-cache.zip.004" ]; then
-        echo "📦 Found all 4 zip parts, proceeding with extraction..."
-        
-        # Create temporary extraction directory
+    echo "📦 Extracting Hugging Face cache..."
+    if [ -f "/app/kokoro-tts/huggingface-cache.zip.001" ]; then
         mkdir -p /tmp/hf-extract
         cd /app/kokoro-tts
-        
-        # Concatenate zip parts
-        echo "📦 Concatenating zip parts..."
         cat huggingface-cache.zip.001 huggingface-cache.zip.002 huggingface-cache.zip.003 huggingface-cache.zip.004 > /tmp/huggingface-cache.zip
-        
-        # Extract to temporary directory
-        echo "📦 Extracting cache to temporary directory..."
         cd /tmp/hf-extract
         unzip -o -q /tmp/huggingface-cache.zip
-        
-        # Move extracted content to final location
         if [ -d "huggingface-cache" ]; then
-            echo "📦 Moving extracted cache to final location..."
             mv huggingface-cache/* /app/.cache/huggingface/
             rmdir huggingface-cache
-            echo "✅ Hugging Face cache extraction completed successfully"
-            echo "📦 Final cache size: $(du -sh /app/.cache/huggingface 2>/dev/null || echo 'Cannot calculate')"
-        else
-            echo "❌ ERROR: huggingface-cache directory not found after extraction"
-            echo "📦 Contents of extraction directory:"
-            ls -la /tmp/hf-extract/
+            echo "✅ Cache extraction completed"
         fi
-        
-        # Cleanup temporary files
-        echo "📦 Cleaning up temporary files..."
         rm -rf /tmp/hf-extract /tmp/huggingface-cache.zip
-        
-        # Set proper permissions
         chown -R root:root /app/.cache/huggingface
         chmod -R 755 /app/.cache/huggingface
-        
-    else
-        echo "❌ ERROR: Hugging Face cache zip files not found in /app/kokoro-tts/"
-        echo "📦 Available files in kokoro-tts directory:"
-        ls -la /app/kokoro-tts/ | grep -E "zip|cache" || echo "📦 No zip or cache files found"
     fi
 fi
 
-# Python Dependencies Check
-echo ""
-echo "🐍 PYTHON DEPENDENCIES CHECK:"
-echo "🐍 Checking Vosk dependencies..."
+# Start Vosk Server
+echo "🎤 Starting Vosk server..."
 cd /app/vosk-server/websocket
-python -c "import vosk; print('✅ Vosk imported successfully')" 2>/dev/null || echo "❌ Vosk import failed"
-python -c "import websockets; print('✅ WebSockets imported successfully')" 2>/dev/null || echo "❌ WebSockets import failed"
-python -c "import json; print('✅ JSON imported successfully')" 2>/dev/null || echo "❌ JSON import failed"
-
-echo "🐍 Checking TTS dependencies..."
-cd /app/kokoro-tts
-python -c "import torch; print('✅ PyTorch imported successfully')" 2>/dev/null || echo "❌ PyTorch import failed"
-python -c "import soundfile; print('✅ SoundFile imported successfully')" 2>/dev/null || echo "❌ SoundFile import failed"
-python -c "import asyncio; print('✅ AsyncIO imported successfully')" 2>/dev/null || echo "❌ AsyncIO import failed"
-
-# Try importing Kokoro TTS specifically
-echo "🐍 Checking Kokoro TTS import..."
-python -c "
-try:
-    from kokoro import KPipeline, KModel
-    print('✅ Kokoro TTS imported successfully')
-except ImportError as e:
-    print('❌ Kokoro TTS import failed:', str(e))
-except Exception as e:
-    print('❌ Kokoro TTS import error:', str(e))
-" 2>&1
-
-# Port Availability Check
-echo ""
-echo "🔌 PORT AVAILABILITY CHECK:"
-echo "🔌 Checking if port 2700 (Vosk) is available..."
-netstat -ln | grep :2700 && echo "⚠️ Port 2700 already in use" || echo "✅ Port 2700 available"
-
-echo "🔌 Checking if port 2701 (TTS) is available..."
-netstat -ln | grep :2701 && echo "⚠️ Port 2701 already in use" || echo "✅ Port 2701 available"
-
-echo "🔌 Checking if port 3001 (Node) is available..."
-netstat -ln | grep :3001 && echo "⚠️ Port 3001 already in use" || echo "✅ Port 3001 available"
-
-echo "🔌 Checking if port 80 (Nginx) is available..."
-netstat -ln | grep :80 && echo "⚠️ Port 80 already in use" || echo "✅ Port 80 available"
-
-# Start Services
-echo ""
-echo "🚀 =============================================="
-echo "🚀 STARTING SERVICES"
-echo "🚀 =============================================="
-
-# Start Vosk server in the background
-echo ""
-echo "🎤 STARTING VOSK SERVER:"
-echo "🎤 Changing to directory: /app/vosk-server/websocket"
-cd /app/vosk-server/websocket
-echo "🎤 Current directory: $(pwd)"
-echo "🎤 Directory contents:"
-ls -la | sed 's/^/🎤   /'
-echo "🎤 Starting Vosk server with command: python asr_server_with_models.py"
-echo "🎤 Vosk server starting at $(date)..."
-
 python asr_server_with_models.py 2>&1 | sed 's/^/[VOSK] /' &
 VOSK_PID=$!
 echo "🎤 Vosk server started with PID: $VOSK_PID"
 
-# Wait a moment and check if Vosk is still running
-sleep 2
-if kill -0 $VOSK_PID 2>/dev/null; then
-    echo "✅ Vosk server is running (PID: $VOSK_PID)"
-else
-    echo "❌ Vosk server failed to start or crashed immediately"
-fi
-
-# Start Kokoro TTS server in the background
-echo ""
-echo "🔊 STARTING KOKORO TTS SERVER:"
-echo "🔊 Changing to directory: /app/kokoro-tts"
+# Start TTS Server
+echo "🔊 Starting TTS server..."
 cd /app/kokoro-tts
-echo "🔊 Current directory: $(pwd)"
-echo "🔊 Directory contents:"
-ls -la | sed 's/^/🔊   /'
-echo "🔊 WebSocket directory contents:"
-ls -la websocket/ | sed 's/^/🔊   /'
-echo "🔊 Starting TTS server with command: python websocket/browser_tts_server.py --host $KOKORO_SERVER_HOST --port $KOKORO_SERVER_PORT"
-echo "🔊 TTS server starting at $(date)..."
-echo "🔊 Host: $KOKORO_SERVER_HOST, Port: $KOKORO_SERVER_PORT"
-
 python websocket/browser_tts_server.py --host $KOKORO_SERVER_HOST --port $KOKORO_SERVER_PORT 2>&1 | sed 's/^/[TTS] /' &
 TTS_PID=$!
 echo "🔊 TTS server started with PID: $TTS_PID"
 
-# Wait a moment and check if TTS is still running
-sleep 3
-if kill -0 $TTS_PID 2>/dev/null; then
-    echo "✅ TTS server is running (PID: $TTS_PID)"
-else
-    echo "❌ TTS server failed to start or crashed immediately"
-    echo "❌ Checking for TTS server errors..."
-    # Try to run TTS server once more to see immediate errors
-    echo "❌ Attempting to run TTS server in foreground for error diagnosis..."
-    timeout 10s python websocket/browser_tts_server.py --host $KOKORO_SERVER_HOST --port $KOKORO_SERVER_PORT 2>&1 | sed 's/^/[TTS-DEBUG] /' || echo "❌ TTS server debug run failed or timed out"
-fi
-
-# Start Node.js server in the background
+# Final Status
 echo ""
-echo "🟢 STARTING NODE.JS SERVER:"
-echo "🟢 Changing to directory: /app"
-cd /app
-echo "🟢 Current directory: $(pwd)"
-echo "🟢 Directory contents:"
-ls -la | sed 's/^/🟢   /'
-echo "🟢 Starting Node.js server with command: node server.js"
-echo "🟢 Node.js server starting at $(date)..."
+echo "📊 Service Status:"
+echo "📊 Nginx (PID: $NGINX_PID)"
+echo "📊 Node.js (PID: $NODE_PID)"
+echo "📊 Vosk (PID: $VOSK_PID)"
+echo "📊 TTS (PID: $TTS_PID)"
 
-node server.js 2>&1 | sed 's/^/[NODE] /' &
-NODE_PID=$!
-echo "🟢 Node.js server started with PID: $NODE_PID"
-
-# Wait a moment and check if Node is still running
-sleep 2
-if kill -0 $NODE_PID 2>/dev/null; then
-    echo "✅ Node.js server is running (PID: $NODE_PID)"
-else
-    echo "❌ Node.js server failed to start or crashed immediately"
-fi
-
-# Final Service Status Check
+# Keep container running
+echo "🚀 All services started - keeping container alive"
 echo ""
-echo "📊 FINAL SERVICE STATUS CHECK:"
-echo "📊 Timestamp: $(date)"
-echo "📊 Vosk Server (PID $VOSK_PID): $(kill -0 $VOSK_PID 2>/dev/null && echo 'RUNNING' || echo 'STOPPED')"
-echo "📊 TTS Server (PID $TTS_PID): $(kill -0 $TTS_PID 2>/dev/null && echo 'RUNNING' || echo 'STOPPED')"
-echo "📊 Node Server (PID $NODE_PID): $(kill -0 $NODE_PID 2>/dev/null && echo 'RUNNING' || echo 'STOPPED')"
-
-# Port Status Check
 echo ""
-echo "🔌 FINAL PORT STATUS CHECK:"
-sleep 5  # Wait for services to bind to ports
-echo "🔌 Port 2700 (Vosk): $(netstat -ln | grep :2700 && echo 'LISTENING' || echo 'NOT LISTENING')"
-echo "🔌 Port 2701 (TTS): $(netstat -ln | grep :2701 && echo 'LISTENING' || echo 'NOT LISTENING')"
-echo "🔌 Port 3001 (Node): $(netstat -ln | grep :3001 && echo 'LISTENING' || echo 'NOT LISTENING')"
-
-# Start Nginx in the foreground to keep the container running
 echo ""
-echo "🌐 STARTING NGINX (FOREGROUND):"
-echo "🌐 Nginx will start in foreground to keep container alive"
-echo "🌐 Nginx config file: /etc/nginx/sites-available/default"
-echo "🌐 Nginx config preview:"
-head -20 /etc/nginx/sites-available/default | sed 's/^/🌐   /'
-echo "🌐 Starting Nginx at $(date)..."
-echo "🌐 =============================================="
-echo "🌐 ALL SERVICES STARTED - NGINX TAKING OVER"
-echo "🌐 =============================================="
-
-nginx -g 'daemon off;'
+echo ""
+wait
