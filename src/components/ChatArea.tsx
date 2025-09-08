@@ -82,6 +82,7 @@ interface ChatAreaProps {
   getCurrentMsgId?: () => string | null;
   ollamaStatus: OllamaStatus;
   onRefreshOllamaStatus: () => Promise<OllamaStatus>;
+  onCreateNewChat: () => Promise<void>;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -102,6 +103,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onClearChatInput,
   ollamaStatus,
   onRefreshOllamaStatus,
+  onCreateNewChat,
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
@@ -613,8 +615,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     handleCloseModelMenu();
   };
 
-  const handleSuggestedPrompt = (prompt: string) => {
-    onSendMessage(prompt);
+  const handleSuggestedPrompt = async (prompt: string) => {
+    // First call createNewChat
+    await onCreateNewChat();
+    
+    // Then set the prompt in the chatbox (message state)
+    setMessage(prompt);
   };
 
   // Check if current model is the default model

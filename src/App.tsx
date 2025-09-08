@@ -932,6 +932,7 @@ const App: React.FC = () => {
         getCurrentMsgId={getCurrentMsgId}
         ollamaStatus={ollamaStatus}
         onRefreshOllamaStatus={handleRefreshOllamaStatus}
+        onCreateNewChat={handleCreateNewChat}
       />
     </Box>
   );
