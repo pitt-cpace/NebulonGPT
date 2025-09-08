@@ -286,14 +286,14 @@ export const getSuggestedPrompts = () => {
       description: 'about the Roman Empire',
     },
     {
-      title: 'Explain options trading',
-      prompt: 'Explain options trading if I\'m familiar with buying and selling stocks',
-      description: 'if I\'m familiar with buying and selling stocks',
+      title: 'Explain supervised machine learning.',
+      prompt: 'Explain supervised machine learning. \n Specifically difference between classification and regression models in machine learning.',
+      description: 'Specifically difference between classification and regression models in machine learning.',
     },
     {
       title: 'Give me ideas',
-      prompt: 'Give me ideas for what to do with my kids\' art',
-      description: 'for what to do with my kids\' art',
+      prompt: 'Give me ideas about common tourist attractions in the world.',
+      description: 'Common tourist attractions in the world.',
     },
   ];
 };
