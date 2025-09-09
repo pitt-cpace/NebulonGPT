@@ -579,31 +579,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
-  const handleOpenModelMenu = async (event: React.MouseEvent<HTMLElement>) => {
+  const handleOpenModelMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchor(event.currentTarget);
-    
-    // Check Ollama status and refresh models when dropdown is opened
-    const status = await onRefreshOllamaStatus();
-        
-    // If Ollama is available, models are loaded, and no model is currently selected, select default
-    if (status.isAvailable && models.length > 0 && !model) {
-      // Try to get default model from localStorage first
-      try {
-        const savedDefaultModelId = localStorage.getItem('defaultModelId');
-        if (savedDefaultModelId) {
-          const defaultModel = models.find(m => m.id === savedDefaultModelId);
-          if (defaultModel) {
-            onSelectModel(defaultModel);
-            return;
-          }
-        }
-      }finally{}
-      
-      // If no saved default or saved default not found, select first available model
-      if (models.length > 0) {
-        onSelectModel(models[0]);
-      }
-    }
   };
 
   const handleCloseModelMenu = () => {
