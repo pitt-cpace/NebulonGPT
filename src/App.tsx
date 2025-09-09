@@ -482,7 +482,7 @@ const App: React.FC = () => {
   const handleStopResponse = async () => {
     // Hide loading animation immediately when user stops the response
     if (onHideLoadingAnimationRef.current) {
-      onHideLoadingAnimationRef.current();
+      //onHideLoadingAnimationRef.current();
     }
     
     // Also stop TTS if full voice mode is enabled
