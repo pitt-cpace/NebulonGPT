@@ -79,6 +79,7 @@ interface ChatAreaProps {
   onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
   onListeningStateChange?: (listening: boolean) => void;
   onClearChatInput?: React.MutableRefObject<(() => void) | null>;
+  onHideLoadingAnimation?: React.MutableRefObject<(() => void) | null>;
   getCurrentMsgId?: () => string | null;
   ollamaStatus: OllamaStatus;
   onRefreshOllamaStatus: () => Promise<OllamaStatus>;
@@ -101,6 +102,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onMicStop,
   onListeningStateChange,
   onClearChatInput,
+  onHideLoadingAnimation,
   ollamaStatus,
   onRefreshOllamaStatus,
   onCreateNewChat,
@@ -118,6 +120,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [detectionSensitivity, setDetectionSensitivity] = useState<number>(100); // Default sensitivity display value (inverse of internal 0)
+  const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -125,6 +128,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const dragCounterRef = useRef(0);
   const textFieldRef = useRef<HTMLInputElement>(null);
   const interimTranscriptRef = useRef<string>('');
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const suggestedPrompts = getSuggestedPrompts();
 
   // Initialize the battle-tested auto-scroll system
@@ -528,6 +532,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     finalTranscriptRef.current = '';
   }, []);
 
+  // Function to hide loading animation
+  const hideLoadingAnimation = useCallback(() => {
+    setShowLoadingAnimation(false);
+    // Clear the timeout as well
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+  }, []);
+
   // Expose mic functions and clear function to parent components
   useEffect(() => {
     if (onMicStart) {
@@ -539,7 +553,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if (onClearChatInput) {
       onClearChatInput.current = clearChatInput;
     }
-  }, [startMicListening, stopMicListening, clearChatInput, onMicStart, onMicStop, onClearChatInput]);
+    if (onHideLoadingAnimation) {
+      onHideLoadingAnimation.current = hideLoadingAnimation;
+    }
+  }, [startMicListening, stopMicListening, clearChatInput, hideLoadingAnimation, onMicStart, onMicStop, onClearChatInput, onHideLoadingAnimation]);
 
   // Notify parent component when listening state changes
   useEffect(() => {
@@ -568,6 +585,48 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }, 100);
     }
   }, [loading]);
+
+  // Handle 3-second loading animation timeout
+  useEffect(() => {
+    if (loading) {
+      // Start 3-second timeout when loading begins
+      loadingTimeoutRef.current = setTimeout(() => {
+        setShowLoadingAnimation(true);
+      }, 3000);
+    } else {
+      // Clear timeout and hide animation when loading stops (including when user stops LLM)
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+      setShowLoadingAnimation(false);
+    }
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+  }, [loading]);
+
+  // Hide loading animation when first chunk arrives (streaming starts)
+  useEffect(() => {
+    if (chat?.messages && chat.messages.length > 0) {
+      const lastMessage = chat.messages[chat.messages.length - 1];
+      // If the last message is from assistant and has content, streaming has started
+      if (lastMessage.role === 'assistant' && lastMessage.content && lastMessage.content.length > 0) {
+        // Hide the loading animation as soon as we get the first chunk
+        setShowLoadingAnimation(false);
+        // Also clear the timeout since we no longer need it
+        if (loadingTimeoutRef.current) {
+          clearTimeout(loadingTimeoutRef.current);
+          loadingTimeoutRef.current = null;
+        }
+      }
+    }
+  }, [chat?.messages]);
 
 
 
@@ -2290,6 +2349,95 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             
             
             {chat.messages.map(renderMessage)}
+            
+            {/* Loading Animation - appears after 3 seconds of loading */}
+            {showLoadingAnimation && loading && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'flex-start',
+                  mb: 2,
+                  px: 2,
+                }}
+              >
+                <Box
+                  sx={{
+                    maxWidth: '70%',
+                    backgroundColor: 'background.paper',
+                    borderRadius: '18px 18px 18px 4px',
+                    p: 3,
+                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    animation: 'fadeInUp 0.3s ease-out',
+                    '@keyframes fadeInUp': {
+                      '0%': {
+                        opacity: 0,
+                        transform: 'translateY(10px)',
+                      },
+                      '100%': {
+                        opacity: 1,
+                        transform: 'translateY(0)',
+                      },
+                    },
+                  }}
+                >
+                  {/* Animated thinking dots */}
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                    }}
+                  >
+                    {[0, 1, 2].map((index) => (
+                      <Box
+                        key={index}
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          backgroundColor: 'primary.main',
+                          animation: `bounce 1.4s infinite ease-in-out`,
+                          animationDelay: `${index * 0.16}s`,
+                          '@keyframes bounce': {
+                            '0%, 80%, 100%': {
+                              transform: 'scale(0)',
+                              opacity: 0.5,
+                            },
+                            '40%': {
+                              transform: 'scale(1)',
+                              opacity: 1,
+                            },
+                          },
+                        }}
+                      />
+                    ))}
+                  </Box>
+                  
+                  {/* Loading message */}
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{
+                      fontStyle: 'italic',
+                      animation: 'pulse 2s infinite',
+                      '@keyframes pulse': {
+                        '0%': { opacity: 0.6 },
+                        '50%': { opacity: 1 },
+                        '100%': { opacity: 0.6 },
+                      },
+                    }}
+                  >
+                    {model?.name || 'AI'} is loading...
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+            
             <div ref={messagesEndRef} />
           </Box>
 

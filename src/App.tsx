@@ -70,6 +70,7 @@ const App: React.FC = () => {
   const onMicStartRef = useRef<(() => Promise<void>) | null>(null);
   const onMicStopRef = useRef<(() => Promise<void>) | null>(null);
   const onClearChatInput = useRef<(() => void) | null>(null);
+  const onHideLoadingAnimationRef = useRef<(() => void) | null>(null);
 
   // Handle mic stopped from settings
   const handleMicStopped = () => {
@@ -479,6 +480,10 @@ const App: React.FC = () => {
   };
 
   const handleStopResponse = async () => {
+    // Hide loading animation immediately when user stops the response
+    if (onHideLoadingAnimationRef.current) {
+      onHideLoadingAnimationRef.current();
+    }
     
     // Also stop TTS if full voice mode is enabled
     const ttsSettings = ttsService.getSettings();
@@ -913,6 +918,7 @@ const App: React.FC = () => {
         ollamaStatus={ollamaStatus}
         onRefreshOllamaStatus={handleRefreshOllamaStatus}
         onCreateNewChat={handleCreateNewChat}
+        onHideLoadingAnimation={onHideLoadingAnimationRef}
       />
     </Box>
   );
