@@ -88,7 +88,9 @@ RUN mkdir -p /app/.cache/huggingface && \
 RUN mkdir -p /app/data
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY start-services.sh /app/start-services.sh
-RUN chmod +x /app/start-services.sh
+RUN tr -d '\r' < /app/start-services.sh > /tmp/start-services-fixed.sh && \
+    mv /tmp/start-services-fixed.sh /app/start-services.sh && \
+    chmod +x /app/start-services.sh
 
 # Expose ports
 EXPOSE 80
