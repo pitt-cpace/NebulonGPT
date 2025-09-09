@@ -1047,18 +1047,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // This pattern matches tables with any number of columns
     const markdownTableRegex = /\|[^\n]*\|\n\|[\s-:]*\|[\s-:]*(\|[\s-:]*)*\n(\|[^\n]*\|\n)+/g;
     
+    // Detect if content contains a MediaWiki table
+    const mediaWikiTableRegex = /\{\|[^\n]*\n[\s\S]*?\|\}/g;
+    
     // Check if content contains any table patterns
     const hasLlama3Table = llama3TableRegex.test(processedContent);
     const hasTabTable = tabTableRegex.test(processedContent);
     const hasMarkdownTable = markdownTableRegex.test(processedContent);
+    const hasMediaWikiTable = mediaWikiTableRegex.test(processedContent);
     
     // Reset regex states
     llama3TableRegex.lastIndex = 0;
     tabTableRegex.lastIndex = 0;
     markdownTableRegex.lastIndex = 0;
+    mediaWikiTableRegex.lastIndex = 0;
     
     // If no tables detected, just render with ReactMarkdown
-    if (!hasLlama3Table && !hasTabTable && !hasMarkdownTable) {
+    if (!hasLlama3Table && !hasTabTable && !hasMarkdownTable && !hasMediaWikiTable) {
       return (
         <ReactMarkdown components={markdownComponents}>
           {processedContent}
@@ -1071,6 +1076,73 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     let lastIndex = 0;
     let match;
     let key = 0;
+    
+    // Process MediaWiki tables first (highest priority)
+    if (hasMediaWikiTable) {
+      while ((match = mediaWikiTableRegex.exec(processedContent)) !== null) {
+        // Add text before the table
+        const beforeTable = processedContent.substring(lastIndex, match.index);
+        if (beforeTable.trim()) {
+          result.push(
+            <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
+              {beforeTable}
+            </ReactMarkdown>
+          );
+        }
+        
+        // Process the MediaWiki table using the parser from TableRenderer
+        const tableContent = match[0];
+        // Import the parser function synchronously since it's already available
+        const { parseMediaWikiTable } = require('./TableRenderer');
+        const tableData = parseMediaWikiTable(tableContent);
+        
+        if (tableData) {
+          // Render Material-UI table
+          result.push(
+            <TableContainer 
+              key={`table-${key++}`}
+              component={Paper} 
+              sx={styles.tableContainer}
+            >
+              <Table>
+                <TableHead sx={styles.tableHead}>
+                  <TableRow>
+                    {tableData.headers.map((header: string, idx: number) => (
+                      <TableCell 
+                        key={idx}
+                        sx={styles.tableHeaderCell}
+                      >
+                        {header}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {tableData.rows.map((row: string[], rowIdx: number) => (
+                    <TableRow 
+                      key={rowIdx}
+                      sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                    >
+                      {row.map((cell: string, cellIdx: number) => (
+                        <TableCell 
+                          key={cellIdx}
+                          sx={styles.tableCell}
+                        >
+                          {cell}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          );
+        }
+        
+        // Update lastIndex to after this table
+        lastIndex = match.index + match[0].length;
+      }
+    }
     
     // Process Llama3-3 tables
     if (hasLlama3Table) {
