@@ -195,55 +195,20 @@ const App: React.FC = () => {
   // Load chats from server when the app starts
   useEffect(() => {
     const fetchChats = async () => {
-      const { chats: savedChats, hasMore } = await loadChatsFromServer(0, chatPagination.limit);
+      // Always create a new chat on page load/refresh
+      // This ensures every page refresh starts with a fresh chat
+      setChatPagination(prev => ({
+        ...prev,
+        hasMore: false,
+        isLoading: false
+      }));
       
-      if (savedChats.length > 0) {
-        setChats(savedChats);
-        setAllChats(savedChats);
-        setCurrentChat(savedChats[0]);
-        
-        // Update pagination state
-        setChatPagination(prev => ({
-          ...prev,
-          page: 0,
-          hasMore,
-          isLoading: false
-        }));
-        
-        // If models are already loaded, set the selected model based on the first chat's model ID
-        // BUT only if no default model has been set from localStorage
-        if (models.length > 0 && savedChats[0].modelId) {
-          try {
-            const savedDefaultModelId = localStorage.getItem('defaultModelId');
-            // Only use chat model if no default model is set
-            if (!savedDefaultModelId) {
-              const chatModel = models.find(m => m.id === savedChats[0].modelId);
-              if (chatModel) {
-                setSelectedModel(chatModel);
-              }
-            }
-            // If default model is set, keep using it (don't override with chat model)
-          } catch (error) {
-            console.error('Failed to check default model when loading chats:', error);
-            // Fallback to chat model if localStorage check fails
-            const chatModel = models.find(m => m.id === savedChats[0].modelId);
-            if (chatModel) {
-              setSelectedModel(chatModel);
-            }
-          }
-        }
-      } else {
-        // No chats loaded, set hasMore to false
-        setChatPagination(prev => ({
-          ...prev,
-          hasMore: false,
-          isLoading: false
-        }));
-      }
+      // Don't load existing chats automatically - just prepare for new chat creation
+      // The existing chats will be loaded in the sidebar when needed
     };
     
     fetchChats();
-  }, [loadChatsFromServer, models, chatPagination.limit]);
+  }, []);
 
   // NOTE: Removed the useEffect that saved entire chats array on every change.
   // Now using individual chat saving with saveChatToServer() for better performance
@@ -324,28 +289,44 @@ const App: React.FC = () => {
     }
   }, [initialized, getCurrentMsgId, setCurrentMsgId, isListening]);
 
-  // Initialize app after both models and chats are loaded
+  // Initialize app after models are loaded - always create a new chat
   useEffect(() => {
     if (models.length > 0 && !initialized) {
       setInitialized(true);
       
-      // Only create a default chat if no chats were loaded from server
-      // This should only happen on first app launch, not when user deletes all chats
-      if (chats.length === 0) {
-        const defaultModel = models[0];
-        const newChat: ChatType = {
-          id: `chat-${Date.now()}`,
-          title: 'New Chat',
-          modelId: defaultModel.id,
-          messages: [],
-          createdAt: new Date().toISOString(),
-        };
-        
-        setChats([newChat]);
-        setCurrentChat(newChat);
-      }
+      // Always create a new chat on page load/refresh
+      const defaultModel = models.find(m => {
+        try {
+          const savedDefaultModelId = localStorage.getItem('defaultModelId');
+          return savedDefaultModelId ? m.id === savedDefaultModelId : false;
+        } catch (error) {
+          return false;
+        }
+      }) || models[0];
+      
+      const newChat: ChatType = {
+        id: `chat-${Date.now()}`,
+        title: 'New Chat',
+        modelId: defaultModel.id,
+        messages: [],
+        createdAt: new Date().toISOString(),
+      };
+      
+      // Don't save empty chat to server immediately - only save when it gets messages
+      
+      // Load existing chats and put new chat first (but don't save the empty chat yet)
+      loadChatsFromServer(0, chatPagination.limit).then(({ chats: savedChats }) => {
+        // Filter out any empty chats from saved chats to clean up previous empty chats
+        const nonEmptyChats = savedChats.filter(chat => chat.messages && chat.messages.length > 0);
+        const allChats = [newChat, ...nonEmptyChats];
+        setChats(allChats);
+        setAllChats(allChats);
+      });
+      
+      setCurrentChat(newChat);
+      setSelectedModel(defaultModel);
     }
-  }, [models, initialized]); // Removed 'chats' from dependency array
+  }, [models, initialized, loadChatsFromServer, chatPagination.limit]);
 
   // Ensure default model is selected after initialization
   useEffect(() => {
@@ -396,8 +377,7 @@ const App: React.FC = () => {
       createdAt: new Date().toISOString(),
     };
     
-    // Save the new chat to server immediately
-    await saveChatToServer(newChat);
+    // Don't save empty chat to server immediately - only save when it gets messages
     
     setChats([newChat, ...chats]);
     setCurrentChat(newChat);
