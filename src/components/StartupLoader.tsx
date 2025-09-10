@@ -88,7 +88,7 @@ const StartupLoader: React.FC<StartupLoaderProps> = ({ onComplete }) => {
       } catch (error) {
         console.error('🎤 Failed to connect to Vosk:', error);
         voskConnected = false;
-        setTimeout(connectToVosk, 2000);
+        setTimeout(connectToVosk, 1000);
       }
     };
 
@@ -111,7 +111,7 @@ const StartupLoader: React.FC<StartupLoaderProps> = ({ onComplete }) => {
           // Show loader when service disconnects
           showLoader("Reconnecting to text-to-speech...", "reconnecting");
           // Try to reconnect after 2 seconds
-          setTimeout(connectToKokoro, 2000);
+          setTimeout(connectToKokoro, 1000);
         };
         
         kokoroWs.onerror = (error) => {
