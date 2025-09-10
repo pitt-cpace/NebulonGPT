@@ -4,6 +4,7 @@ import * as styles from './styles/components/App.styles';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import SettingsDialog from './components/SettingsDialog';
+import StartupLoader from './components/StartupLoader';
 import { ModelType, ChatType, MessageType, FileAttachment } from './types';
 import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
 import { voskRecognition } from './services/vosk';
@@ -871,6 +872,9 @@ const App: React.FC = () => {
   return (
     <Box sx={styles.container}>
       <CssBaseline />
+      
+      {/* Startup loader overlay */}
+      <StartupLoader />
       
       {/* Settings dialog */}
       <SettingsDialog
