@@ -65,16 +65,6 @@ RUN ls -la /app/build && echo "Build files copied successfully" || echo "ERROR: 
 COPY Vosk-Server/ /app/vosk-server/
 RUN mkdir -p /app/vosk-server/models
 
-# Extract all available Vosk models directly into the image
-COPY Vosk-Server/websocket/models/*.zip /tmp/
-RUN cd /tmp && \
-    for zipfile in *.zip; do \
-        if [ -f "$zipfile" ]; then \
-            echo "Extracting $zipfile..."; \
-            unzip -o "$zipfile" -d /app/vosk-server/models; \
-        fi; \
-    done && \
-    rm -f /tmp/*.zip
 
 # Kokoro - Copy everything including the zip files
 COPY Kokoro-TTS-Server/ /app/kokoro-tts/
