@@ -2432,7 +2432,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       },
                     }}
                   >
-                    {model?.name || 'AI'} is loading...
+                    {model?.name || 'AI'} is loading/thinking...
                   </Typography>
                 </Box>
               </Box>
