@@ -131,6 +131,26 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const suggestedPrompts = getSuggestedPrompts();
 
+  // Function to detect "stop stop" command
+  const detectStopCommand = useCallback((text: string): boolean => {
+    if (!text || typeof text !== 'string') return false;
+    
+    // Normalize the text: lowercase, remove extra spaces
+    const normalizedText = text.toLowerCase()
+      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+      .trim();
+    
+    // Check for "stop stop" pattern
+    const stopStopPattern = /\bstop\s+stop\b/;
+    
+    if (stopStopPattern.test(normalizedText)) {
+      console.log(`🎯 "Stop stop" command detected in text: "${text}"`);
+      return true;
+    }
+    
+    return false;
+  }, []);
+
   // Initialize the battle-tested auto-scroll system
   const { isPinned, unread, onNewContent, jumpToLatest } = useStickyAutoScroll({
     containerRef: messagesContainerRef,
@@ -280,6 +300,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Update interim transcript for real-time display
         setInterimTranscript(result.partial);   
         
+        // Check for "stop stop" command in partial results when in full voice mode
+        if (isFullVoiceMode && isListening) {
+          const partialLower = result.partial.toLowerCase().trim();
+          if (detectStopCommand(partialLower)) {
+            console.log('🛑 "Stop stop" command detected in partial result - stopping microphone');
+            await stopMicListening();
+            return;
+          }
+        }
+        
         ttsService.pause();
         voskRecognition.clearSilenceTimer();
         
@@ -312,6 +342,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         const ttsSettings = ttsService.getSettings();
         const isFullVoiceMode = ttsSettings.fullVoiceMode;
+
+        // Check for "stop stop" command in final results when in full voice mode
+        if (isFullVoiceMode && isListening) {
+          const finalTextLower = finalTranscriptRef.current.toLowerCase().trim();
+          if (detectStopCommand(finalTextLower)) {
+            console.log('🛑 "Stop stop" command detected in final result - stopping microphone');
+            await stopMicListening();
+            return;
+          }
+        }
 
         ttsService.pause();
         voskRecognition.clearSilenceTimer();
@@ -362,7 +402,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return () => {
       // Cleanup handled by Vosk service
     };
-  }, [voskRecognition, message, handleSendMessage]);
+  }, [voskRecognition, message, handleSendMessage, detectStopCommand, isListening, loading, onStopResponse]);
 
   // Handle mic stopped from settings - listen for the trigger
   useEffect(() => {
@@ -2161,6 +2201,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         )}
                       </Typography>
                       
+                      {/* Helpful tip about "stop stop" command */}
+                      <Typography variant="caption" sx={{ 
+                        fontSize: '0.75rem', 
+                        opacity: 0.8, 
+                        textAlign: 'center',
+                        fontStyle: 'italic',
+                        mt: 0.5
+                      }}>
+                        💡 Say "stop stop" to stop listening
+                      </Typography>
+                      
                       {/* Real-time audio waveform visualization */}
                       <WaveformVisualization 
                         voskRecognition={voskRecognition}
@@ -2418,7 +2469,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     ))}
                   </Box>
                   
-                  {/* Loading message */}
+                  {/* Loading/Thinking message */}
                   <Typography
                     variant="body2"
                     color="text.secondary"
@@ -2426,9 +2477,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       fontStyle: 'italic',
                       animation: 'pulse 2s infinite',
                       '@keyframes pulse': {
-                        '0%': { opacity: 0.6 },
+                        '0%': { opacity: 0.2 },
                         '50%': { opacity: 1 },
-                        '100%': { opacity: 0.6 },
+                        '100%': { opacity: 0.2 },
                       },
                     }}
                   >
