@@ -48,97 +48,121 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
   const [loading, setLoading] = useState(false);
   const [loadingModel, setLoadingModel] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [modelDetails, setModelDetails] = useState<{ [key: string]: any }>({});
 
-  // Helper function to format model names for display
-  const formatModelName = (modelName: string): string => {
-    // Extract language and size information from model name
+  // Enhanced static language mapping with native scripts
+  const getLanguageInfo = (modelName: string) => {
     const parts = modelName.toLowerCase().split('-');
-    let displayName = modelName;
-    let language = '';
-    let size = '';
-
-    // Common language mappings
-    const languageMap: { [key: string]: string } = {
-      'en': 'English',
-      'es': 'Spanish',
-      'fr': 'French',
-      'de': 'German',
-      'ru': 'Russian',
-      'zh': 'Chinese',
-      'ja': 'Japanese',
-      'ko': 'Korean',
-      'it': 'Italian',
-      'pt': 'Portuguese',
-      'ar': 'Arabic',
-      'hi': 'Hindi',
-      'fa': 'Persian',
-      'tr': 'Turkish',
-      'nl': 'Dutch',
-      'sv': 'Swedish',
-      'da': 'Danish',
-      'no': 'Norwegian',
-      'fi': 'Finnish',
-      'pl': 'Polish',
-      'cs': 'Czech',
-      'hu': 'Hungarian',
-      'ro': 'Romanian',
-      'bg': 'Bulgarian',
-      'hr': 'Croatian',
-      'sk': 'Slovak',
-      'sl': 'Slovenian',
-      'et': 'Estonian',
-      'lv': 'Latvian',
-      'lt': 'Lithuanian',
-      'uk': 'Ukrainian',
-      'be': 'Belarusian',
-      'ka': 'Georgian',
-      'hy': 'Armenian',
-      'az': 'Azerbaijani',
-      'kk': 'Kazakh',
-      'ky': 'Kyrgyz',
-      'uz': 'Uzbek',
-      'tg': 'Tajik',
-      'mn': 'Mongolian',
-      'vi': 'Vietnamese',
-      'th': 'Thai',
-      'id': 'Indonesian',
-      'ms': 'Malay',
-      'tl': 'Filipino',
-      'sw': 'Swahili',
-      'am': 'Amharic',
-      'he': 'Hebrew',
-      'ur': 'Urdu',
-      'bn': 'Bengali',
-      'ta': 'Tamil',
-      'te': 'Telugu',
-      'ml': 'Malayalam',
-      'kn': 'Kannada',
-      'gu': 'Gujarati',
-      'pa': 'Punjabi',
-      'or': 'Odia',
-      'as': 'Assamese',
-      'ne': 'Nepali',
-      'si': 'Sinhala',
-      'my': 'Burmese',
-      'km': 'Khmer',
-      'lo': 'Lao',
+    
+    // Comprehensive language mappings with native scripts
+    const languageMap: { [key: string]: { name: string; native: string; region?: string } } = {
+      'en': { name: 'English', native: 'English' },
+      'es': { name: 'Spanish', native: 'Español' },
+      'fr': { name: 'French', native: 'Français' },
+      'de': { name: 'German', native: 'Deutsch' },
+      'ru': { name: 'Russian', native: 'Русский' },
+      'zh': { name: 'Chinese', native: '中文' },
+      'cn': { name: 'Chinese', native: '中文' },
+      'ja': { name: 'Japanese', native: '日本語' },
+      'ko': { name: 'Korean', native: '한국어' },
+      'it': { name: 'Italian', native: 'Italiano' },
+      'pt': { name: 'Portuguese', native: 'Português' },
+      'ar': { name: 'Arabic', native: 'العربية' },
+      'hi': { name: 'Hindi', native: 'हिन्दी' },
+      'fa': { name: 'Persian', native: 'فارسی' },
+      'tr': { name: 'Turkish', native: 'Türkçe' },
+      'nl': { name: 'Dutch', native: 'Nederlands' },
+      'sv': { name: 'Swedish', native: 'Svenska' },
+      'da': { name: 'Danish', native: 'Dansk' },
+      'no': { name: 'Norwegian', native: 'Norsk' },
+      'fi': { name: 'Finnish', native: 'Suomi' },
+      'pl': { name: 'Polish', native: 'Polski' },
+      'cs': { name: 'Czech', native: 'Čeština' },
+      'hu': { name: 'Hungarian', native: 'Magyar' },
+      'ro': { name: 'Romanian', native: 'Română' },
+      'bg': { name: 'Bulgarian', native: 'Български' },
+      'hr': { name: 'Croatian', native: 'Hrvatski' },
+      'sk': { name: 'Slovak', native: 'Slovenčina' },
+      'sl': { name: 'Slovenian', native: 'Slovenščina' },
+      'et': { name: 'Estonian', native: 'Eesti' },
+      'lv': { name: 'Latvian', native: 'Latviešu' },
+      'lt': { name: 'Lithuanian', native: 'Lietuvių' },
+      'uk': { name: 'Ukrainian', native: 'Українська' },
+      'be': { name: 'Belarusian', native: 'Беларуская' },
+      'ka': { name: 'Georgian', native: 'ქართული' },
+      'hy': { name: 'Armenian', native: 'Հայերեն' },
+      'az': { name: 'Azerbaijani', native: 'Azərbaycan' },
+      'kk': { name: 'Kazakh', native: 'Қазақша' },
+      'ky': { name: 'Kyrgyz', native: 'Кыргызча' },
+      'uz': { name: 'Uzbek', native: 'Oʻzbekcha' },
+      'tg': { name: 'Tajik', native: 'Тоҷикӣ' },
+      'mn': { name: 'Mongolian', native: 'Монгол' },
+      'vi': { name: 'Vietnamese', native: 'Tiếng Việt' },
+      'vn': { name: 'Vietnamese', native: 'Tiếng Việt' },
+      'th': { name: 'Thai', native: 'ไทย' },
+      'id': { name: 'Indonesian', native: 'Bahasa Indonesia' },
+      'ms': { name: 'Malay', native: 'Bahasa Melayu' },
+      'tl': { name: 'Filipino', native: 'Tagalog' },
+      'sw': { name: 'Swahili', native: 'Kiswahili' },
+      'am': { name: 'Amharic', native: 'አማርኛ' },
+      'he': { name: 'Hebrew', native: 'עברית' },
+      'ur': { name: 'Urdu', native: 'اردو' },
+      'bn': { name: 'Bengali', native: 'বাংলা' },
+      'ta': { name: 'Tamil', native: 'தமிழ்' },
+      'te': { name: 'Telugu', native: 'తెలుగు' },
+      'ml': { name: 'Malayalam', native: 'മലയാളം' },
+      'kn': { name: 'Kannada', native: 'ಕನ್ನಡ' },
+      'gu': { name: 'Gujarati', native: 'ગુજરાતી' },
+      'pa': { name: 'Punjabi', native: 'ਪੰਜਾਬੀ' },
+      'or': { name: 'Odia', native: 'ଓଡ଼ିଆ' },
+      'as': { name: 'Assamese', native: 'অসমীয়া' },
+      'ne': { name: 'Nepali', native: 'नेपाली' },
+      'si': { name: 'Sinhala', native: 'සිංහල' },
+      'my': { name: 'Burmese', native: 'မြန်မာ' },
+      'km': { name: 'Khmer', native: 'ខ្មែរ' },
+      'lo': { name: 'Lao', native: 'ລາວ' },
+      'ca': { name: 'Catalan', native: 'Català' },
+      'el': { name: 'Greek', native: 'Ελληνικά' },
+      'eo': { name: 'Esperanto', native: 'Esperanto' },
+      'br': { name: 'Breton', native: 'Brezhoneg' },
+      'is': { name: 'Icelandic', native: 'Íslenska' },
+      'mt': { name: 'Maltese', native: 'Malti' },
+      'cy': { name: 'Welsh', native: 'Cymraeg' },
+      'ga': { name: 'Irish', native: 'Gaeilge' },
+      'gd': { name: 'Scottish Gaelic', native: 'Gàidhlig' },
+      'eu': { name: 'Basque', native: 'Euskera' },
+      'fo': { name: 'Faroese', native: 'Føroyskt' },
+      'lb': { name: 'Luxembourgish', native: 'Lëtzebuergesch' },
+      'rm': { name: 'Romansh', native: 'Rumantsch' },
+      'sq': { name: 'Albanian', native: 'Shqip' },
+      'mk': { name: 'Macedonian', native: 'Македонски' },
+      'sr': { name: 'Serbian', native: 'Српски' },
+      'bs': { name: 'Bosnian', native: 'Bosanski' },
+      'me': { name: 'Montenegrin', native: 'Crnogorski' },
     };
 
-    // Extract language
+    let language = { name: '', native: '', region: undefined as string | undefined };
+    let size = '';
+
+    // Extract language from model name parts
     for (const part of parts) {
       if (languageMap[part]) {
-        language = languageMap[part];
+        language = { ...languageMap[part], region: undefined };
         break;
       }
-      // Handle compound language codes like 'en-us', 'en-gb'
-      if (part.includes('us') && parts.includes('en')) {
-        language = 'English (US)';
-        break;
-      }
-      if (part.includes('gb') && parts.includes('en')) {
-        language = 'English (UK)';
-        break;
-      }
+    }
+
+    // Handle compound language codes and special cases
+    if (parts.includes('en') && parts.includes('us')) {
+      language = { ...language, name: 'English', native: 'English', region: 'US' };
+    } else if (parts.includes('en') && parts.includes('gb')) {
+      language = { ...language, name: 'English', native: 'English', region: 'UK' };
+    } else if (parts.includes('en') && parts.includes('in')) {
+      language = { ...language, name: 'English', native: 'English', region: 'India' };
+    } else if (parts.includes('pt') && parts.includes('br')) {
+      language = { ...language, name: 'Portuguese', native: 'Português', region: 'Brazil' };
+    } else if (parts.includes('ar') && parts.includes('tn')) {
+      language = { ...language, name: 'Arabic', native: 'العربية', region: 'Tunisia' };
     }
 
     // Extract size information
@@ -147,21 +171,47 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
     else if (parts.includes('medium')) size = 'Medium';
     else if (parts.includes('tiny')) size = 'Tiny';
 
-    // Create display name
-    if (language && size) {
-      displayName = `${language} (${size})`;
-    } else if (language) {
-      displayName = language;
+    return { language, size };
+  };
+
+  // Helper function to format model names for display
+  const formatModelName = (modelName: string): string => {
+    const { language, size } = getLanguageInfo(modelName);
+    
+    if (language.name && size) {
+      const regionSuffix = language.region ? ` (${language.region})` : '';
+      return `${language.name}${regionSuffix} (${size})`;
+    } else if (language.name) {
+      const regionSuffix = language.region ? ` (${language.region})` : '';
+      return `${language.name}${regionSuffix}`;
     } else {
       // Fallback: capitalize and clean up the original name
-      displayName = modelName
+      return modelName
         .replace(/vosk-model-/gi, '')
         .replace(/-/g, ' ')
         .replace(/\b\w/g, l => l.toUpperCase());
     }
-
-    return displayName;
   };
+
+  // Helper function to get model details for second line
+  const getModelDetails = (modelName: string): string => {
+    const { language } = getLanguageInfo(modelName);
+    
+    // Extract version information
+    const versionMatch = modelName.match(/(\d+\.\d+(?:\.\d+)?)/);
+    const version = versionMatch ? `v${versionMatch[1]}` : '';
+    
+    // Create details string
+    const languageDetails = language.native && language.native !== language.name 
+      ? `${language.name}/${language.native}` 
+      : language.name;
+    
+    const details = [languageDetails, version].filter(Boolean).join(' • ');
+    return details || 'Speech recognition model';
+  };
+
+
+
 
   // Load available models
   const loadModels = async () => {
@@ -192,6 +242,7 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
     try {
       const models = await voskRecognition.getAvailableModels();
       setAvailableModels(models);
+      
       
       // Check what model is currently running on the server first
       let serverCurrentModel: string | null = null;
@@ -467,23 +518,28 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
           ) : (
             availableModels.map((model) => (
               <MenuItem key={model} value={model}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                  <Typography variant="body2">
-                    {formatModelName(model)}
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '100%', py: 0.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {formatModelName(model)}
+                    </Typography>
+                    <Chip
+                      label={model}
+                      size="small"
+                      variant="outlined"
+                      sx={{ 
+                        ml: 'auto', 
+                        fontSize: '0.7rem',
+                        height: '18px',
+                        '& .MuiChip-label': {
+                          px: 0.8
+                        }
+                      }}
+                    />
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem', mt: 0.2 }}>
+                    {getModelDetails(model)}
                   </Typography>
-                  <Chip
-                    label={model}
-                    size="small"
-                    variant="outlined"
-                    sx={{ 
-                      ml: 'auto', 
-                      fontSize: '0.7rem',
-                      height: '20px',
-                      '& .MuiChip-label': {
-                        px: 1
-                      }
-                    }}
-                  />
                 </Box>
               </MenuItem>
             ))
