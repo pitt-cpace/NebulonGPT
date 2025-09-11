@@ -202,8 +202,14 @@ const StartupLoader: React.FC<StartupLoaderProps> = ({ onComplete }) => {
             }} 
           />
           
-          <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+          <Typography variant="caption" sx={{ color: 'text.disabled', mb: 2, display: 'block' }}>
             Please wait while we start all services...
+          </Typography>
+          
+          <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.7rem', lineHeight: 1.4 }}>
+            💡 Tip: To see the latest changes after loading completes, use hard refresh:
+            <br />
+            <strong>Ctrl+F5</strong> (Windows) or <strong>Cmd+Shift+R</strong> (Mac)
           </Typography>
         </Box>
       </Box>
