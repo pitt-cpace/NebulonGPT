@@ -187,6 +187,53 @@ const StartupLoader: React.FC<StartupLoaderProps> = ({ onComplete }) => {
             🚀 NebulonGPT Loading
           </Typography>
           
+          {/* Yellow warning message about Ollama and models */}
+          <Box
+            sx={{
+              backgroundColor: 'rgba(255, 193, 7, 0.35)',
+              border: '2px solid rgba(255, 193, 7, 0.8)',
+              borderRadius: 2,
+              padding: 2,
+              mb: 3,
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 1.5,
+            }}
+          >
+            <Box
+              sx={{
+                color: 'warning.main',
+                fontSize: '1.2rem',
+                mt: 0.2,
+              }}
+            >
+              ⚠️
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="body2" sx={{ color: 'warning.dark', fontWeight: 'bold', mb: 1 }}>
+                Important Setup Reminder
+              </Typography>
+              <Typography variant="body2" sx={{ color: 'text.primary', mb: 1.5, lineHeight: 1.4 }}>
+                Make sure your <strong>Ollama is running</strong> and you have downloaded a model. 
+                If you haven't installed any models yet, try these suggestions:
+              </Typography>
+              <Box sx={{ ml: 1 }}>
+                <Typography variant="body2" sx={{ color: 'text.secondary', mb: 0.5 }}>
+                  • <strong>For high-performance computers (16GB+ RAM):</strong>
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1, fontFamily: 'monospace', fontSize: '0.85rem', ml: 2 }}>
+                  ollama pull gpt-oss:20b
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'text.secondary', mb: 0.5 }}>
+                  • <strong>For light computers (&lt;16GB RAM):</strong>
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '0.85rem', ml: 2 }}>
+                  ollama pull mistral:7b
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+          
           <Typography variant="body1" sx={{ mb: 3, color: 'text.secondary' }}>
             {progress.step}
           </Typography>
