@@ -136,24 +136,40 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
           try {
             console.log(`Processing file ${i + 1}/${totalFiles}: ${file.name}`);
             
-            // Simulate progress for file processing
-            setUploadProgress(Math.round(((i + 0.5) / totalFiles) * 100));
+            // Phase 1: Reading file (10% of total progress for this file)
+            const baseProgress = Math.round((i / totalFiles) * 100);
+            setUploadProgress(baseProgress + Math.round((10 / totalFiles)));
             
             // Read file as ArrayBuffer
             const arrayBuffer = await file.arrayBuffer();
             const uint8Array = new Uint8Array(arrayBuffer);
             
+            // Phase 2: Copying file (20% of total progress for this file)
+            setUploadProgress(baseProgress + Math.round((20 / totalFiles)));
+            
             // Use Electron API to copy file to models directory
-            // Note: We'll need to add this IPC handler
             const copyResult = await electronApi.copyFileToModels(file.name, uint8Array);
             if (!copyResult.success) {
               throw new Error(copyResult.error || 'Failed to copy file');
             }
             
-            // Extract the copied file
-            const extractResult = await electronApi.extractVoskModel(file.name);
-            if (!extractResult.success) {
-              throw new Error(extractResult.error || 'Failed to extract file');
+            // Phase 3: Extracting file (70% of total progress for this file)
+            // Simulate gradual extraction progress
+            const extractionSteps = 7; // 7 steps for extraction
+            for (let step = 1; step <= extractionSteps; step++) {
+              const extractProgress = baseProgress + Math.round((20 + (step * 10)) / totalFiles);
+              setUploadProgress(Math.min(extractProgress, Math.round(((i + 0.9) / totalFiles) * 100)));
+              
+              if (step === extractionSteps) {
+                // Actually extract on the last step
+                const extractResult = await electronApi.extractVoskModel(file.name);
+                if (!extractResult.success) {
+                  throw new Error(extractResult.error || 'Failed to extract file');
+                }
+              } else {
+                // Simulate extraction time
+                await new Promise(resolve => setTimeout(resolve, 200));
+              }
             }
 
             results.push(`✅ ${file.name}: Copied and extracted successfully`);
@@ -166,6 +182,8 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
             console.error(`Error processing ${file.name}:`, fileError);
             errors.push(`❌ ${file.name}: ${fileError.message || 'Processing failed'}`);
             completedFiles++;
+            // Still update progress even on error
+            setUploadProgress(Math.round((completedFiles / totalFiles) * 100));
           }
         }
       } else {
