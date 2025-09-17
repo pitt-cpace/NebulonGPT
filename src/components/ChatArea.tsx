@@ -2716,6 +2716,27 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           </Box>
         </DialogTitle>
         <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            This project was developed at{' '}
+            <Typography
+              component="a"
+              href="https://cpace.pitt.edu/"
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{
+                color: 'primary.main',
+                textDecoration: 'none',
+                fontWeight: 'bold',
+                '&:hover': {
+                  textDecoration: 'underline',
+                },
+              }}
+            >
+              CPACE (Computational Pathology & AI Center of Excellence)
+            </Typography>
+            .
+          </Typography>
+          
           <Typography variant="body1" sx={{ mb: 3 }}>
             This project was made possible by the contributions of the following individuals:
           </Typography>
@@ -2768,6 +2789,24 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           
           <Typography variant="body2" color="text.secondary" sx={{ mt: 3, textAlign: 'center' }}>
             Thank you for your valuable contributions to this project!
+          </Typography>
+          
+          <Typography variant="body2" sx={{ mt: 2, textAlign: 'center' }}>
+            <Typography
+              component="a"
+              href="https://cpace.pitt.edu/"
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{
+                color: 'primary.main',
+                textDecoration: 'none',
+                '&:hover': {
+                  textDecoration: 'underline',
+                },
+              }}
+            >
+              cpace.pitt.edu
+            </Typography>
           </Typography>
         </DialogContent>
         <DialogActions>
