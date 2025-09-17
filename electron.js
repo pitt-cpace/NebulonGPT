@@ -79,47 +79,44 @@ function saveChatsData() {
   }
 }
 
-// Extract bundled resources on first run with version checking
+// Extract bundled resources on every startup (like Docker version)
 async function extractBundledResources() {
-  const versionFile = path.join(PATHS.dataDir, 'VERSION.json');
-  const currentVersion = { 
-    version: '2025-09-17', 
-    files: ['kokoro-cache', 'vosk-models'],
-    appVersion: app.getVersion()
-  };
-  
-  // Check if already extracted and up-to-date
-  try {
-    const existingVersion = JSON.parse(fs.readFileSync(versionFile, 'utf8'));
-    if (existingVersion.version === currentVersion.version && 
-        existingVersion.appVersion === currentVersion.appVersion) {
-      console.log('Models already extracted and up-to-date');
-      return;
-    }
-  } catch (error) {
-    // No version file or invalid - proceed with extraction
-  }
-
-  console.log('First run or version update detected, extracting bundled resources...');
+  console.log('📦 Extracting bundled resources on startup...');
   
   try {
-    // Extract Kokoro TTS cache from bundled split files
-    const kokoroModelsDir = getResourcePath('models/kokoro');
+    // Extract Kokoro TTS cache from bundled split files (only if not exists)
+    const kokoroModelsDir = getResourcePath('Kokoro-TTS-Server');
     if (fs.existsSync(kokoroModelsDir)) {
-      console.log('Extracting Kokoro TTS cache...');
-      await extractKokoroCache(kokoroModelsDir);
+      // Check if cache already exists to avoid re-extracting large files
+      const cacheExists = fs.existsSync(PATHS.hfCacheDir) && 
+                         fs.readdirSync(PATHS.hfCacheDir).length > 0;
+      
+      if (!cacheExists) {
+        console.log('📦 Extracting Kokoro TTS cache...');
+        await extractKokoroCache(kokoroModelsDir);
+      } else {
+        console.log('✅ Kokoro TTS cache already exists, skipping extraction');
+      }
     }
 
-    // Extract Vosk models from bundled files
+    // Always extract Vosk models from bundled files (like Docker version)
     const voskModelsSource = getResourcePath('models/vosk');
     if (fs.existsSync(voskModelsSource)) {
-      console.log('Extracting Vosk models...');
+      console.log('📦 Extracting Vosk models...');
       await extractVoskModels(voskModelsSource);
+    } else {
+      console.log('📦 Vosk models source not found at:', voskModelsSource);
+      // Try alternative path for development
+      const devVoskModelsSource = getResourcePath('Vosk-Server/websocket/models');
+      if (fs.existsSync(devVoskModelsSource)) {
+        console.log('📦 Found Vosk models at dev path, extracting...');
+        await extractVoskModels(devVoskModelsSource);
+      } else {
+        console.log('📦 No Vosk models found at either path');
+      }
     }
 
-    // Write version marker
-    fs.writeFileSync(versionFile, JSON.stringify(currentVersion, null, 2));
-    console.log('Resource extraction completed successfully');
+    console.log('✅ Resource extraction completed successfully');
   } catch (error) {
     console.error('Error extracting resources:', error);
     throw error;
@@ -186,11 +183,19 @@ async function extractKokoroCache(kokoroModelsDir) {
   });
 }
 
-// Extract Vosk models from bundled files
+// Extract Vosk models from bundled files (following Docker start-services.sh exactly)
 async function extractVoskModels(voskModelsSource) {
   return new Promise(async (resolve, reject) => {
     try {
-      // Copy all files from source to destination
+      console.log(`📦 Processing Vosk models from: ${voskModelsSource}`);
+      
+      if (!fs.existsSync(voskModelsSource)) {
+        console.log('📦 No Vosk models source directory found, skipping extraction');
+        resolve();
+        return;
+      }
+
+      // Copy all files from source to destination first
       await new Promise((resolveCopy, rejectCopy) => {
         exec(`cp -r "${voskModelsSource}"/* "${PATHS.voskModelsDir}"/`, (error) => {
           if (error) rejectCopy(error);
@@ -198,30 +203,87 @@ async function extractVoskModels(voskModelsSource) {
         });
       });
 
-      // Find and extract any ZIP files
+      // Step 1: Concatenate all split zip files into single zip files (exactly like Docker)
       const files = fs.readdirSync(PATHS.voskModelsDir);
-      const zipFiles = files.filter(file => file.endsWith('.zip'));
-
-      for (const zipFile of zipFiles) {
-        const zipPath = path.join(PATHS.voskModelsDir, zipFile);
-        const extractDir = path.join(PATHS.voskModelsDir, path.basename(zipFile, '.zip'));
+      const splitFiles = files.filter(file => file.match(/\.zip\.\d+$/));
+      
+      if (splitFiles.length > 0) {
+        console.log('📦 Found split ZIP files, concatenating...');
         
-        try {
-          console.log(`Extracting Vosk model: ${zipFile}`);
-          await extractZip(zipPath, { dir: extractDir });
+        // Get unique base names (like Docker: sed 's/\.zip\..*$//' | sort -u)
+        const baseNames = [...new Set(splitFiles.map(file => file.replace(/\.zip\.\d+$/, '')))];
+
+        for (const baseName of baseNames) {
+          console.log(`📦 Concatenating split archive: ${baseName}`);
           
-          // Remove the ZIP file after successful extraction
-          fs.unlinkSync(zipPath);
-          console.log(`Successfully extracted and removed: ${zipFile}`);
-        } catch (error) {
-          console.warn(`Failed to extract ${zipFile}:`, error);
+          // Get all parts for this base name and sort them (like Docker: sort -V)
+          const parts = files
+            .filter(file => file.startsWith(`${baseName}.zip.`))
+            .sort((a, b) => {
+              const aNum = parseInt(a.split('.').pop());
+              const bNum = parseInt(b.split('.').pop());
+              return aNum - bNum;
+            });
+
+          if (parts.length > 0) {
+            const outputZip = path.join(PATHS.voskModelsDir, `${baseName}.zip`);
+            
+            // Concatenate parts using cat (like Docker: cat $parts > "${base_name}.zip")
+            const writeStream = fs.createWriteStream(outputZip);
+            
+            for (const part of parts) {
+              const partPath = path.join(PATHS.voskModelsDir, part);
+              const data = fs.readFileSync(partPath);
+              writeStream.write(data);
+            }
+            writeStream.end();
+            
+            console.log(`📦 Created: ${baseName}.zip`);
+          }
         }
       }
 
-      console.log('Vosk models extraction completed');
+      // Step 2: Extract all zip files (both original and newly concatenated)
+      const allFiles = fs.readdirSync(PATHS.voskModelsDir);
+      
+      for (const zipfile of allFiles) {
+        if (zipfile.endsWith('.zip')) {
+          // Skip split file parts (like Docker case statement)
+          if (zipfile.match(/\.zip\.\d+$/)) {
+            continue;
+          }
+          
+          const zipPath = path.join(PATHS.voskModelsDir, zipfile);
+          
+          try {
+            console.log(`📦 Extracting: ${zipfile}`);
+            // Extract to models directory (like Docker: unzip -o -q "$zipfile" -d /app/vosk-server/models)
+            await extractZip(zipPath, { dir: PATHS.voskModelsDir });
+            console.log(`✅ Successfully extracted: ${zipfile}`);
+          } catch (error) {
+            console.warn(`❌ Failed to extract ${zipfile}:`, error);
+          }
+        }
+      }
+
+      // Step 3: Clean up - remove all zip files (split parts and complete zips)
+      console.log('📦 Cleaning up zip files...');
+      const finalFiles = fs.readdirSync(PATHS.voskModelsDir);
+      
+      for (const file of finalFiles) {
+        if (file.endsWith('.zip') || file.match(/\.zip\.\d+$/)) {
+          try {
+            fs.unlinkSync(path.join(PATHS.voskModelsDir, file));
+          } catch (error) {
+            console.warn(`Failed to remove ${file}:`, error);
+          }
+        }
+      }
+
+      console.log('✅ Vosk models extraction completed');
       resolve();
     } catch (error) {
-      console.error('Error extracting Vosk models:', error);
+      console.error('❌ Error extracting Vosk models:', error);
       reject(error);
     }
   });
