@@ -292,8 +292,12 @@ export class VoskRecognitionService {
       this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
 
       try {
-        // Load the AudioWorklet processor
-        await this.audioContext.audioWorklet.addModule('/vosk-audio-processor.js');
+        // Load the AudioWorklet processor with proper path handling for Electron
+        const processorPath = window.location.protocol === 'file:' 
+          ? './vosk-audio-processor.js'  // For Electron (file:// protocol)
+          : '/vosk-audio-processor.js';   // For web browser
+        
+        await this.audioContext.audioWorklet.addModule(processorPath);
         
         this.processor = new AudioWorkletNode(this.audioContext, 'vosk-audio-processor');
 
