@@ -665,3 +665,45 @@ ipcMain.handle('delete-vosk-model', (event, modelName) => {
     return { success: false, error: error.message };
   }
 });
+
+ipcMain.handle('extract-vosk-model', async (event, modelName) => {
+  try {
+    const zipPath = path.join(PATHS.voskModelsDir, modelName);
+    
+    if (!fs.existsSync(zipPath)) {
+      return { success: false, error: 'ZIP file not found' };
+    }
+    
+    if (!modelName.endsWith('.zip')) {
+      return { success: false, error: 'File is not a ZIP archive' };
+    }
+    
+    console.log(`Extracting Vosk model: ${modelName}`);
+    
+    // Extract ZIP file to models directory
+    await extractZip(zipPath, { dir: PATHS.voskModelsDir });
+    
+    console.log(`Successfully extracted: ${modelName}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error extracting Vosk model:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('copy-file-to-models', async (event, fileName, fileData) => {
+  try {
+    const filePath = path.join(PATHS.voskModelsDir, fileName);
+    
+    console.log(`Copying file to models directory: ${fileName}`);
+    
+    // Write the file data to the models directory
+    fs.writeFileSync(filePath, Buffer.from(fileData));
+    
+    console.log(`Successfully copied: ${fileName}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error copying file to models:', error);
+    return { success: false, error: error.message };
+  }
+});

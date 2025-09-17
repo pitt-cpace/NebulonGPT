@@ -38,6 +38,7 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { VoskRecognitionService } from '../services/vosk';
+import { electronApi, isElectron } from '../services/electronApi';
 
 interface VoskModel {
   name: string;
@@ -78,11 +79,17 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
     setLoading(true);
     setError(null);
     try {
-      // Always use the Node.js API endpoint that shows ALL files (not just Vosk models)
-      // This gives us complete visibility into the models directory
-      const response = await axios.get(`${API_BASE}/api/vosk/models/all`);
-      setModels(response.data.models);
-      setUsingVoskServer(false);
+      if (isElectron()) {
+        // Use Electron API
+        const response = await electronApi.getVoskModels();
+        setModels(response.models);
+        setUsingVoskServer(false);
+      } else {
+        // Use HTTP API for web/Docker version
+        const response = await axios.get(`${API_BASE}/api/vosk/models/all`);
+        setModels(response.data.models);
+        setUsingVoskServer(false);
+      }
     } catch (error) {
       console.error('Error loading models:', error);
       setError('Error loading models list');
@@ -120,56 +127,103 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
     const errors: string[] = [];
 
     try {
-      // Upload files sequentially to avoid overwhelming the server
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        setCurrentUploadFile(file.name);
-        const formData = new FormData();
-        formData.append('model', file);
+      if (isElectron()) {
+        // In Electron mode: copy files to models directory and extract them
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          setCurrentUploadFile(file.name);
 
-        try {
-          console.log(`Uploading file ${i + 1}/${totalFiles}: ${file.name}`);
-          
-          const response = await axios.post(`${API_BASE}/api/vosk/models/upload`, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
-            onUploadProgress: ((currentCompleted) => (progressEvent) => {
-              if (progressEvent.total) {
-                const fileProgress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                const overallProgress = Math.round(((currentCompleted + (fileProgress / 100)) / totalFiles) * 100);
-                setUploadProgress(overallProgress);
-              }
-            })(completedFiles),
-          });
+          try {
+            console.log(`Processing file ${i + 1}/${totalFiles}: ${file.name}`);
+            
+            // Simulate progress for file processing
+            setUploadProgress(Math.round(((i + 0.5) / totalFiles) * 100));
+            
+            // Read file as ArrayBuffer
+            const arrayBuffer = await file.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+            
+            // Use Electron API to copy file to models directory
+            // Note: We'll need to add this IPC handler
+            const copyResult = await electronApi.copyFileToModels(file.name, uint8Array);
+            if (!copyResult.success) {
+              throw new Error(copyResult.error || 'Failed to copy file');
+            }
+            
+            // Extract the copied file
+            const extractResult = await electronApi.extractVoskModel(file.name);
+            if (!extractResult.success) {
+              throw new Error(extractResult.error || 'Failed to extract file');
+            }
 
-          results.push(`✅ ${file.name}: ${response.data.message}`);
-          completedFiles++;
-          
-          // Update progress for completed file
-          setUploadProgress(Math.round((completedFiles / totalFiles) * 100));
-          
-        } catch (fileError: any) {
-          console.error(`Error uploading ${file.name}:`, fileError);
-          errors.push(`❌ ${file.name}: ${fileError.response?.data?.error || 'Upload failed'}`);
-          completedFiles++;
+            results.push(`✅ ${file.name}: Copied and extracted successfully`);
+            completedFiles++;
+            
+            // Update progress for completed file
+            setUploadProgress(Math.round((completedFiles / totalFiles) * 100));
+            
+          } catch (fileError: any) {
+            console.error(`Error processing ${file.name}:`, fileError);
+            errors.push(`❌ ${file.name}: ${fileError.message || 'Processing failed'}`);
+            completedFiles++;
+          }
+        }
+      } else {
+        // Web/Docker mode: upload files to server
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          setCurrentUploadFile(file.name);
+          const formData = new FormData();
+          formData.append('model', file);
+
+          try {
+            console.log(`Uploading file ${i + 1}/${totalFiles}: ${file.name}`);
+            
+            const response = await axios.post(`${API_BASE}/api/vosk/models/upload`, formData, {
+              headers: {
+                'Content-Type': 'multipart/form-data',
+              },
+              onUploadProgress: ((currentCompleted) => (progressEvent) => {
+                if (progressEvent.total) {
+                  const fileProgress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                  const overallProgress = Math.round(((currentCompleted + (fileProgress / 100)) / totalFiles) * 100);
+                  setUploadProgress(overallProgress);
+                }
+              })(completedFiles),
+            });
+
+            results.push(`✅ ${file.name}: ${response.data.message}`);
+            completedFiles++;
+            
+            // Update progress for completed file
+            setUploadProgress(Math.round((completedFiles / totalFiles) * 100));
+            
+          } catch (fileError: any) {
+            console.error(`Error uploading ${file.name}:`, fileError);
+            errors.push(`❌ ${file.name}: ${fileError.response?.data?.error || 'Upload failed'}`);
+            completedFiles++;
+          }
         }
       }
 
       // Show results
       if (results.length > 0 && errors.length === 0) {
-        setSuccess(`All ${totalFiles} models uploaded successfully:\n${results.join('\n')}`);
+        const action = isElectron() ? 'processed' : 'uploaded';
+        setSuccess(`All ${totalFiles} models ${action} successfully:\n${results.join('\n')}`);
       } else if (results.length > 0 && errors.length > 0) {
-        setSuccess(`${results.length}/${totalFiles} models uploaded successfully:\n${results.join('\n')}`);
-        setError(`${errors.length} uploads failed:\n${errors.join('\n')}`);
+        const action = isElectron() ? 'processed' : 'uploaded';
+        setSuccess(`${results.length}/${totalFiles} models ${action} successfully:\n${results.join('\n')}`);
+        setError(`${errors.length} ${action.replace('ed', 'ing')} failed:\n${errors.join('\n')}`);
       } else {
-        setError(`All uploads failed:\n${errors.join('\n')}`);
+        const action = isElectron() ? 'processing' : 'uploads';
+        setError(`All ${action} failed:\n${errors.join('\n')}`);
       }
 
       loadModels();
     } catch (error: any) {
-      console.error('Error during batch upload:', error);
-      setError('Batch upload failed');
+      console.error('Error during batch operation:', error);
+      const action = isElectron() ? 'processing' : 'upload';
+      setError(`Batch ${action} failed`);
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -186,8 +240,19 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
 
     setError(null);
     try {
-      await axios.delete(`${API_BASE}/api/vosk/models/${encodeURIComponent(modelName)}`);
-      setSuccess('Model deleted successfully');
+      if (isElectron()) {
+        // Use Electron API
+        const result = await electronApi.deleteVoskModel(modelName);
+        if (result.success) {
+          setSuccess('Model deleted successfully');
+        } else {
+          setError(result.error || 'Error deleting model');
+        }
+      } else {
+        // Use HTTP API for web/Docker version
+        await axios.delete(`${API_BASE}/api/vosk/models/${encodeURIComponent(modelName)}`);
+        setSuccess('Model deleted successfully');
+      }
       loadModels();
     } catch (error: any) {
       console.error('Error deleting model:', error);
@@ -213,7 +278,16 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
         });
       }, 200);
 
-      await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(modelName)}/extract`);
+      if (isElectron()) {
+        // Use Electron API
+        const result = await electronApi.extractVoskModel(modelName);
+        if (!result.success) {
+          throw new Error(result.error || 'Extract failed');
+        }
+      } else {
+        // Use HTTP API for web/Docker version
+        await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(modelName)}/extract`);
+      }
       
       // Complete the progress
       clearInterval(progressInterval);
@@ -233,7 +307,7 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
       setExtracting(false);
       setExtractProgress(0);
       setCurrentExtractFile('');
-      setError(error.response?.data?.error || 'Error extracting model');
+      setError(error.response?.data?.error || error.message || 'Error extracting model');
     }
   };
 
@@ -533,86 +607,175 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
         {/* Upload Section */}
         <Card sx={{ mb: 3 }}>
           <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Upload New Model
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Select one or more Vosk model ZIP files. You can download models from{' '}
-              <a 
-                href="https://alphacephei.com/vosk/models" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                style={{ 
-                  color: '#90caf9',
-                  textDecoration: 'underline',
-                  fontWeight: 'bold'
-                }}
-              >
-                alphacephei.com/vosk/models
-              </a>
-              <br />
-              <strong>Note:</strong> If a model already exists, it will be automatically overwritten.
-            </Typography>
-            
-            <Box display="flex" alignItems="center" gap={2}>
-              <FormControl>
-                <input
-                  type="file"
-                  accept=".zip"
-                  multiple
-                  onChange={handleFileUpload}
-                  disabled={uploading}
-                  style={{ display: 'none' }}
-                  id="model-upload-input"
-                />
-                <label htmlFor="model-upload-input">
-                  <Button
-                    variant="contained"
-                    component="span"
-                    startIcon={<UploadIcon />}
-                    disabled={uploading}
+            {isElectron() ? (
+              <>
+                <Typography variant="h6" gutterBottom>
+                  Model Management (Electron Mode)
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  In Electron mode, models are automatically extracted from bundled resources on startup.
+                  <br />
+                  You can also select ZIP files from your computer to add and extract new models.
+                  Download models from{' '}
+                  <a 
+                    href="https://alphacephei.com/vosk/models" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ 
+                      color: '#90caf9',
+                      textDecoration: 'underline',
+                      fontWeight: 'bold'
+                    }}
                   >
-                    Select ZIP Files
+                    alphacephei.com/vosk/models
+                  </a>
+                </Typography>
+                
+                <Box display="flex" alignItems="center" gap={2}>
+                  <FormControl>
+                    <input
+                      type="file"
+                      accept=".zip"
+                      multiple
+                      onChange={handleFileUpload}
+                      disabled={uploading}
+                      style={{ display: 'none' }}
+                      id="model-upload-input"
+                    />
+                    <label htmlFor="model-upload-input">
+                      <Button
+                        variant="contained"
+                        component="span"
+                        startIcon={<UploadIcon />}
+                        disabled={uploading}
+                      >
+                        Select ZIP Files
+                      </Button>
+                    </label>
+                  </FormControl>
+                  
+                  <Button
+                    variant="outlined"
+                    startIcon={<RefreshIcon />}
+                    onClick={loadModels}
+                    disabled={loading || uploading}
+                  >
+                    Refresh
                   </Button>
-                </label>
-              </FormControl>
-              
-              <Button
-                variant="outlined"
-                startIcon={<RefreshIcon />}
-                onClick={loadModels}
-                disabled={loading || uploading}
-              >
-                Refresh
-              </Button>
-            </Box>
-            
-            {uploading && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  Uploading... {uploadProgress}%
-                </Typography>
-                {currentUploadFile && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
-                    Current file: {currentUploadFile}
-                  </Typography>
+                </Box>
+                
+                {uploading && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Processing... {uploadProgress}%
+                    </Typography>
+                    {currentUploadFile && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                        Current file: {currentUploadFile}
+                      </Typography>
+                    )}
+                    <LinearProgress variant="determinate" value={uploadProgress} sx={{ mt: 1 }} />
+                  </Box>
                 )}
-                <LinearProgress variant="determinate" value={uploadProgress} sx={{ mt: 1 }} />
-              </Box>
-            )}
 
-            {extracting && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="body2" color="text.secondary">
-                  Extracting... {extractProgress}%
-                </Typography>
-                {currentExtractFile && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
-                    Current file: {currentExtractFile}
-                  </Typography>
+                {extracting && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Extracting... {extractProgress}%
+                    </Typography>
+                    {currentExtractFile && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                        Current file: {currentExtractFile}
+                      </Typography>
+                    )}
+                    <LinearProgress variant="determinate" value={extractProgress} sx={{ mt: 1 }} />
+                  </Box>
                 )}
-                <LinearProgress variant="determinate" value={extractProgress} sx={{ mt: 1 }} />
-              </Box>
+              </>
+            ) : (
+              <>
+                <Typography variant="h6" gutterBottom>
+                  Upload New Model
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Select one or more Vosk model ZIP files. You can download models from{' '}
+                  <a 
+                    href="https://alphacephei.com/vosk/models" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{ 
+                      color: '#90caf9',
+                      textDecoration: 'underline',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    alphacephei.com/vosk/models
+                  </a>
+                  <br />
+                  <strong>Note:</strong> If a model already exists, it will be automatically overwritten.
+                </Typography>
+                
+                <Box display="flex" alignItems="center" gap={2}>
+                  <FormControl>
+                    <input
+                      type="file"
+                      accept=".zip"
+                      multiple
+                      onChange={handleFileUpload}
+                      disabled={uploading}
+                      style={{ display: 'none' }}
+                      id="model-upload-input"
+                    />
+                    <label htmlFor="model-upload-input">
+                      <Button
+                        variant="contained"
+                        component="span"
+                        startIcon={<UploadIcon />}
+                        disabled={uploading}
+                      >
+                        Select ZIP Files
+                      </Button>
+                    </label>
+                  </FormControl>
+                  
+                  <Button
+                    variant="outlined"
+                    startIcon={<RefreshIcon />}
+                    onClick={loadModels}
+                    disabled={loading || uploading}
+                  >
+                    Refresh
+                  </Button>
+                </Box>
+                
+                {uploading && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Uploading... {uploadProgress}%
+                    </Typography>
+                    {currentUploadFile && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                        Current file: {currentUploadFile}
+                      </Typography>
+                    )}
+                    <LinearProgress variant="determinate" value={uploadProgress} sx={{ mt: 1 }} />
+                  </Box>
+                )}
+
+                {extracting && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Extracting... {extractProgress}%
+                    </Typography>
+                    {currentExtractFile && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                        Current file: {currentExtractFile}
+                      </Typography>
+                    )}
+                    <LinearProgress variant="determinate" value={extractProgress} sx={{ mt: 1 }} />
+                  </Box>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

@@ -7,6 +7,8 @@ declare global {
       saveAllChats: (chats: any[]) => Promise<{ success: boolean }>;
       getVoskModels: () => Promise<{ models: any[] }>;
       deleteVoskModel: (modelName: string) => Promise<{ success: boolean; error?: string }>;
+      extractVoskModel: (modelName: string) => Promise<{ success: boolean; error?: string }>;
+      copyFileToModels: (fileName: string, fileData: Uint8Array) => Promise<{ success: boolean; error?: string }>;
       showSaveDialog: () => Promise<any>;
       showOpenDialog: () => Promise<any>;
       getAppVersion: () => Promise<string>;
@@ -103,6 +105,31 @@ export const electronApi = {
     }
     
     return { success: true };
+  },
+
+  async extractVoskModel(modelName: string): Promise<{ success: boolean; error?: string }> {
+    if (isElectron() && window.electronAPI) {
+      return await window.electronAPI.extractVoskModel(modelName);
+    }
+    // Fallback to HTTP API for web/Docker version
+    const response = await fetch(`/api/vosk/models/${encodeURIComponent(modelName)}/extract`, {
+      method: 'POST',
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      return { success: false, error: errorData.error || 'Failed to extract model' };
+    }
+    
+    return { success: true };
+  },
+
+  async copyFileToModels(fileName: string, fileData: Uint8Array): Promise<{ success: boolean; error?: string }> {
+    if (isElectron() && window.electronAPI) {
+      return await window.electronAPI.copyFileToModels(fileName, fileData);
+    }
+    // Not supported in web/Docker version
+    return { success: false, error: 'File copying not supported in web version' };
   },
 
   // File dialogs (Electron only)

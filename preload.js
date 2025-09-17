@@ -17,7 +17,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Vosk models management
   getVoskModels: () => ipcRenderer.invoke('get-vosk-models'),
-  deleteVoskModel: (modelName) => ipcRenderer.invoke('delete-vosk-model', modelName),
+    deleteVoskModel: (modelName) => ipcRenderer.invoke('delete-vosk-model', modelName),
+    extractVoskModel: (modelName) => ipcRenderer.invoke('extract-vosk-model', modelName),
+    copyFileToModels: (fileName, fileData) => ipcRenderer.invoke('copy-file-to-models', fileName, fileData),
   
   // Platform detection
   platform: process.platform,
