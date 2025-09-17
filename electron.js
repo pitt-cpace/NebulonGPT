@@ -84,18 +84,87 @@ async function extractBundledResources() {
   console.log('📦 Extracting bundled resources on startup...');
   
   try {
-    // Extract Kokoro TTS cache from bundled split files (only if not exists)
-    const kokoroModelsDir = getResourcePath('Kokoro-TTS-Server');
-    if (fs.existsSync(kokoroModelsDir)) {
-      // Check if cache already exists to avoid re-extracting large files
-      const cacheExists = fs.existsSync(PATHS.hfCacheDir) && 
-                         fs.readdirSync(PATHS.hfCacheDir).length > 0;
+    // Extract Kokoro TTS cache from bundled files with size-based verification (like Vosk)
+    const kokoroModelsSource = getResourcePath('models/kokoro');
+    if (fs.existsSync(kokoroModelsSource)) {
+      const ttsChecksumFile = path.join(PATHS.dataDir, '.huggingface-cache-checksum');
       
-      if (!cacheExists) {
+      let needsTTSExtraction = false;
+      
+      // Step 1: Check if huggingface-cache directory exists
+      if (!fs.existsSync(PATHS.hfCacheDir)) {
+        console.log('📦 HuggingFace cache directory not found, extracting...');
+        needsTTSExtraction = true;
+      }
+      // Step 2: Check if checksum file exists
+      else if (!fs.existsSync(ttsChecksumFile)) {
+        console.log('📦 No HuggingFace cache checksum file found, extracting...');
+        needsTTSExtraction = true;
+      }
+      // Step 3: Compare current cache size with saved size
+      else {
+        try {
+          const currentCacheSize = await calculateDirectorySize(PATHS.hfCacheDir);
+          const savedCacheSize = fs.readFileSync(ttsChecksumFile, 'utf8').trim();
+          
+          if (savedCacheSize === currentCacheSize.toString()) {
+            console.log('✅ HuggingFace cache size unchanged, skipping extraction');
+            needsTTSExtraction = false;
+          } else {
+            console.log(`📦 HuggingFace cache size changed (${savedCacheSize} -> ${currentCacheSize}), extracting...`);
+            needsTTSExtraction = true;
+          }
+        } catch (error) {
+          console.log('📦 Could not read cache checksum file, extracting...');
+          needsTTSExtraction = true;
+        }
+      }
+
+      if (needsTTSExtraction) {
         console.log('📦 Extracting Kokoro TTS cache...');
-        await extractKokoroCache(kokoroModelsDir);
+        await extractKokoroCache(kokoroModelsSource);
+        
+        // After successful extraction, calculate and save the cache size
+        const finalCacheSize = await calculateDirectorySize(PATHS.hfCacheDir);
+        fs.writeFileSync(ttsChecksumFile, finalCacheSize.toString());
+        console.log(`✅ Kokoro TTS extraction completed. Cache size: ${finalCacheSize} bytes`);
+      }
+      
+      // Ensure datasets directory exists (required by TTS server environment variables)
+      const datasetsDir = path.join(PATHS.hfCacheDir, 'datasets');
+      if (!fs.existsSync(datasetsDir)) {
+        fs.mkdirSync(datasetsDir, { recursive: true });
+        console.log('📦 Created datasets directory for TTS server');
+      }
+    } else {
+      console.log('📦 Kokoro TTS source not found at:', kokoroModelsSource);
+      // Try alternative path for development
+      const devKokoroSource = getResourcePath('Kokoro-TTS-Server');
+      if (fs.existsSync(devKokoroSource)) {
+        console.log('📦 Found Kokoro TTS at dev path, extracting...');
+        await extractKokoroCache(devKokoroSource);
+        
+        // After successful extraction, calculate and save the cache size
+        const finalCacheSize = await calculateDirectorySize(PATHS.hfCacheDir);
+        const ttsChecksumFile = path.join(PATHS.dataDir, '.huggingface-cache-checksum');
+        fs.writeFileSync(ttsChecksumFile, finalCacheSize.toString());
+        console.log(`✅ Kokoro TTS extraction completed. Cache size: ${finalCacheSize} bytes`);
+        
+        // Ensure datasets directory exists (required by TTS server environment variables)
+        const datasetsDir = path.join(PATHS.hfCacheDir, 'datasets');
+        if (!fs.existsSync(datasetsDir)) {
+          fs.mkdirSync(datasetsDir, { recursive: true });
+          console.log('📦 Created datasets directory for TTS server');
+        }
       } else {
-        console.log('✅ Kokoro TTS cache already exists, skipping extraction');
+        console.log('📦 No Kokoro TTS found at either path');
+        
+        // Even if no TTS cache is found, ensure datasets directory exists
+        const datasetsDir = path.join(PATHS.hfCacheDir, 'datasets');
+        if (!fs.existsSync(datasetsDir)) {
+          fs.mkdirSync(datasetsDir, { recursive: true });
+          console.log('📦 Created datasets directory for TTS server (no cache found)');
+        }
       }
     }
 
@@ -195,25 +264,38 @@ async function extractVoskModels(voskModelsSource) {
         return;
       }
 
-      // Check if we need to extract by comparing bundled models size
+      // Check if we need to extract with size-based verification (like TTS)
       const checksumFile = path.join(PATHS.dataDir, '.vosk-models-checksum');
-      const currentBundledSize = await calculateDirectorySize(voskModelsSource);
       
-      let needsExtraction = true;
-      if (fs.existsSync(checksumFile)) {
+      let needsExtraction = false;
+      
+      // Step 1: Check if vosk-models directory exists and has content
+      if (!fs.existsSync(PATHS.voskModelsDir) || fs.readdirSync(PATHS.voskModelsDir).length === 0) {
+        console.log('📦 Vosk models directory not found or empty, extracting...');
+        needsExtraction = true;
+      }
+      // Step 2: Check if checksum file exists
+      else if (!fs.existsSync(checksumFile)) {
+        console.log('📦 No Vosk models checksum file found, extracting...');
+        needsExtraction = true;
+      }
+      // Step 3: Compare current extracted models size with saved size
+      else {
         try {
+          const currentExtractedSize = await calculateDirectorySize(PATHS.voskModelsDir);
           const savedSize = fs.readFileSync(checksumFile, 'utf8').trim();
-          if (savedSize === currentBundledSize.toString()) {
+          
+          if (savedSize === currentExtractedSize.toString()) {
             console.log('✅ Vosk models size unchanged, skipping extraction');
             needsExtraction = false;
           } else {
-            console.log(`📦 Vosk models size changed (${savedSize} -> ${currentBundledSize}), extracting...`);
+            console.log(`📦 Vosk models size changed (${savedSize} -> ${currentExtractedSize}), extracting...`);
+            needsExtraction = true;
           }
         } catch (error) {
-          console.log('📦 Could not read size file, extracting...');
+          console.log('📦 Could not read Vosk checksum file, extracting...');
+          needsExtraction = true;
         }
-      } else {
-        console.log('📦 No size file found, extracting...');
       }
 
       if (!needsExtraction) {
@@ -311,8 +393,8 @@ async function extractVoskModels(voskModelsSource) {
 
       // Step 4: Calculate final vosk-models folder size and save it
       const finalVoskModelsSize = await calculateDirectorySize(PATHS.voskModelsDir);
-      fs.writeFileSync(checksumFile, currentBundledSize.toString());
-      console.log(`✅ Vosk models extraction completed. Bundled size: ${currentBundledSize} bytes, Final size: ${finalVoskModelsSize} bytes`);
+      fs.writeFileSync(checksumFile, finalVoskModelsSize.toString());
+      console.log(`✅ Vosk models extraction completed. Final size: ${finalVoskModelsSize} bytes`);
       resolve();
     } catch (error) {
       console.error('❌ Error extracting Vosk models:', error);
@@ -523,7 +605,7 @@ function createWindow() {
     mainWindow.show();
     
     // Keep DevTools enabled for debugging as requested
-    mainWindow.webContents.openDevTools();
+    // mainWindow.webContents.openDevTools();
   });
 
   // Add debugging for load failures
