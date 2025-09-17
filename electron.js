@@ -183,7 +183,7 @@ async function extractKokoroCache(kokoroModelsDir) {
   });
 }
 
-// Extract Vosk models from bundled files (following Docker start-services.sh exactly)
+// Extract Vosk models from bundled files with size-based verification
 async function extractVoskModels(voskModelsSource) {
   return new Promise(async (resolve, reject) => {
     try {
@@ -194,6 +194,35 @@ async function extractVoskModels(voskModelsSource) {
         resolve();
         return;
       }
+
+      // Check if we need to extract by comparing bundled models size
+      const checksumFile = path.join(PATHS.dataDir, '.vosk-models-checksum');
+      const currentBundledSize = await calculateDirectorySize(voskModelsSource);
+      
+      let needsExtraction = true;
+      if (fs.existsSync(checksumFile)) {
+        try {
+          const savedSize = fs.readFileSync(checksumFile, 'utf8').trim();
+          if (savedSize === currentBundledSize.toString()) {
+            console.log('✅ Vosk models size unchanged, skipping extraction');
+            needsExtraction = false;
+          } else {
+            console.log(`📦 Vosk models size changed (${savedSize} -> ${currentBundledSize}), extracting...`);
+          }
+        } catch (error) {
+          console.log('📦 Could not read size file, extracting...');
+        }
+      } else {
+        console.log('📦 No size file found, extracting...');
+      }
+
+      if (!needsExtraction) {
+        resolve();
+        return;
+      }
+
+      // Clear existing extracted models (but keep user-added ones)
+      await cleanupExtractedModels();
 
       // Copy all files from source to destination first
       await new Promise((resolveCopy, rejectCopy) => {
@@ -280,13 +309,75 @@ async function extractVoskModels(voskModelsSource) {
         }
       }
 
-      console.log('✅ Vosk models extraction completed');
+      // Step 4: Calculate final vosk-models folder size and save it
+      const finalVoskModelsSize = await calculateDirectorySize(PATHS.voskModelsDir);
+      fs.writeFileSync(checksumFile, currentBundledSize.toString());
+      console.log(`✅ Vosk models extraction completed. Bundled size: ${currentBundledSize} bytes, Final size: ${finalVoskModelsSize} bytes`);
       resolve();
     } catch (error) {
       console.error('❌ Error extracting Vosk models:', error);
       reject(error);
     }
   });
+}
+
+// Calculate total size of a directory (recursive)
+async function calculateDirectorySize(dirPath) {
+  let totalSize = 0;
+  
+  function addDirectorySize(currentPath) {
+    const items = fs.readdirSync(currentPath);
+    for (const item of items) {
+      const itemPath = path.join(currentPath, item);
+      const stats = fs.statSync(itemPath);
+      
+      if (stats.isDirectory()) {
+        addDirectorySize(itemPath);
+      } else {
+        totalSize += stats.size;
+      }
+    }
+  }
+  
+  if (fs.existsSync(dirPath)) {
+    addDirectorySize(dirPath);
+  }
+  
+  return totalSize;
+}
+
+// Clean up previously extracted models (but preserve user-added ones)
+async function cleanupExtractedModels() {
+  if (!fs.existsSync(PATHS.voskModelsDir)) {
+    return;
+  }
+  
+  const items = fs.readdirSync(PATHS.voskModelsDir);
+  const systemFiles = [
+    '.DS_Store', '._.DS_Store', 'Thumbs.db', 'desktop.ini', 
+    '.directory', '.localized', '.placeholder', '.gitkeep', 
+    '.gitignore'
+  ];
+  
+  for (const item of items) {
+    // Skip system files
+    if (systemFiles.includes(item) || item.startsWith('._')) {
+      continue;
+    }
+    
+    const itemPath = path.join(PATHS.voskModelsDir, item);
+    const stats = fs.statSync(itemPath);
+    
+    // Only remove directories that look like extracted Vosk models
+    if (stats.isDirectory() && item.startsWith('vosk-model-')) {
+      try {
+        console.log(`📦 Removing old extracted model: ${item}`);
+        fs.rmSync(itemPath, { recursive: true, force: true });
+      } catch (error) {
+        console.warn(`Failed to remove ${item}:`, error);
+      }
+    }
+  }
 }
 
 // Start the Vosk server
