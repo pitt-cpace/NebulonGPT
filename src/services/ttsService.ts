@@ -3,6 +3,7 @@ import {
   isLanguageSupportedByKokoro, 
   getUnsupportedLanguageMessage 
 } from './languageMapping';
+import { getWebSocketUrls } from './electronApi';
 
 export interface TTSSettings {
   fullVoiceMode: boolean;
@@ -59,10 +60,13 @@ export class TTSService {
 
 
   constructor(serverUrl?: string) {
-    // Use environment variable if available, otherwise detect current port dynamically
-    this.serverUrl = serverUrl || 
-      process.env.REACT_APP_TTS_SERVER_URL || 
-      this.getDefaultTTSUrl();
+    // Use environment-aware WebSocket URL detection
+    if (serverUrl) {
+      this.serverUrl = serverUrl;
+    } else {
+      const { tts } = getWebSocketUrls();
+      this.serverUrl = tts;
+    }
     
     // Load settings from localStorage
     this.loadSettings();

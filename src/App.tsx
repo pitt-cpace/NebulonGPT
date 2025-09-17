@@ -11,6 +11,7 @@ import { voskRecognition } from './services/vosk';
 import { ttsService } from './services/ttsService';
 import { generateChatTitle } from './services/titleGenerator';
 import { checkOllamaStatus, OllamaStatus } from './services/ollamaStatus';
+import { electronApi } from './services/electronApi';
 
 // Global current message ID - immediately accessible everywhere
 let currentMsgId: string | null = null;
@@ -101,51 +102,27 @@ const App: React.FC = () => {
   // Function to save a specific chat by ID to the server
   const saveChatToServer = useCallback(async (chat: ChatType) => {
     try {
-      const response = await fetch(`${getChatApiUrl()}/${chat.id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(chat),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      await electronApi.saveChat(chat.id, chat);
     } catch (error) {
       console.error(`Failed to save chat ${chat.id} to server:`, error);
     }
-  }, [getChatApiUrl]);
+  }, []);
 
   // Legacy function to save all chats (for bulk operations like deletions)
   const saveChatsToServer = useCallback(async (chatsToSave: ChatType[]) => {
     try {
-      const response = await fetch(getChatApiUrl(), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(chatsToSave),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      await electronApi.saveAllChats(chatsToSave);
     } catch (error) {
       console.error('Failed to save chats to server:', error);
     }
-  }, [getChatApiUrl]);
+  }, []);
 
   // Function to load chats from the server with pagination
   const loadChatsFromServer = useCallback(async (page: number = 0, limit: number = 50): Promise<{ chats: ChatType[], hasMore: boolean }> => {
     try {
-      const response = await fetch(`${getChatApiUrl()}?page=${page}&limit=${limit}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await electronApi.getChats();
       
-      // If the server doesn't support pagination, return all chats
+      // Handle pagination for the loaded data
       if (Array.isArray(data)) {
         const startIndex = page * limit;
         const endIndex = startIndex + limit;
@@ -156,16 +133,12 @@ const App: React.FC = () => {
         };
       }
       
-      // If server supports pagination, use the response structure
-      return {
-        chats: data.chats || data,
-        hasMore: data.hasMore || false
-      };
+      return { chats: [], hasMore: false };
     } catch (error) {
       console.error('Failed to load chats from server:', error);
       return { chats: [], hasMore: false };
     }
-  }, [getChatApiUrl]);
+  }, []);
 
   // Function to load more chats (lazy loading)
   const handleLoadMoreChats = useCallback(async () => {

@@ -193,7 +193,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 BY
               </Typography>
               <Box component="img" 
-                src="/cpace-logo.png" 
+                src="./cpace-logo.png" 
                 alt="CPACE Logo" 
                 sx={styles.cpaceLogo} 
               />

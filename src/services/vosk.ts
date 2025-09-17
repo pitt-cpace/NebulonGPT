@@ -1,5 +1,6 @@
 // Vosk Speech Recognition Service
 import { ttsService } from './ttsService';
+import { getWebSocketUrls } from './electronApi';
 
 export interface VoskResult {
   text?: string;
@@ -80,8 +81,8 @@ export class VoskRecognitionService {
   private async initializeWebSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        // Use environment variable for Docker or detect current port dynamically
-        const voskServerUrl = (window as any).REACT_APP_VOSK_SERVER_URL || this.getDefaultVoskUrl();
+        // Use environment-aware WebSocket URL detection
+        const { vosk: voskServerUrl } = getWebSocketUrls();
         this.socket = new WebSocket(voskServerUrl);
         
         this.socket.onopen = () => {

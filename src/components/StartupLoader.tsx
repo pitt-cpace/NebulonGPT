@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, LinearProgress, Fade } from '@mui/material';
+import { getWebSocketUrls } from '../services/electronApi';
 
 interface StartupProgress {
   step: string;
@@ -60,10 +61,10 @@ const StartupLoader: React.FC<StartupLoaderProps> = ({ onComplete }) => {
 
     const connectToVosk = () => {
       try {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/vosk`;
+        const { vosk } = getWebSocketUrls();
+        console.log('🎤 Connecting to Vosk at:', vosk);
         
-        voskWs = new WebSocket(wsUrl);
+        voskWs = new WebSocket(vosk);
         
         voskWs.onopen = () => {
           console.log('🎤 Vosk WebSocket connected');
@@ -94,10 +95,10 @@ const StartupLoader: React.FC<StartupLoaderProps> = ({ onComplete }) => {
 
     const connectToKokoro = () => {
       try {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/tts`;
+        const { tts } = getWebSocketUrls();
+        console.log('🔊 Connecting to Kokoro at:', tts);
         
-        kokoroWs = new WebSocket(wsUrl);
+        kokoroWs = new WebSocket(tts);
         
         kokoroWs.onopen = () => {
           console.log('🔊 Kokoro WebSocket connected');

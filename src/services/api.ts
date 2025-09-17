@@ -1,14 +1,16 @@
 import axios from 'axios';
 import { ModelType, MessageType } from '../types';
 import { ttsService } from './ttsService';
+import { isElectron } from './electronApi';
 
 // Configure axios with base URL
-// In development, we use the direct URL
-// In production (Docker), we use the relative path which will be proxied by Nginx
-const isProduction = process.env.NODE_ENV === 'production';
-const baseURL = isProduction 
-  ? '/api/ollama' // This will be proxied by Nginx to the Ollama API
-  : (process.env.REACT_APP_OLLAMA_API_URL || 'http://localhost:11434/api');
+// In Electron, connect directly to Ollama
+// In Docker/web, use the proxied path
+const baseURL = isElectron() 
+  ? 'http://localhost:11434/api' // Direct connection to Ollama in Electron
+  : (process.env.NODE_ENV === 'production' 
+    ? '/api/ollama' // Proxied by Nginx in Docker
+    : (process.env.REACT_APP_OLLAMA_API_URL || 'http://localhost:11434/api')); // Development
 
 const api = axios.create({
   baseURL,
@@ -20,8 +22,7 @@ const api = axios.create({
 // Fetch available models
 export const fetchModels = async (): Promise<ModelType[]> => {
   try {
-    // In development mode, we need to be careful not to duplicate the '/api' path
-    const endpoint = isProduction ? '/tags' : '/tags';
+    const endpoint = '/tags';
     const response = await api.get(endpoint);
     
     if (response.data && response.data.models) {
@@ -134,8 +135,7 @@ export const sendMessage = async (
     }
   
     
-// In development mode, we need to be careful not to duplicate the '/api' path
-const endpoint = isProduction ? '/chat' : '/chat';
+const endpoint = '/chat';
     
     // Log the full URL being used
     

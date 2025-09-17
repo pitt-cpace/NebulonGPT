@@ -1,10 +1,14 @@
 import axios from 'axios';
+import { isElectron } from './electronApi';
 
 // Configure axios with base URL for Ollama status checks
-const isProduction = process.env.NODE_ENV === 'production';
-const baseURL = isProduction 
-  ? '/api/ollama' // This will be proxied by Nginx to the Ollama API
-  : (process.env.REACT_APP_OLLAMA_API_URL || 'http://localhost:11434/api');
+// In Electron, connect directly to Ollama
+// In Docker/web, use the proxied path
+const baseURL = isElectron() 
+  ? 'http://localhost:11434/api' // Direct connection to Ollama in Electron
+  : (process.env.NODE_ENV === 'production' 
+    ? '/api/ollama' // Proxied by Nginx in Docker
+    : (process.env.REACT_APP_OLLAMA_API_URL || 'http://localhost:11434/api')); // Development
 
 export interface OllamaStatus {
   isAvailable: boolean;

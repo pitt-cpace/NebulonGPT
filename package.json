@@ -2,6 +2,8 @@
   "name": "nebulon-gpt",
   "version": "0.1.0",
   "private": true,
+  "main": "electron.js",
+  "homepage": "./",
   "dependencies": {
     "@emotion/react": "^11.11.0",
     "@emotion/styled": "^11.11.0",
@@ -10,9 +12,11 @@
     "adm-zip": "^0.5.10",
     "axios": "^1.4.0",
     "body-parser": "^1.20.2",
+    "canvas": "^3.2.0",
     "concurrently": "^8.0.1",
     "cors": "^2.8.5",
     "express": "^4.18.2",
+    "extract-zip": "^2.0.1",
     "mammoth": "^1.9.0",
     "multer": "^1.4.5-lts.1",
     "pdfjs-dist": "^3.11.174",
@@ -24,11 +28,14 @@
     "typescript": "^4.9.5"
   },
   "devDependencies": {
+    "@types/dom-speech-recognition": "^0.0.4",
     "@types/node": "^16.18.30",
+    "@types/pdfjs-dist": "^2.10.378",
     "@types/react": "^18.2.6",
     "@types/react-dom": "^18.2.4",
-    "@types/pdfjs-dist": "^2.10.378",
-    "@types/dom-speech-recognition": "^0.0.4"
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3",
+    "wait-on": "^7.2.0"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -36,7 +43,15 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "server": "node server.js",
-    "start:both": "concurrently \"npm run server\" \"npm start\""
+    "start:both": "concurrently \"npm run server\" \"npm start\"",
+    "electron": "electron .",
+    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "build:electron": "npm run build && electron-builder",
+    "build:docker": "docker build -t nebulon-gpt .",
+    "dist": "npm run build && electron-builder --publish=never",
+    "dist:mac": "npm run build && cp electron.js build/ && cp preload.js build/ && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux"
   },
   "eslintConfig": {
     "extends": [
@@ -55,5 +70,98 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "build": {
+    "appId": "com.nebulon.gpt",
+    "productName": "NebulonGPT",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "generateUpdatesFilesForAllChannels": false,
+    "compression": "store",
+    "files": [
+      "build/**/*",
+      "electron.js",
+      "preload.js",
+      "server.js",
+      "package.json",
+      "node_modules/extract-zip/**/*"
+    ],
+    "buildDependenciesFromSource": false,
+    "nodeGypRebuild": false,
+    "includeSubNodeModules": true,
+    "npmRebuild": false,
+    "extraResources": [
+      {
+        "from": "Vosk-Server/websocket/models",
+        "to": "models/vosk",
+        "filter": [
+          "**/*.zip*"
+        ]
+      },
+      {
+        "from": "Kokoro-TTS-Server",
+        "to": "models/kokoro",
+        "filter": [
+          "huggingface-cache.zip.*"
+        ]
+      },
+      {
+        "from": "Vosk-Server/websocket",
+        "to": "vosk-server"
+      },
+      {
+        "from": "Kokoro-TTS-Server/websocket",
+        "to": "kokoro-tts"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "public/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "icon": "public/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "icon": "public/icon.png",
+      "category": "Office",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

@@ -155,6 +155,20 @@ dist
 # production
 /build
 
+# Electron build artifacts
+dist-electron/
+*.dmg
+*.dmg.blockmap
+*.exe
+*.AppImage
+*.deb
+*.rpm
+*.snap
+
+# Electron app builds
+/dist/
+/out/
+
 # misc
 .DS_Store
 .env.local
@@ -167,3 +181,11 @@ yarn-debug.log*
 yarn-error.log*
 Kokoro-TTS-Server/huggingface-cache/
 !Kokoro-TTS-Server/huggingface-cache.tar.gz.part*
+
+# Build scripts and data directories (keep source files only)
+assets/
+build-scripts/
+nebulon-gpt-data/
+nebulon-gpt-volumes/
+temp-uploads/
+ssl/
