@@ -129,7 +129,7 @@
       ]
     },
     "win": {
-      "icon": "public/icon.png",
+      "icon": "public/cpace-logo-icon-256.ico",
       "target": [
         {
           "target": "nsis",
