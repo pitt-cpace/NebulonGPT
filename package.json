@@ -49,7 +49,8 @@
     "build:electron": "npm run build && electron-builder",
     "build:docker": "docker build -t nebulon-gpt .",
     "dist": "npm run build && electron-builder --publish=never",
-    "dist:mac": "npm run build && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac",
+    "dist:mac": "npm run build && npm run bundle-python && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac",
+    "bundle-python": "mkdir -p python-bundle/lib/python3.9/site-packages && pip3 install --target python-bundle/lib/python3.9/site-packages --upgrade pip vosk>=0.3.45 websockets>=11.0 torch>=1.9.0 soundfile>=0.12.1 kokoro>=0.7.16 'misaki[en]' numpy huggingface_hub spacy>=3.7.0 phonemizer-fork spacy-curated-transformers num2words espeakng-loader https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl && cp -r /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9 python-bundle/lib/ && mkdir -p python-bundle/vosk-server && cp -r Vosk-Server/websocket/* python-bundle/vosk-server/ && mkdir -p python-bundle/kokoro-tts && cp -r Kokoro-TTS-Server/websocket/* python-bundle/kokoro-tts/ && printf '#!/bin/bash\\nSCRIPT_DIR=\"$(dirname \"$0\")\"\\nBUNDLE_PYTHONPATH=\"$SCRIPT_DIR/lib/python3.9/site-packages\"\\nexport PYTHONPATH=\"$BUNDLE_PYTHONPATH:$PYTHONPATH\"\\nexec /usr/bin/python3 \"$@\"\\n' > python-bundle/python3 && chmod +x python-bundle/python3",
     "dist:win": "npm run build && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --win",
     "dist:linux": "npm run build && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --linux"
   },
@@ -113,6 +114,13 @@
       {
         "from": "Kokoro-TTS-Server/websocket",
         "to": "kokoro-tts"
+      },
+      {
+        "from": "python-bundle",
+        "to": "python-bundle",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {

@@ -177,13 +177,24 @@ export const getWebSocketUrls = () => {
       tts: 'ws://localhost:2701'    // Default TTS WebSocket port
     };
   } else {
-    // In Docker/web version, use proxied URLs
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    return {
-      vosk: `${protocol}//${host}/vosk`,
-      tts: `${protocol}//${host}/tts`
-    };
+    // Check if we're in development mode (React dev server on localhost:3000)
+    const isDevelopment = window.location.hostname === 'localhost' && window.location.port === '3000';
+    
+    if (isDevelopment) {
+      // In development mode (Chrome accessing localhost:3000), connect directly to Python servers
+      return {
+        vosk: 'ws://localhost:2700',  // Same as Electron - direct connection
+        tts: 'ws://localhost:2701'    // Same as Electron - direct connection
+      };
+    } else {
+      // In Docker/production web version, use proxied URLs
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      return {
+        vosk: `${protocol}//${host}/vosk`,
+        tts: `${protocol}//${host}/tts`
+      };
+    }
   }
 };
 

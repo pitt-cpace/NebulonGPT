@@ -34,9 +34,28 @@ const getBuildPath = () => {
   return __dirname;
 };
 
+// Helper function to get server paths with fallback for development/production
+const getServerPath = (bundledPath, fallbackPath) => {
+  const bundled = getResourcePath(bundledPath);
+  const fallback = getResourcePath(fallbackPath);
+  
+  // Check if bundled version exists (production/distribution)
+  if (fs.existsSync(bundled)) {
+    return bundled;
+  }
+  
+  // Fall back to development paths
+  if (fs.existsSync(fallback)) {
+    return fallback;
+  }
+  
+  // Return bundled path as default (for error reporting)
+  return bundled;
+};
+
 const PATHS = {
-  voskServer: getResourcePath('vosk-server/asr_server_with_models.py'),
-  ttsServer: getResourcePath('kokoro-tts/browser_tts_server.py'),
+  voskServer: getServerPath('python-bundle/vosk-server/asr_server_with_models.py', 'Vosk-Server/websocket/asr_server_with_models.py'),
+  ttsServer: getServerPath('python-bundle/kokoro-tts/browser_tts_server.py', 'Kokoro-TTS-Server/websocket/browser_tts_server.py'),
   buildDir: getBuildPath(),
   dataDir: path.join(os.homedir(), '.nebulon-gpt'),
   chatsFile: path.join(os.homedir(), '.nebulon-gpt', 'chats.json'),
@@ -467,29 +486,29 @@ function startVoskServer() {
   return new Promise((resolve, reject) => {
     console.log('Starting Vosk server...');
     
+    // Use bundled Python exclusively
+    const bundledPython = path.join(getResourcePath('python-bundle'), 'python3');
+    
+    if (!fs.existsSync(bundledPython)) {
+      const error = `Bundled Python not found at: ${bundledPython}`;
+      console.error(error);
+      reject(new Error(error));
+      return;
+    }
+    
+    const pythonCmd = bundledPython;
+    console.log(`Using bundled Python: ${pythonCmd}`);
+    
     const env = {
       ...process.env,
-      PYTHONPATH: getResourcePath('vosk-server'),
+      PYTHONPATH: `${getResourcePath('vosk-server')}:${path.join(getResourcePath('python-bundle'), 'lib', 'python3.9', 'site-packages')}`,
       VOSK_MODELS_DIR: PATHS.voskModelsDir,
       VOSK_SERVER_INTERFACE: '127.0.0.1',
-      VOSK_SERVER_PORT: '2700'
+      VOSK_SERVER_PORT: '2700',
+      // Ensure bundled Python uses its own site-packages
+      PYTHONHOME: path.join(getResourcePath('python-bundle')),
+      PATH: `${path.dirname(bundledPython)}:${process.env.PATH}`
     };
-
-    // Try different Python executables in order of preference
-    const pythonExecutables = ['python3', 'python', '/usr/bin/python3', '/usr/local/bin/python3'];
-    let pythonCmd = 'python3'; // Default
-    
-    // Find available Python executable
-    for (const cmd of pythonExecutables) {
-      try {
-        require('child_process').execSync(`${cmd} --version`, { stdio: 'ignore' });
-        pythonCmd = cmd;
-        console.log(`Found Python executable: ${pythonCmd}`);
-        break;
-      } catch (error) {
-        // Continue to next option
-      }
-    }
 
     voskProcess = spawn(pythonCmd, [PATHS.voskServer], {
       env,
@@ -522,32 +541,32 @@ function startTTSServer() {
   return new Promise((resolve, reject) => {
     console.log('Starting TTS server...');
     
+    // Use bundled Python exclusively
+    const bundledPython = path.join(getResourcePath('python-bundle'), 'python3');
+    
+    if (!fs.existsSync(bundledPython)) {
+      const error = `Bundled Python not found at: ${bundledPython}`;
+      console.error(error);
+      reject(new Error(error));
+      return;
+    }
+    
+    const pythonCmd = bundledPython;
+    console.log(`Using bundled Python for TTS: ${pythonCmd}`);
+    
     const env = {
       ...process.env,
-      PYTHONPATH: getResourcePath('Kokoro-TTS-Server'),
+      PYTHONPATH: `${getResourcePath('Kokoro-TTS-Server')}:${path.join(getResourcePath('python-bundle'), 'lib', 'python3.9', 'site-packages')}`,
       HF_HOME: PATHS.hfCacheDir,
       TRANSFORMERS_CACHE: path.join(PATHS.hfCacheDir, 'transformers'),
       HF_DATASETS_CACHE: path.join(PATHS.hfCacheDir, 'datasets'),
       HF_HUB_OFFLINE: '1',
       KOKORO_SERVER_HOST: '127.0.0.1',
-      KOKORO_SERVER_PORT: '2701'
+      KOKORO_SERVER_PORT: '2701',
+      // Ensure bundled Python uses its own site-packages
+      PYTHONHOME: path.join(getResourcePath('python-bundle')),
+      PATH: `${path.dirname(bundledPython)}:${process.env.PATH}`
     };
-
-    // Try different Python executables in order of preference
-    const pythonExecutables = ['python3', 'python', '/usr/bin/python3', '/usr/local/bin/python3'];
-    let pythonCmd = 'python3'; // Default
-    
-    // Find available Python executable
-    for (const cmd of pythonExecutables) {
-      try {
-        require('child_process').execSync(`${cmd} --version`, { stdio: 'ignore' });
-        pythonCmd = cmd;
-        console.log(`Found Python executable for TTS: ${pythonCmd}`);
-        break;
-      } catch (error) {
-        // Continue to next option
-      }
-    }
 
     ttsProcess = spawn(pythonCmd, [PATHS.ttsServer, '--host', '127.0.0.1', '--port', '2701'], {
       env,
@@ -590,7 +609,7 @@ function createWindow() {
     },
     icon: path.join(__dirname, 'icon.png'), // Add app icon
     titleBarStyle: 'default',
-    show: false // Don't show until ready
+    show: true // Show immediately
   });
 
   // Load the app
@@ -600,12 +619,21 @@ function createWindow() {
   
   mainWindow.loadURL(startUrl);
 
-  // Show window when ready
+  // Force window to show and focus
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    mainWindow.focus();
+    mainWindow.setAlwaysOnTop(true);
+    setTimeout(() => mainWindow.setAlwaysOnTop(false), 1000);
     
     // Keep DevTools enabled for debugging as requested
-    // mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools();
+  });
+
+  // Also force show immediately after load
+  mainWindow.webContents.once('did-finish-load', () => {
+    mainWindow.show();
+    mainWindow.focus();
   });
 
   // Add debugging for load failures
