@@ -45,7 +45,7 @@
     "server": "node server.js",
     "start:both": "concurrently \"npm run server\" \"npm start\"",
     "electron": "electron .",
-    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && node_modules\\.bin\\electron .\"",
     "build:electron": "npm run build && electron-builder",
     "build:docker": "docker build -t nebulon-gpt .",
     "dist": "npm run build && electron-builder --publish=never",
