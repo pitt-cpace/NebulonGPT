@@ -685,24 +685,32 @@ app.whenReady().then(async () => {
   // Load chats data
   loadChatsData();
   
-  // Extract bundled resources on first run
-  await extractBundledResources();
+  // Create window FIRST for faster startup
+  console.log('Creating window immediately...');
+  createWindow();
   
-  // Start Python services and then create window
+  // Start background initialization (Python services) after window is shown
+  console.log('Starting background initialization...');
+  initializeBackgroundServices();
+});
+
+// Background initialization function
+async function initializeBackgroundServices() {
   try {
-    console.log('Starting Python services...');
+    // Extract bundled resources in background
+    await extractBundledResources();
+    
+    // Start Python services in background
+    console.log('Starting Python services in background...');
     await startVoskServer();
     await startTTSServer();
     
-    console.log('All services started, creating window...');
-    createWindow();
+    console.log('✅ All background services started successfully');
   } catch (error) {
-    console.error('Failed to start services:', error);
-    // Still create window even if services fail
-    console.log('Creating window despite service startup issues...');
-    createWindow();
+    console.error('❌ Failed to start background services:', error);
+    // Services failed but window is already available to user
   }
-});
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
