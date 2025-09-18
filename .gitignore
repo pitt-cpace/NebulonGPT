@@ -210,3 +210,4 @@ builder-*.yaml
 # Temporary files
 *.tmp
 *.temp
+%TEMP%/
