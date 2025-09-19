@@ -9,6 +9,21 @@ const extractZip = require('extract-zip');
 // Simple development check without external dependency
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
+// Give Windows a stable identity for permission persistence
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.nebulon.gpt.dev'); // matches your build appId family
+}
+
+// Treat the CRA dev server as secure to unblock getUserMedia in dev
+if (isDev) {
+  app.commandLine.appendSwitch(
+    'unsafely-treat-insecure-origin-as-secure',
+    'http://localhost:3000'
+  );
+  // Optional: let audio start without click, if you auto-start streams
+  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+}
+
 // Keep a global reference of the window object
 let mainWindow;
 let voskProcess = null;
@@ -217,6 +232,15 @@ async function extractKokoroCache(kokoroModelsDir) {
     try {
       const tempDir = path.join(os.tmpdir(), 'nebulon-kokoro-extract');
       
+      // Clean up any existing temp directory first (Windows symlink fix)
+      if (fs.existsSync(tempDir)) {
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch (error) {
+          console.log('Warning: Could not clean temp directory:', error.message);
+        }
+      }
+      
       // Create temp directory
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
@@ -253,10 +277,34 @@ async function extractKokoroCache(kokoroModelsDir) {
       const extractedDir = path.join(tempDir, 'huggingface-cache');
       if (fs.existsSync(extractedDir)) {
         await new Promise((resolveMove, rejectMove) => {
-          exec(`cp -r "${extractedDir}"/* "${PATHS.hfCacheDir}"/`, (error) => {
-            if (error) rejectMove(error);
-            else resolveMove();
-          });
+          // Cross-platform recursive copy function
+          const copyRecursive = (src, dest) => {
+            if (!fs.existsSync(src)) return;
+            
+            const stats = fs.statSync(src);
+            if (stats.isDirectory()) {
+              if (!fs.existsSync(dest)) {
+                fs.mkdirSync(dest, { recursive: true });
+              }
+              const items = fs.readdirSync(src);
+              for (const item of items) {
+                copyRecursive(path.join(src, item), path.join(dest, item));
+              }
+            } else {
+              const destDir = path.dirname(dest);
+              if (!fs.existsSync(destDir)) {
+                fs.mkdirSync(destDir, { recursive: true });
+              }
+              fs.copyFileSync(src, dest);
+            }
+          };
+          
+          try {
+            copyRecursive(extractedDir, PATHS.hfCacheDir);
+            resolveMove();
+          } catch (error) {
+            rejectMove(error);
+          }
         });
       }
 
@@ -327,10 +375,38 @@ async function extractVoskModels(voskModelsSource) {
 
       // Copy all files from source to destination first
       await new Promise((resolveCopy, rejectCopy) => {
-        exec(`cp -r "${voskModelsSource}"/* "${PATHS.voskModelsDir}"/`, (error) => {
-          if (error) rejectCopy(error);
-          else resolveCopy();
-        });
+        // Cross-platform recursive copy function
+        const copyRecursive = (src, dest) => {
+          if (!fs.existsSync(src)) return;
+          
+          const stats = fs.statSync(src);
+          if (stats.isDirectory()) {
+            if (!fs.existsSync(dest)) {
+              fs.mkdirSync(dest, { recursive: true });
+            }
+            const items = fs.readdirSync(src);
+            for (const item of items) {
+              copyRecursive(path.join(src, item), path.join(dest, item));
+            }
+          } else {
+            const destDir = path.dirname(dest);
+            if (!fs.existsSync(destDir)) {
+              fs.mkdirSync(destDir, { recursive: true });
+            }
+            fs.copyFileSync(src, dest);
+          }
+        };
+        
+        try {
+          // Copy all files from voskModelsSource to PATHS.voskModelsDir
+          const items = fs.readdirSync(voskModelsSource);
+          for (const item of items) {
+            copyRecursive(path.join(voskModelsSource, item), path.join(PATHS.voskModelsDir, item));
+          }
+          resolveCopy();
+        } catch (error) {
+          rejectCopy(error);
+        }
       });
 
       // Step 1: Concatenate all split zip files into single zip files (exactly like Docker)
@@ -486,28 +562,44 @@ function startVoskServer() {
   return new Promise((resolve, reject) => {
     console.log('Starting Vosk server...');
     
-    // Use bundled Python exclusively
-    const bundledPython = path.join(getResourcePath('python-bundle'), 'python3');
+    let pythonCmd;
+    let pythonEnv = { ...process.env };
     
-    if (!fs.existsSync(bundledPython)) {
-      const error = `Bundled Python not found at: ${bundledPython}`;
-      console.error(error);
-      reject(new Error(error));
-      return;
+    // Check if bundled Python executable exists
+    const bundledPython = path.join(getResourcePath('python-bundle'), process.platform === 'win32' ? 'python.exe' : 'python3');
+    const bundledPackages = path.join(getResourcePath('python-bundle'), 'lib', 'python3.10', 'site-packages');
+    
+    if (fs.existsSync(bundledPython) && fs.existsSync(bundledPackages)) {
+      // Use bundled Python with bundled packages
+      pythonCmd = bundledPython;
+      console.log(`Using bundled Python: ${pythonCmd}`);
+      console.log(`Bundled packages path: ${bundledPackages}`);
+      
+      // Set up environment for bundled Python
+      pythonEnv.PYTHONPATH = `${getResourcePath('python-bundle/vosk-server')}:${bundledPackages}`;
+      pythonEnv.PYTHONHOME = path.join(getResourcePath('python-bundle'));
+    } else if (fs.existsSync(bundledPackages)) {
+      // Use system Python with bundled packages
+      pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      console.log(`Using system Python with bundled packages: ${pythonCmd}`);
+      console.log(`Bundled packages path: ${bundledPackages}`);
+      
+      // Set up environment to use bundled packages with system Python
+      pythonEnv.PYTHONPATH = `${getResourcePath('python-bundle/vosk-server')}:${bundledPackages}`;
+    } else {
+      // Fallback to system Python with dev paths
+      pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      console.log(`Bundled packages not found, using system Python with dev paths: ${pythonCmd}`);
+      
+      // Fallback to development paths
+      pythonEnv.PYTHONPATH = `${getResourcePath('Vosk-Server/websocket')}`;
     }
     
-    const pythonCmd = bundledPython;
-    console.log(`Using bundled Python: ${pythonCmd}`);
-    
     const env = {
-      ...process.env,
-      PYTHONPATH: `${getResourcePath('vosk-server')}:${path.join(getResourcePath('python-bundle'), 'lib', 'python3.9', 'site-packages')}`,
+      ...pythonEnv,
       VOSK_MODELS_DIR: PATHS.voskModelsDir,
       VOSK_SERVER_INTERFACE: '127.0.0.1',
-      VOSK_SERVER_PORT: '2700',
-      // Ensure bundled Python uses its own site-packages
-      PYTHONHOME: path.join(getResourcePath('python-bundle')),
-      PATH: `${path.dirname(bundledPython)}:${process.env.PATH}`
+      VOSK_SERVER_PORT: '2700'
     };
 
     voskProcess = spawn(pythonCmd, [PATHS.voskServer], {
@@ -541,51 +633,87 @@ function startTTSServer() {
   return new Promise((resolve, reject) => {
     console.log('Starting TTS server...');
     
-    // Use bundled Python exclusively
-    const bundledPython = path.join(getResourcePath('python-bundle'), 'python3');
+    let pythonCmd;
+    let pythonEnv = { ...process.env };
     
-    if (!fs.existsSync(bundledPython)) {
-      const error = `Bundled Python not found at: ${bundledPython}`;
-      console.error(error);
-      reject(new Error(error));
-      return;
+    // Check if bundled Python executable exists
+    const bundledPython = path.join(getResourcePath('python-bundle'), process.platform === 'win32' ? 'python.exe' : 'python3');
+    const bundledPackages = path.join(getResourcePath('python-bundle'), 'lib', 'python3.10', 'site-packages');
+    
+    if (fs.existsSync(bundledPython) && fs.existsSync(bundledPackages)) {
+      // Use bundled Python with bundled packages
+      pythonCmd = bundledPython;
+      console.log(`Using bundled Python: ${pythonCmd}`);
+      console.log(`Bundled packages path: ${bundledPackages}`);
+      
+      // Set up environment for bundled Python
+      pythonEnv.PYTHONPATH = `${getResourcePath('python-bundle/kokoro-tts')}:${bundledPackages}`;
+      pythonEnv.PYTHONHOME = path.join(getResourcePath('python-bundle'));
+    } else if (fs.existsSync(bundledPackages)) {
+      // Use system Python with bundled packages
+      pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      console.log(`Using system Python with bundled packages: ${pythonCmd}`);
+      console.log(`Bundled packages path: ${bundledPackages}`);
+      
+      // Set up environment to use bundled packages with system Python
+      pythonEnv.PYTHONPATH = `${getResourcePath('python-bundle/kokoro-tts')}:${bundledPackages}`;
+    } else {
+      // Fallback to system Python with dev paths
+      pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      console.log(`Bundled packages not found, using system Python with dev paths: ${pythonCmd}`);
+      
+      // Fallback to development paths
+      pythonEnv.PYTHONPATH = `${getResourcePath('Kokoro-TTS-Server/websocket')}`;
     }
     
-    const pythonCmd = bundledPython;
-    console.log(`Using bundled Python for TTS: ${pythonCmd}`);
-    
     const env = {
-      ...process.env,
-      PYTHONPATH: `${getResourcePath('Kokoro-TTS-Server')}:${path.join(getResourcePath('python-bundle'), 'lib', 'python3.9', 'site-packages')}`,
+      ...pythonEnv,
       HF_HOME: PATHS.hfCacheDir,
       TRANSFORMERS_CACHE: path.join(PATHS.hfCacheDir, 'transformers'),
       HF_DATASETS_CACHE: path.join(PATHS.hfCacheDir, 'datasets'),
       HF_HUB_OFFLINE: '1',
       KOKORO_SERVER_HOST: '127.0.0.1',
       KOKORO_SERVER_PORT: '2701',
-      // Ensure bundled Python uses its own site-packages
-      PYTHONHOME: path.join(getResourcePath('python-bundle')),
-      PATH: `${path.dirname(bundledPython)}:${process.env.PATH}`
+      // Comprehensive Windows Unicode fix
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONLEGACYWINDOWSSTDIO: '0',
+      PYTHONUTF8: '1',
+      // Force console to use UTF-8
+      CHCP: '65001'
     };
 
-    ttsProcess = spawn(pythonCmd, [PATHS.ttsServer, '--host', '127.0.0.1', '--port', '2701'], {
-      env,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
+    // On Windows, redirect stderr to avoid Unicode console issues
+    if (process.platform === 'win32') {
+      ttsProcess = spawn(pythonCmd, [PATHS.ttsServer, '--host', '127.0.0.1', '--port', '2701'], {
+        env,
+        stdio: ['pipe', 'pipe', 'ignore'], // Ignore stderr to avoid Unicode issues
+        shell: false
+      });
+    } else {
+      ttsProcess = spawn(pythonCmd, [PATHS.ttsServer, '--host', '127.0.0.1', '--port', '2701'], {
+        env,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+    }
 
     ttsProcess.stdout.on('data', (data) => {
       console.log(`[TTS] ${data}`);
     });
 
-    ttsProcess.stderr.on('data', (data) => {
-      console.error(`[TTS] ${data}`);
-    });
+    if (process.platform !== 'win32') {
+      ttsProcess.stderr.on('data', (data) => {
+        console.error(`[TTS] ${data}`);
+      });
+    }
 
     ttsProcess.on('close', (code) => {
       console.log(`TTS process exited with code ${code}`);
-      if (!isQuitting) {
-        // Restart TTS if it crashes unexpectedly
+      if (!isQuitting && code !== 0) {
+        // Only restart TTS if it crashed (non-zero exit code)
+        console.log('TTS server crashed, restarting in 2 seconds...');
         setTimeout(() => startTTSServer(), 2000);
+      } else if (code === 0) {
+        console.log('TTS server exited normally, not restarting');
       }
     });
 
@@ -606,6 +734,9 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false,
       preload: path.join(__dirname, 'preload.js')
+      // Let Electron/Chromium handle security context normally
+      // (no webSecurity:false; no allowRunningInsecureContent)
+      // No need to force experimental flags for MediaDevices
     },
     icon: path.join(__dirname, 'icon.png'), // Add app icon
     titleBarStyle: 'default',
@@ -678,6 +809,50 @@ app.whenReady().then(async () => {
     console.log('index.html path:', indexPath);
     console.log('index.html exists:', fs.existsSync(indexPath));
   }
+  
+  // Set up comprehensive media permissions for microphone access
+  app.on('web-contents-created', (event, contents) => {
+    const ses = contents.session;
+
+    ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+      const origin = new URL(details.requestingUrl || 'file://').origin;
+      const isAllowedOrigin =
+        origin === 'http://localhost:3000' || origin.startsWith('file://');
+
+      if (!isAllowedOrigin) return callback(false);
+
+      // Allow mic/camera directly
+      if (permission === 'microphone' || permission === 'camera') return callback(true);
+
+      // Handle Chrome's grouped 'media' ask with mediaTypes
+      if (permission === 'media') {
+        const wantsAudio = details.mediaTypes?.includes('audio');
+        const wantsVideo = details.mediaTypes?.includes('video');
+        return callback(Boolean(wantsAudio || wantsVideo));
+      }
+
+      // deny others by default
+      callback(false);
+    });
+
+    ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
+      const origin = new URL(requestingOrigin || 'file://').origin;
+      const isAllowedOrigin =
+        origin === 'http://localhost:3000' || origin.startsWith('file://');
+
+      if (!isAllowedOrigin) return false;
+
+      if (permission === 'microphone' || permission === 'camera') return true;
+      if (permission === 'media') {
+        const wantsAudio = details?.mediaTypes?.includes('audio');
+        const wantsVideo = details?.mediaTypes?.includes('video');
+        return Boolean(wantsAudio || wantsVideo);
+      }
+      return false;
+    });
+
+    ses.setDevicePermissionHandler((_details) => true);
+  });
   
   // Ensure directories exist
   ensureDirectories();
