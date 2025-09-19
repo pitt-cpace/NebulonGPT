@@ -6,13 +6,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Ignore entire export folder
-export/
-
-# Keep only the script files tracked
-!export/export-docker-image.sh
-!export/import-docker-image.sh
-
 lerna-debug.log*
 .pnpm-debug.log*
 
