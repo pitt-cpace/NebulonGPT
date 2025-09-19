@@ -69,8 +69,8 @@ const getServerPath = (bundledPath, fallbackPath) => {
 };
 
 const PATHS = {
-  voskServer: getServerPath('python-bundle/vosk-server/asr_server_with_models.py', 'Vosk-Server/websocket/asr_server_with_models.py'),
-  ttsServer: getServerPath('python-bundle/kokoro-tts/browser_tts_server.py', 'Kokoro-TTS-Server/websocket/browser_tts_server.py'),
+  voskServer: getServerPath('python-bundle/python-env/vosk-server/asr_server_with_models.py', 'Vosk-Server/websocket/asr_server_with_models.py'),
+  ttsServer: getServerPath('python-bundle/python-env/kokoro-tts/browser_tts_server.py', 'Kokoro-TTS-Server/websocket/browser_tts_server.py'),
   buildDir: getBuildPath(),
   dataDir: path.join(os.homedir(), '.nebulon-gpt'),
   chatsFile: path.join(os.homedir(), '.nebulon-gpt', 'chats.json'),
@@ -566,8 +566,8 @@ function startVoskServer() {
     let pythonEnv = { ...process.env };
     
     // Check if bundled Python executable exists
-    const bundledPython = path.join(getResourcePath('python-bundle'), process.platform === 'win32' ? 'python.exe' : 'python3');
-    const bundledPackages = path.join(getResourcePath('python-bundle'), 'lib', 'python3.10', 'site-packages');
+    const bundledPython = path.join(getResourcePath('python-bundle'), 'python-env', process.platform === 'win32' ? 'python.exe' : 'python3');
+    const bundledPackages = path.join(getResourcePath('python-bundle'), 'python-env', 'lib', 'python3.10', 'site-packages');
     
     if (fs.existsSync(bundledPython) && fs.existsSync(bundledPackages)) {
       // Use bundled Python with bundled packages
@@ -576,8 +576,8 @@ function startVoskServer() {
       console.log(`Bundled packages path: ${bundledPackages}`);
       
       // Set up environment for bundled Python
-      pythonEnv.PYTHONPATH = `${getResourcePath('python-bundle/vosk-server')}:${bundledPackages}`;
-      pythonEnv.PYTHONHOME = path.join(getResourcePath('python-bundle'));
+      pythonEnv.PYTHONPATH = `${getResourcePath('python-bundle/python-env/vosk-server')}:${bundledPackages}`;
+      pythonEnv.PYTHONHOME = path.join(getResourcePath('python-bundle'), 'python-env');
     } else if (fs.existsSync(bundledPackages)) {
       // Use system Python with bundled packages
       pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
@@ -637,8 +637,8 @@ function startTTSServer() {
     let pythonEnv = { ...process.env };
     
     // Check if bundled Python executable exists
-    const bundledPython = path.join(getResourcePath('python-bundle'), process.platform === 'win32' ? 'python.exe' : 'python3');
-    const bundledPackages = path.join(getResourcePath('python-bundle'), 'lib', 'python3.10', 'site-packages');
+    const bundledPython = path.join(getResourcePath('python-bundle'), 'python-env', process.platform === 'win32' ? 'python.exe' : 'python3');
+    const bundledPackages = path.join(getResourcePath('python-bundle'), 'python-env', 'lib', 'python3.10', 'site-packages');
     
     if (fs.existsSync(bundledPython) && fs.existsSync(bundledPackages)) {
       // Use bundled Python with bundled packages
@@ -647,8 +647,8 @@ function startTTSServer() {
       console.log(`Bundled packages path: ${bundledPackages}`);
       
       // Set up environment for bundled Python
-      pythonEnv.PYTHONPATH = `${getResourcePath('python-bundle/kokoro-tts')}:${bundledPackages}`;
-      pythonEnv.PYTHONHOME = path.join(getResourcePath('python-bundle'));
+      pythonEnv.PYTHONPATH = `${getResourcePath('python-bundle/python-env/kokoro-tts')}:${bundledPackages}`;
+      pythonEnv.PYTHONHOME = path.join(getResourcePath('python-bundle'), 'python-env');
     } else if (fs.existsSync(bundledPackages)) {
       // Use system Python with bundled packages
       pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
