@@ -814,44 +814,106 @@ app.whenReady().then(async () => {
   app.on('web-contents-created', (event, contents) => {
     const ses = contents.session;
 
+    // Grant microphone permissions immediately for all origins
     ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+      console.log(`🎤 Permission request: ${permission} from ${details.requestingUrl}`);
+      
       const origin = new URL(details.requestingUrl || 'file://').origin;
       const isAllowedOrigin =
-        origin === 'http://localhost:3000' || origin.startsWith('file://');
+        origin === 'http://localhost:3000' || 
+        origin.startsWith('file://') || 
+        origin === 'null'; // Handle null origin for file:// protocol
 
-      if (!isAllowedOrigin) return callback(false);
+      if (!isAllowedOrigin) {
+        console.log(`❌ Permission denied for origin: ${origin}`);
+        return callback(false);
+      }
 
-      // Allow mic/camera directly
-      if (permission === 'microphone' || permission === 'camera') return callback(true);
+      // Always allow microphone and camera
+      if (permission === 'microphone' || permission === 'camera') {
+        console.log(`✅ Granting ${permission} permission`);
+        return callback(true);
+      }
 
-      // Handle Chrome's grouped 'media' ask with mediaTypes
+      // Handle Chrome's grouped 'media' permission with mediaTypes
       if (permission === 'media') {
         const wantsAudio = details.mediaTypes?.includes('audio');
         const wantsVideo = details.mediaTypes?.includes('video');
+        console.log(`✅ Granting media permission (audio: ${wantsAudio}, video: ${wantsVideo})`);
         return callback(Boolean(wantsAudio || wantsVideo));
       }
 
-      // deny others by default
+      // Allow other common permissions that might be needed
+      if (permission === 'notifications' || permission === 'clipboard-read' || permission === 'clipboard-write') {
+        console.log(`✅ Granting ${permission} permission`);
+        return callback(true);
+      }
+
+      console.log(`❌ Denying unknown permission: ${permission}`);
       callback(false);
     });
 
     ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
       const origin = new URL(requestingOrigin || 'file://').origin;
       const isAllowedOrigin =
-        origin === 'http://localhost:3000' || origin.startsWith('file://');
+        origin === 'http://localhost:3000' || 
+        origin.startsWith('file://') || 
+        origin === 'null'; // Handle null origin for file:// protocol
 
-      if (!isAllowedOrigin) return false;
+      if (!isAllowedOrigin) {
+        console.log(`❌ Permission check failed for origin: ${origin}`);
+        return false;
+      }
 
-      if (permission === 'microphone' || permission === 'camera') return true;
+      // Always allow microphone and camera
+      if (permission === 'microphone' || permission === 'camera') {
+        console.log(`✅ Permission check passed for ${permission}`);
+        return true;
+      }
+      
       if (permission === 'media') {
         const wantsAudio = details?.mediaTypes?.includes('audio');
         const wantsVideo = details?.mediaTypes?.includes('video');
+        console.log(`✅ Media permission check passed (audio: ${wantsAudio}, video: ${wantsVideo})`);
         return Boolean(wantsAudio || wantsVideo);
       }
+      
+      // Allow other common permissions
+      if (permission === 'notifications' || permission === 'clipboard-read' || permission === 'clipboard-write') {
+        return true;
+      }
+      
       return false;
     });
 
-    ses.setDevicePermissionHandler((_details) => true);
+    // Always allow device access
+    ses.setDevicePermissionHandler((details) => {
+      console.log(`🎤 Device permission request:`, details);
+      return true;
+    });
+
+    // Add additional security bypass for getUserMedia in Electron
+    contents.on('did-finish-load', () => {
+      // Inject code to ensure getUserMedia works properly in Electron
+      contents.executeJavaScript(`
+        // Override getUserMedia to ensure it works in Electron
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+          navigator.mediaDevices.getUserMedia = function(constraints) {
+            console.log('🎤 getUserMedia called with constraints:', constraints);
+            return originalGetUserMedia(constraints).then(stream => {
+              console.log('✅ getUserMedia successful, stream:', stream);
+              return stream;
+            }).catch(error => {
+              console.error('❌ getUserMedia failed:', error);
+              throw error;
+            });
+          };
+        }
+      `).catch(err => {
+        console.error('Failed to inject getUserMedia override:', err);
+      });
+    });
   });
   
   // Ensure directories exist
