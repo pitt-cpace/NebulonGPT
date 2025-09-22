@@ -177,19 +177,25 @@ export const getWebSocketUrls = () => {
       tts: 'ws://localhost:2701'    // Default TTS WebSocket port
     };
   } else {
-    // Check if we're in development mode (React dev server on localhost:3000)
-    const isDevelopment = window.location.hostname === 'localhost' && window.location.port === '3000';
+    // Simple detection: Check if we're in actual React dev server
+    // React dev server has webpack HMR available, Docker/production does not
+    const isReactDevServer = (
+      window.location.hostname === 'localhost' &&
+      (window as any).webpackHotUpdate !== undefined
+    );
     
-    if (isDevelopment) {
-      // In development mode (Chrome accessing localhost:3000), connect directly to Python servers
+    if (isReactDevServer) {
+      // In React development mode, connect directly to Python servers
+      console.log('🔧 Using direct WebSocket connections for React dev server');
       return {
-        vosk: 'ws://localhost:2700',  // Same as Electron - direct connection
-        tts: 'ws://localhost:2701'    // Same as Electron - direct connection
+        vosk: 'ws://localhost:2700',
+        tts: 'ws://localhost:2701'
       };
     } else {
-      // In Docker/production web version, use proxied URLs
+      // In Docker/production mode, use nginx proxy paths
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
+      console.log('🐳 Using proxied WebSocket connections for Docker/production');
       return {
         vosk: `${protocol}//${host}/vosk`,
         tts: `${protocol}//${host}/tts`

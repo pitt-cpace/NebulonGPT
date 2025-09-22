@@ -4,6 +4,18 @@ FROM node:18-alpine AS frontend-build
 
 WORKDIR /app
 
+# Install build dependencies for npm packages (including Canvas dependencies)
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    giflib-dev \
+    pixman-dev \
+    pkgconfig
+
 # Only copy package files for better cache use
 COPY package*.json ./
 
@@ -23,7 +35,7 @@ WORKDIR /app
 # Install system dependencies (no interactive output)
 RUN apt-get update && apt-get install -y \
     wget unzip libatomic1 build-essential \
-    git curl nginx \
+    git curl nginx pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js

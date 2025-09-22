@@ -73,7 +73,8 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
   const [selectAllDir, setSelectAllDir] = useState(false);
   const [selectAllOther, setSelectAllOther] = useState(false);
 
-  const API_BASE = process.env.REACT_APP_API_URL || '';
+  // Use dynamic API base URL that works with any port (same logic as WebSocket detection)
+  const API_BASE = `${window.location.protocol}//${window.location.host}`;
 
   const loadModels = useCallback(async () => {
     setLoading(true);
