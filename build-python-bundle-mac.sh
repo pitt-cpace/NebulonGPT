@@ -5,7 +5,51 @@
 
 set -e  # Exit on any error
 
-echo "🐍 Creating Python bundle for macOS..."
+# Function to calculate directory size
+calculate_dir_size() {
+    if [ -d "$1" ]; then
+        find "$1" -type f -exec wc -c {} + | tail -1 | awk '{print $1}'
+    else
+        echo "0"
+    fi
+}
+
+# Function to check if bundle needs rebuilding
+needs_rebuild() {
+    local bundle_dir="python-bundle/python-env"
+    local checksum_file="python-bundle/bundle-checksum.txt"
+    
+    if [ ! -d "$bundle_dir" ]; then
+        echo "📁 Bundle directory not found, creating bundle..."
+        return 0  # true - needs rebuild
+    fi
+    
+    if [ ! -f "$checksum_file" ]; then
+        echo "📊 Checksum file not found, creating bundle..."
+        return 0  # true - needs rebuild
+    fi
+    
+    local saved_size=$(cat "$checksum_file" 2>/dev/null || echo "0")
+    local current_size=$(calculate_dir_size "$bundle_dir")
+    
+    if [ "$current_size" -lt "$saved_size" ]; then
+        echo "⚠️  Bundle size is smaller than expected (saved: $saved_size, current: $current_size), recreating bundle..."
+        return 0  # true - needs rebuild
+    fi
+    
+    echo "✅ Bundle is up to date (size: $current_size bytes)"
+    return 1  # false - no rebuild needed
+}
+
+echo "🐍 Checking Python bundle for macOS..."
+
+# Check if rebuild is needed
+if ! needs_rebuild; then
+    echo "🎯 Python bundle already exists and is valid - skipping rebuild"
+    exit 0
+fi
+
+echo "🔨 Creating Python bundle for macOS..."
 
 # Clean up any existing bundle
 echo "🧹 Cleaning up existing bundle..."
