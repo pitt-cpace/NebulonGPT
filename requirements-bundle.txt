@@ -1,0 +1,36 @@
+# Core dependencies with pinned versions to avoid conflicts
+pip>=24.2
+vosk>=0.3.44
+websockets>=11.0
+torch>=1.9.0
+soundfile>=0.12.1
+numpy>=1.26.4
+huggingface_hub>=0.24.6
+
+# TTS and NLP dependencies with conflict resolution
+# Pin wasabi to compatible version for unidic
+wasabi>=0.6.0,<1.0.0
+unidic>=1.1.0
+spacy>=3.7.0,<3.8.0
+phonemizer-fork>=3.3.0
+spacy-curated-transformers>=0.3.1
+num2words>=0.5.13
+espeakng-loader>=0.2.4
+
+# Kokoro TTS with compatible dependencies
+kokoro>=0.7.16
+misaki[en]>=0.7.16
+
+# Additional utilities
+colorama>=0.4.6
+tqdm>=4.66.4
+regex>=2024.5.15
+filelock>=3.15.4
+attrs>=24.2.0
+urllib3>=2.2.2
+typing_extensions>=4.12.2
+charset-normalizer>=3.3.2
+idna>=3.7
+certifi>=2024.7.4
+cffi>=1.16.0
+pycparser>=2.22
