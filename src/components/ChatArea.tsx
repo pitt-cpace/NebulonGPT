@@ -2045,8 +2045,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           </IconButton>
         </Toolbar>
       </AppBar>
-
-      {!chat ? (
+      
+      {!chat || !chat.id ? (
         <Box
           sx={styles.welcomeContainer}
         >
