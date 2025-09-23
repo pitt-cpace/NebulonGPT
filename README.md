@@ -118,6 +118,43 @@ If you encounter issues:
 - Verify that port 3000 is not already in use
 - Ensure your Docker installation has permissions to create containers
 
+### Docker Memory Requirements for Large Vosk Models
+
+**Important**: When uploading large Vosk model files (>1GB), you may encounter memory-related errors during upload/extraction. This is due to Docker's default memory limitations.
+
+**Symptoms:**
+- Upload appears to work but shows error messages
+- Large model files (like `vosk-model-en-us-0.22.zip` - 1.91GB) fail to upload
+- Smaller models work fine
+
+**Solution:**
+1. **Increase Docker Memory Allocation**:
+   - **Docker Desktop (Mac/Windows)**: 
+     - Open Docker Desktop → Settings → Resources → Advanced
+     - Increase "Memory Limit" to at least **16GB** (recommended: **24GB+**)
+     - Click "Apply & Restart"
+   
+   - **Docker on Linux**:
+     - Docker uses system memory directly, but you may need to increase container limits
+     - Add memory limits to docker-compose.yml if needed:
+       ```yaml
+       services:
+         nebulon-gpt-integrated:
+           mem_limit: 16g
+       ```
+
+2. **Recommended Memory Settings**:
+   - **Minimum**: 8GB for models up to 500MB
+   - **Recommended**: 16GB for models up to 1.5GB  
+   - **Large Models**: 24GB+ for models over 2GB
+
+3. **Verify Settings**:
+   - After increasing memory, restart Docker completely
+   - Rebuild the container: `docker-compose down && docker-compose up --build -d`
+   - Test with a large model file
+
+**Note**: The Vosk model management interface supports files up to 5GB, but your Docker memory allocation must be sufficient to handle the decompression process.
+
 ### Connection Issues
 
 If the UI is running but can't connect to Ollama:
