@@ -1026,7 +1026,7 @@ ipcMain.handle('show-open-dialog', async () => {
 });
 
 // Vosk models management
-ipcMain.handle('get-vosk-models', () => {
+ipcMain.handle('get-vosk-models', async () => {
   try {
     if (!fs.existsSync(PATHS.voskModelsDir)) {
       return { models: [] };
@@ -1041,9 +1041,18 @@ ipcMain.handle('get-vosk-models', () => {
       
       let type = 'file';
       let status = 'other';
+      let size = stats.size; // Default to file size
       
       if (stats.isDirectory()) {
         type = 'directory';
+        // Calculate actual directory size (recursive)
+        try {
+          size = await calculateDirectorySize(itemPath);
+        } catch (error) {
+          console.warn(`Failed to calculate size for directory ${item}:`, error);
+          size = 0; // Fallback to 0 if calculation fails
+        }
+        
         // Check if it's a valid Vosk model
         const requiredFiles = ['conf/model.conf', 'am/final.mdl', 'graph/HCLG.fst'];
         let hasRequiredFiles = 0;
@@ -1058,12 +1067,14 @@ ipcMain.handle('get-vosk-models', () => {
       } else if (item.endsWith('.zip')) {
         type = 'zip';
         status = 'archived';
+        // For ZIP files, use the actual file size
+        size = stats.size;
       }
       
       models.push({
         name: item,
         type,
-        size: stats.size,
+        size: size,
         modified: stats.mtime.toISOString(),
         status
       });
