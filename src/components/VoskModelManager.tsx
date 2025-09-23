@@ -732,6 +732,8 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
                   </a>
                   <br />
                   <strong>Note:</strong> If a model already exists, it will be automatically overwritten.
+                  <br />
+                  <strong style={{ color: '#f44336' }}>⚠️ Memory Warning:</strong> For uploading large models (&gt;1GB), ensure Docker has sufficient memory allocated (16GB+ recommended). If you encounter errors during upload/extraction, increase Docker memory limits in Docker Desktop settings.
                 </Typography>
                 
                 <Box display="flex" alignItems="center" gap={2}>

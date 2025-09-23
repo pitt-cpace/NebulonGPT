@@ -19,6 +19,8 @@ import {
   Storage as StorageIcon,
 } from '@mui/icons-material';
 import { VoskRecognitionService } from '../services/vosk';
+import axios from 'axios';
+import { isElectron, electronApi } from '../services/electronApi';
 
 interface VoskModelSelectorProps {
   voskRecognition: VoskRecognitionService | null;
@@ -49,6 +51,18 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
   const [loadingModel, setLoadingModel] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modelDetails, setModelDetails] = useState<{ [key: string]: any }>({});
+
+  // Use dynamic API base URL that works with any port (same logic as WebSocket detection)
+  const API_BASE = `${window.location.protocol}//${window.location.host}`;
+
+  // Helper function to format file sizes (same as VoskModelManager)
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
 
   // Enhanced static language mapping with native scripts
   const getLanguageInfo = (modelName: string) => {
@@ -243,6 +257,40 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
       const models = await voskRecognition.getAvailableModels();
       setAvailableModels(models);
       
+      // Load model details including sizes from the same API that VoskModelManager uses
+      try {
+        if (isElectron()) {
+          // Use Electron API
+          const response = await electronApi.getVoskModels();
+          if (response.models) {
+            const detailsMap: { [key: string]: any } = {};
+            response.models.forEach((model: any) => {
+              detailsMap[model.name] = {
+                size: formatFileSize(model.size),
+                type: model.type,
+                status: model.status
+              };
+            });
+            setModelDetails(detailsMap);
+          }
+        } else {
+          // Use HTTP API for web/Docker version
+          const response = await axios.get(`${API_BASE}/api/vosk/models/all`);
+          if (response.data.models) {
+            const detailsMap: { [key: string]: any } = {};
+            response.data.models.forEach((model: any) => {
+              detailsMap[model.name] = {
+                size: formatFileSize(model.size),
+                type: model.type,
+                status: model.status
+              };
+            });
+            setModelDetails(detailsMap);
+          }
+        }
+      } catch (error) {
+        console.log('⚠️ Could not load model details:', error);
+      }
       
       // Check what model is currently running on the server first
       let serverCurrentModel: string | null = null;
@@ -523,23 +571,31 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
                     <Typography variant="body2" sx={{ fontWeight: 500 }}>
                       {formatModelName(model)}
                     </Typography>
-                    <Chip
-                      label={model}
-                      size="small"
-                      variant="outlined"
-                      sx={{ 
-                        ml: 'auto', 
-                        fontSize: '0.7rem',
-                        height: '18px',
-                        '& .MuiChip-label': {
-                          px: 0.8
-                        }
-                      }}
-                    />
+                    <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Chip
+                        label={model}
+                        size="small"
+                        variant="outlined"
+                        sx={{ 
+                          fontSize: '0.7rem',
+                          height: '18px',
+                          '& .MuiChip-label': {
+                            px: 0.8
+                          }
+                        }}
+                      />
+                    </Box>
                   </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem', mt: 0.2 }}>
-                    {getModelDetails(model)}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', mt: 0.2 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                      {getModelDetails(model)}
+                    </Typography>
+                    {modelDetails[model]?.size && (
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                        {modelDetails[model].size}
+                      </Typography>
+                    )}
+                  </Box>
                 </Box>
               </MenuItem>
             ))
