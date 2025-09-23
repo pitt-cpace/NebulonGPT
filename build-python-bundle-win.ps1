@@ -9,22 +9,22 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "🐍 $Message" -ForegroundColor Cyan
+    Write-Host "STEP: $Message" -ForegroundColor Cyan
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "✅ $Message" -ForegroundColor Green
+    Write-Host "SUCCESS: $Message" -ForegroundColor Green
 }
 
 function Write-Warning {
     param([string]$Message)
-    Write-Host "⚠️  $Message" -ForegroundColor Yellow
+    Write-Host "WARNING: $Message" -ForegroundColor Yellow
 }
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "📦 $Message" -ForegroundColor Blue
+    Write-Host "INFO: $Message" -ForegroundColor Blue
 }
 
 function Calculate-DirectorySize {
@@ -260,11 +260,11 @@ Write-Success "Python bundle creation completed successfully!"
 Write-Info "Bundle size: $bundleSize bytes"
 Write-Info "Bundle location: python-bundle/"
 Write-Host ""
-Write-Host "🔍 Bundle contents:" -ForegroundColor Magenta
-Write-Host "   • Isolated Python 3.10 environment" -ForegroundColor White
-Write-Host "   • All required packages (vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
-Write-Host "   • Vosk ASR server" -ForegroundColor White
-Write-Host "   • Kokoro TTS server" -ForegroundColor White
-Write-Host "   • Fixed Python wrapper for proper script execution" -ForegroundColor White
+Write-Host "Bundle contents:" -ForegroundColor Magenta
+Write-Host "   - Isolated Python 3.10 environment" -ForegroundColor White
+Write-Host "   - All required packages (vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
+Write-Host "   - Vosk ASR server" -ForegroundColor White
+Write-Host "   - Kokoro TTS server" -ForegroundColor White
+Write-Host "   - Fixed Python wrapper for proper script execution" -ForegroundColor White
 Write-Host ""
-Write-Host "🚀 Ready for distribution!" -ForegroundColor Green
+Write-Host "Ready for distribution!" -ForegroundColor Green
