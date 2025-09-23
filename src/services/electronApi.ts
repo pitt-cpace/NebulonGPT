@@ -20,7 +20,13 @@ declare global {
 }
 
 export const isElectron = () => {
-  return window.isElectron || false;
+  // Check multiple ways to detect Electron
+  return !!(
+    window.isElectron || 
+    window.electronAPI || 
+    (window as any).require ||
+    (window.navigator && window.navigator.userAgent && window.navigator.userAgent.includes('Electron'))
+  );
 };
 
 export const electronApi = {
@@ -172,19 +178,30 @@ export const electronApi = {
 export const getWebSocketUrls = () => {
   if (isElectron()) {
     // In Electron, connect directly to local Python servers
+    console.log('⚡ Using direct WebSocket connections for Electron');
     return {
       vosk: 'ws://localhost:2700',  // Default Vosk WebSocket port
       tts: 'ws://localhost:2701'    // Default TTS WebSocket port
     };
   } else {
-    // Simple detection: Check if we're in actual React dev server
-    // React dev server has webpack HMR available, Docker/production does not
-    const isReactDevServer = (
+    // Enhanced detection for development vs production
+    const isDevelopment = (
+      // Check for React dev server indicators
       window.location.hostname === 'localhost' &&
-      (window as any).webpackHotUpdate !== undefined
+      window.location.port === '3000' &&
+      (
+        // Check for webpack HMR
+        (window as any).webpackHotUpdate !== undefined ||
+        // Check for React dev tools
+        (window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ !== undefined ||
+        // Check for development mode in document
+        document.querySelector('script[src*="webpack"]') !== null ||
+        // Check if we're running from React dev server
+        (window as any).process?.env?.NODE_ENV === 'development'
+      )
     );
     
-    if (isReactDevServer) {
+    if (isDevelopment) {
       // In React development mode, connect directly to Python servers
       console.log('🔧 Using direct WebSocket connections for React dev server');
       return {
