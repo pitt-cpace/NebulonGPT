@@ -7,6 +7,7 @@ yarn-error.log
 # Build files
 /build
 /dist
+dist-electron/
 
 # Environment files
 .env
@@ -33,3 +34,24 @@ docker-compose.yml
 # OS files
 .DS_Store
 Thumbs.db
+
+# Large directories that shouldn't be in Docker context
+python-bundle/
+nebulon-gpt-data/
+nebulon-gpt-volumes/
+export/
+temp-uploads/
+ssl/
+
+# Development and testing files
+test-*.html
+*.ps1
+cleanup.sh
+dev-docker.sh
+start.sh
+test-ollama-connection.sh
+build-python-bundle-mac.sh
+build-python-bundle-win.ps1
+
+# Documentation
+README.md
