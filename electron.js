@@ -738,7 +738,7 @@ function createWindow() {
       // (no webSecurity:false; no allowRunningInsecureContent)
       // No need to force experimental flags for MediaDevices
     },
-    icon: path.join(__dirname, 'icon.png'), // Add app icon
+    icon: path.join(__dirname, 'public', 'cpace-logo-icon-256.ico'), // Use the correct icon path
     titleBarStyle: 'default',
     show: true // Show immediately
   });
