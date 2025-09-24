@@ -118,6 +118,9 @@ async function extractBundledResources() {
   console.log('📦 Extracting bundled resources on startup...');
   
   try {
+    // First, extract Python bundle if it exists as ZIP
+    await extractPythonBundle();
+    
     // Extract Kokoro TTS cache from bundled files with size-based verification (like Vosk)
     const kokoroModelsSource = getResourcePath('models/kokoro');
     if (fs.existsSync(kokoroModelsSource)) {
@@ -224,6 +227,146 @@ async function extractBundledResources() {
     console.error('Error extracting resources:', error);
     throw error;
   }
+}
+
+// Extract Python bundle from ZIP file if it exists
+async function extractPythonBundle() {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const pythonBundleZip = getResourcePath('python-bundle.zip');
+      const pythonBundleDir = getResourcePath('python-bundle');
+      
+      console.log(`📦 Checking for Python bundle ZIP: ${pythonBundleZip}`);
+      console.log(`📦 Target extraction directory: ${pythonBundleDir}`);
+      console.log(`📦 ZIP file exists: ${fs.existsSync(pythonBundleZip)}`);
+      console.log(`📦 Target directory exists: ${fs.existsSync(pythonBundleDir)}`);
+      
+      // If ZIP doesn't exist, check if directory already exists (development mode)
+      if (!fs.existsSync(pythonBundleZip)) {
+        if (fs.existsSync(pythonBundleDir)) {
+          console.log('📦 Python bundle directory already exists, skipping extraction');
+          resolve();
+          return;
+        } else {
+          console.log('📦 No Python bundle ZIP or directory found, skipping extraction');
+          resolve();
+          return;
+        }
+      }
+      
+      // Check if we need to extract with size-based verification
+      const checksumFile = path.join(PATHS.dataDir, '.python-bundle-checksum');
+      
+      let needsExtraction = false;
+      
+      // Step 1: Check if python-bundle directory exists and has content
+      if (!fs.existsSync(pythonBundleDir) || fs.readdirSync(pythonBundleDir).length === 0) {
+        console.log('📦 Python bundle directory not found or empty, extracting...');
+        needsExtraction = true;
+      }
+      // Step 2: Check if checksum file exists
+      else if (!fs.existsSync(checksumFile)) {
+        console.log('📦 No Python bundle checksum file found, extracting...');
+        needsExtraction = true;
+      }
+      // Step 3: Compare current extracted bundle size with saved size
+      else {
+        try {
+          const currentExtractedSize = await calculateDirectorySize(pythonBundleDir);
+          const savedSize = fs.readFileSync(checksumFile, 'utf8').trim();
+          
+          if (savedSize === currentExtractedSize.toString()) {
+            console.log('✅ Python bundle size unchanged, skipping extraction');
+            needsExtraction = false;
+          } else {
+            console.log(`📦 Python bundle size changed (${savedSize} -> ${currentExtractedSize}), extracting...`);
+            needsExtraction = true;
+          }
+        } catch (error) {
+          console.log('📦 Could not read Python bundle checksum file, extracting...');
+          needsExtraction = true;
+        }
+      }
+
+      if (!needsExtraction) {
+        resolve();
+        return;
+      }
+
+      console.log('📦 Extracting Python bundle from ZIP...');
+      
+      // Remove existing directory if it exists
+      if (fs.existsSync(pythonBundleDir)) {
+        console.log('📦 Removing existing Python bundle directory...');
+        fs.rmSync(pythonBundleDir, { recursive: true, force: true });
+      }
+      
+      // Create temp directory for extraction
+      const tempDir = path.join(os.tmpdir(), 'nebulon-python-extract');
+      
+      // Clean up any existing temp directory
+      if (fs.existsSync(tempDir)) {
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch (error) {
+          console.log('Warning: Could not clean temp directory:', error.message);
+        }
+      }
+      
+      // Create temp directory
+      fs.mkdirSync(tempDir, { recursive: true });
+      
+      // Extract ZIP to temp directory
+      await extractZip(pythonBundleZip, { dir: tempDir });
+      
+      // Move extracted content to final location
+      const extractedBundleDir = path.join(tempDir, 'python-bundle');
+      if (fs.existsSync(extractedBundleDir)) {
+        // Move the entire python-bundle directory
+        fs.renameSync(extractedBundleDir, pythonBundleDir);
+      } else {
+        // If extraction created files directly in temp dir, move them to python-bundle
+        fs.mkdirSync(pythonBundleDir, { recursive: true });
+        const items = fs.readdirSync(tempDir);
+        for (const item of items) {
+          const srcPath = path.join(tempDir, item);
+          const destPath = path.join(pythonBundleDir, item);
+          fs.renameSync(srcPath, destPath);
+        }
+      }
+      
+      // Calculate final bundle size and save checksum
+      const finalBundleSize = await calculateDirectorySize(pythonBundleDir);
+      fs.writeFileSync(checksumFile, finalBundleSize.toString());
+      
+      // Cleanup temp directory
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+      
+      console.log(`✅ Python bundle extraction completed. Final size: ${finalBundleSize} bytes`);
+      
+      // Send extraction status to renderer process
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.executeJavaScript(`
+          console.log('✅ Python bundle extraction completed successfully');
+        `).catch(() => {});
+      }
+      
+      resolve();
+    } catch (error) {
+      console.error('❌ Error extracting Python bundle:', error);
+      
+      // Send error to renderer process
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.executeJavaScript(`
+          console.error('❌ Python bundle extraction failed: ${error.message}');
+        `).catch(() => {});
+      }
+      
+      reject(error);
+    }
+  });
 }
 
 // Extract Kokoro TTS cache from bundled split files
@@ -569,6 +712,11 @@ function startVoskServer() {
     const bundledPython = path.join(getResourcePath('python-bundle'), 'python-env', process.platform === 'win32' ? 'python.exe' : 'python3');
     const bundledPackages = path.join(getResourcePath('python-bundle'), 'python-env', 'lib', 'python3.9', 'site-packages');
     
+    console.log(`🐍 Checking bundled Python: ${bundledPython}`);
+    console.log(`🐍 Python exists: ${fs.existsSync(bundledPython)}`);
+    console.log(`🐍 Checking bundled packages: ${bundledPackages}`);
+    console.log(`🐍 Packages exist: ${fs.existsSync(bundledPackages)}`);
+    
     if (fs.existsSync(bundledPython) && fs.existsSync(bundledPackages)) {
       // Use bundled Python with bundled packages
       pythonCmd = bundledPython;
@@ -602,6 +750,14 @@ function startVoskServer() {
       VOSK_SERVER_PORT: '2700'
     };
 
+    // Send server startup info to renderer process
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.executeJavaScript(`
+        console.log('🐍 Starting Vosk server with: ${pythonCmd}');
+        console.log('🐍 Vosk server script: ${PATHS.voskServer}');
+      `).catch(() => {});
+    }
+
     voskProcess = spawn(pythonCmd, [PATHS.voskServer], {
       env,
       stdio: ['pipe', 'pipe', 'pipe']
@@ -613,10 +769,22 @@ function startVoskServer() {
 
     voskProcess.stderr.on('data', (data) => {
       console.error(`[VOSK] ${data}`);
+      // Send error to renderer process
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.executeJavaScript(`
+          console.error('❌ Vosk server error: ${data.toString().replace(/'/g, "\\'")}');
+        `).catch(() => {});
+      }
     });
 
     voskProcess.on('close', (code) => {
       console.log(`Vosk process exited with code ${code}`);
+      // Send exit info to renderer process
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.executeJavaScript(`
+          console.error('❌ Vosk server exited with code: ${code}');
+        `).catch(() => {});
+      }
       if (!isQuitting) {
         // Restart Vosk if it crashes unexpectedly
         setTimeout(() => startVoskServer(), 2000);
@@ -682,6 +850,14 @@ function startTTSServer() {
       CHCP: '65001'
     };
 
+    // Send server startup info to renderer process
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.executeJavaScript(`
+        console.log('🔊 Starting TTS server with: ${pythonCmd}');
+        console.log('🔊 TTS server script: ${PATHS.ttsServer}');
+      `).catch(() => {});
+    }
+
     // On Windows, redirect stderr to avoid Unicode console issues
     if (process.platform === 'win32') {
       ttsProcess = spawn(pythonCmd, [PATHS.ttsServer, '--host', '127.0.0.1', '--port', '2701'], {
@@ -703,11 +879,23 @@ function startTTSServer() {
     if (process.platform !== 'win32') {
       ttsProcess.stderr.on('data', (data) => {
         console.error(`[TTS] ${data}`);
+        // Send error to renderer process
+        if (mainWindow && mainWindow.webContents) {
+          mainWindow.webContents.executeJavaScript(`
+            console.error('❌ TTS server error: ${data.toString().replace(/'/g, "\\'")}');
+          `).catch(() => {});
+        }
       });
     }
 
     ttsProcess.on('close', (code) => {
       console.log(`TTS process exited with code ${code}`);
+      // Send exit info to renderer process
+      if (mainWindow && mainWindow.webContents) {
+        mainWindow.webContents.executeJavaScript(`
+          console.error('❌ TTS server exited with code: ${code}');
+        `).catch(() => {});
+      }
       if (!isQuitting && code !== 0) {
         // Only restart TTS if it crashed (non-zero exit code)
         console.log('TTS server crashed, restarting in 2 seconds...');

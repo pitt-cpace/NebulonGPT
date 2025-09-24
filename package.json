@@ -82,7 +82,7 @@
       "output": "dist-electron"
     },
     "generateUpdatesFilesForAllChannels": false,
-    "compression": "store",
+    "compression": "maximum",
     "files": [
       "build/**/*",
       "electron.js",
@@ -111,11 +111,8 @@
         ]
       },
       {
-        "from": "python-bundle",
-        "to": "python-bundle",
-        "filter": [
-          "**/*"
-        ]
+        "from": "python-bundle.zip",
+        "to": "python-bundle.zip"
       }
     ],
     "mac": {
@@ -135,7 +132,7 @@
       "icon": "public/cpace-logo-icon-256.ico",
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]

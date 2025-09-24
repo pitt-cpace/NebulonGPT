@@ -73,12 +73,11 @@ function Test-NeedsRebuild {
 Write-Step "Checking Python bundle for Windows..."
 
 # Check if rebuild is needed
-if (-not (Test-NeedsRebuild)) {
+$needsRebuild = Test-NeedsRebuild
+if (-not $needsRebuild) {
     Write-Success "Python bundle already exists and is valid - skipping rebuild"
-    exit 0
-}
-
-Write-Step "Creating Python bundle for Windows..."
+} else {
+    Write-Step "Creating Python bundle for Windows..."
 
 # Clean up any existing bundle
 Write-Step "Cleaning up existing bundle..."
@@ -264,15 +263,56 @@ Write-Step "Calculating bundle checksum..."
 $bundleSize = (Get-ChildItem -Path 'python-bundle/python-env' -Recurse | Measure-Object -Property Length -Sum).Sum
 $bundleSize | Out-File -FilePath 'python-bundle/bundle-checksum.txt' -Encoding utf8
 
-Write-Success "Python bundle creation completed successfully!"
-Write-Info "Bundle size: $bundleSize bytes"
-Write-Info "Bundle location: python-bundle/"
-Write-Host ""
-Write-Host "Bundle contents:" -ForegroundColor Magenta
-Write-Host "   - Isolated Python 3.10 environment" -ForegroundColor White
-Write-Host "   - All required packages (vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
-Write-Host "   - Vosk ASR server" -ForegroundColor White
-Write-Host "   - Kokoro TTS server" -ForegroundColor White
-Write-Host "   - Fixed Python wrapper for proper script execution" -ForegroundColor White
+    Write-Success "Python bundle creation completed successfully!"
+    Write-Info "Bundle size: $bundleSize bytes"
+    Write-Info "Bundle location: python-bundle/"
+    
+    Write-Host ""
+    Write-Host "Bundle contents:" -ForegroundColor Magenta
+    Write-Host "   - Isolated Python 3.10 environment" -ForegroundColor White
+    Write-Host "   - All required packages (vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
+    Write-Host "   - Vosk ASR server" -ForegroundColor White
+    Write-Host "   - Kokoro TTS server" -ForegroundColor White
+    Write-Host "   - Fixed Python wrapper for proper script execution" -ForegroundColor White
+}
+
+# Always check and create ZIP file (regardless of whether bundle was rebuilt)
+Write-Step "Checking for Python bundle ZIP file..."
+$zipFile = 'python-bundle.zip'
+
+if (Test-Path $zipFile) {
+    Write-Info "Compressed bundle already exists: $zipFile"
+    $existingSize = (Get-Item $zipFile).Length
+    Write-Info "Existing ZIP size: $([math]::Round($existingSize / 1MB, 2)) MB"
+    Write-Success "Using existing ZIP file for distribution"
+} else {
+    Write-Step "Compressing Python bundle for distribution..."
+    
+    if (Test-Path 'python-bundle') {
+        try {
+            # Calculate bundle size for compression ratio
+            $bundleSize = Calculate-DirectorySize 'python-bundle'
+            
+            # Compress the bundle with optimal compression
+            Compress-Archive -Path 'python-bundle\*' -DestinationPath $zipFile -CompressionLevel Optimal -Force
+            
+            # Calculate compressed size
+            $compressedSize = (Get-Item $zipFile).Length
+            $compressionRatio = [math]::Round((1 - ($compressedSize / $bundleSize)) * 100, 1)
+            
+            Write-Success "Bundle compressed successfully!"
+            Write-Info "Original size: $([math]::Round($bundleSize / 1MB, 2)) MB"
+            Write-Info "Compressed size: $([math]::Round($compressedSize / 1MB, 2)) MB"
+            Write-Info "Compression ratio: $compressionRatio%"
+            Write-Info "ZIP file created: $zipFile"
+        } catch {
+            Write-Warning "Failed to compress bundle: $($_.Exception.Message)"
+            Write-Info "Continuing without compressed bundle..."
+        }
+    } else {
+        Write-Warning "Python bundle directory not found - cannot create ZIP file"
+    }
+}
+
 Write-Host ""
 Write-Host "Ready for distribution!" -ForegroundColor Green
