@@ -50,8 +50,12 @@ function Test-NeedsRebuild {
     }
     
     try {
-        $savedSize = [int](Get-Content $checksumFile -ErrorAction Stop)
+        $savedSizeText = Get-Content $checksumFile -Raw -ErrorAction Stop
+        $savedSize = [long]($savedSizeText.Trim())
         $currentSize = Calculate-DirectorySize $bundleDir
+        
+        Write-Info "Saved size: $savedSize bytes"
+        Write-Info "Current size: $currentSize bytes"
         
         if ($currentSize -lt $savedSize) {
             Write-Warning "Bundle size is smaller than expected (saved: $savedSize, current: $currentSize), recreating bundle..."
@@ -61,7 +65,7 @@ function Test-NeedsRebuild {
         Write-Success "Bundle is up to date (size: $currentSize bytes)"
         return $false
     } catch {
-        Write-Warning "Error reading checksum file, recreating bundle..."
+        Write-Warning "Error reading checksum file: $($_.Exception.Message), recreating bundle..."
         return $true
     }
 }
