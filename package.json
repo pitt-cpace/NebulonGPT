@@ -89,7 +89,8 @@
       "preload.js",
       "server.js",
       "package.json",
-      "node_modules/extract-zip/**/*"
+      "node_modules/extract-zip/**/*",
+      "installer.nsh"
     ],
     "buildDependenciesFromSource": false,
     "nodeGypRebuild": false,
@@ -172,7 +173,17 @@
       "installerIcon": "public/cpace-logo-icon-256.ico",
       "uninstallerIcon": "public/cpace-logo-icon-256.ico",
       "installerHeaderIcon": "public/cpace-logo-icon-256.ico",
-      "differentialPackage": false
+      "differentialPackage": false,
+      "include": "installer.nsh",
+      "displayLanguageSelector": false,
+      "installerSidebar": "public/cpace-logo.png",
+      "uninstallerSidebar": "public/cpace-logo.png",
+      "allowElevation": true,
+      "perMachine": false,
+      "packElevateHelper": true,
+      "warningsAsErrors": false,
+      "unicode": true,
+      "guid": "12345678-1234-1234-1234-123456789012"
     }
   }
 }
