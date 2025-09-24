@@ -111,14 +111,6 @@
         ]
       },
       {
-        "from": "Vosk-Server/websocket",
-        "to": "vosk-server"
-      },
-      {
-        "from": "Kokoro-TTS-Server/websocket",
-        "to": "kokoro-tts"
-      },
-      {
         "from": "python-bundle",
         "to": "python-bundle",
         "filter": [

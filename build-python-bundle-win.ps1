@@ -169,14 +169,18 @@ if (Test-Path 'requirements-bundle.txt') {
 Write-Step "Installing spaCy English model..."
 & $pythonExe -s -E -m pip install --no-cache-dir --upgrade --ignore-installed --isolated --no-warn-script-location --target $targetDir https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
-# Copy websocket servers
+# Copy websocket servers (excluding models directory)
 Write-Step "Copying websocket servers..."
 if (Test-Path 'Vosk-Server/websocket') {
     if (-not (Test-Path 'python-bundle/python-env/vosk-server')) {
         New-Item -ItemType Directory -Path 'python-bundle/python-env/vosk-server' -Force | Out-Null
     }
-    Copy-Item -Recurse -Force 'Vosk-Server/websocket/*' 'python-bundle/python-env/vosk-server/'
-    Write-Success "Vosk server copied"
+    
+    # Copy Python files and requirements, but exclude models directory
+    Get-ChildItem -Path 'Vosk-Server/websocket' -Exclude 'models' | ForEach-Object {
+        Copy-Item -Recurse -Force $_.FullName 'python-bundle/python-env/vosk-server/'
+    }
+    Write-Success "Vosk server copied (excluding models directory)"
 } else {
     Write-Warning "Skip: Vosk-Server/websocket not found"
 }

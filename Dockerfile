@@ -55,7 +55,7 @@ RUN mkdir -p $HF_HOME
 # ----- Better pip caching setup -----
 # Copy only requirements first to preserve layer cache
 COPY Vosk-Server/websocket/requirements.txt /app/vosk-requirements.txt
-COPY Kokoro-TTS-Server/requirements.txt /app/kokoro-requirements.txt
+COPY Kokoro-TTS-Server/websocket/requirements.txt /app/kokoro-requirements.txt
 
 # Install all Python dependencies first (with BuildKit cache mount if available)
 RUN --mount=type=cache,target=/root/.cache/pip \
