@@ -569,7 +569,7 @@ function startVoskServer() {
     
     // Check if bundled Python executable exists
     const bundledPython = path.join(getResourcePath('python-bundle'), 'python-env', process.platform === 'win32' ? 'python.exe' : 'python3');
-    const bundledPackages = path.join(getResourcePath('python-bundle'), 'python-env', 'lib', 'python3.9', 'site-packages');
+    const bundledPackages = path.join(getResourcePath('python-bundle'), 'python-env', 'lib', 'python3.10', 'site-packages');
     
     
     if (fs.existsSync(bundledPython) && fs.existsSync(bundledPackages)) {
@@ -642,7 +642,7 @@ function startTTSServer() {
     
     // Check if bundled Python executable exists
     const bundledPython = path.join(getResourcePath('python-bundle'), 'python-env', process.platform === 'win32' ? 'python.exe' : 'python3');
-    const bundledPackages = path.join(getResourcePath('python-bundle'), 'python-env', 'lib', 'python3.9', 'site-packages');
+    const bundledPackages = path.join(getResourcePath('python-bundle'), 'python-env', 'lib', 'python3.10', 'site-packages');
     
     if (fs.existsSync(bundledPython) && fs.existsSync(bundledPackages)) {
       // Use bundled Python with bundled packages
