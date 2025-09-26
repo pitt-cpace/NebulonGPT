@@ -5,6 +5,10 @@
 
 set -e  # Exit on any error
 
+# Detect target architecture and create architecture-specific bundle
+TARGET_ARCH=${ELECTRON_BUILDER_ARCH:-$(uname -m)}
+echo "🏗️  Building Python bundle for architecture: $TARGET_ARCH"
+
 # Function to calculate directory size
 calculate_dir_size() {
     if [ -d "$1" ]; then
@@ -17,7 +21,7 @@ calculate_dir_size() {
 # Function to check if bundle needs rebuilding
 needs_rebuild() {
     local bundle_dir="python-bundle/python-env"
-    local checksum_file="python-bundle/bundle-checksum.txt"
+    local checksum_file="python-bundle/bundle-checksum-${TARGET_ARCH}.txt"
     
     if [ ! -d "$bundle_dir" ]; then
         echo "📁 Bundle directory not found, creating bundle..."
@@ -49,7 +53,7 @@ if ! needs_rebuild; then
     exit 0
 fi
 
-echo "🔨 Creating Python bundle for macOS..."
+echo "🔨 Creating universal Python bundle for macOS..."
 
 # Clean up any existing bundle
 echo "🧹 Cleaning up existing bundle..."
@@ -59,31 +63,87 @@ rm -rf python-bundle
 echo "📁 Creating directory structure..."
 mkdir -p python-bundle/python-env/lib/python3.9/site-packages
 
-# Install Python packages with pinned versions
-echo "📦 Installing Python packages..."
-pip3 install \
+# Determine the correct pip command for the target architecture
+PIP_CMD="pip3"
+PYTHON_CMD="python3"
+
+# For x64 builds on ARM64 systems, try to use x64-specific Python if available
+if [ "$TARGET_ARCH" = "x64" ] && [ "$(uname -m)" = "arm64" ]; then
+    # Check if we have x64 Python available (e.g., via Rosetta or Intel Python)
+    if command -v /usr/local/bin/python3 >/dev/null 2>&1; then
+        PYTHON_CMD="/usr/local/bin/python3"
+        PIP_CMD="/usr/local/bin/pip3"
+        echo "🔄 Using x64 Python for x64 build: $PYTHON_CMD"
+    elif command -v arch >/dev/null 2>&1; then
+        # Use arch command to run pip under x64 emulation
+        PIP_CMD="arch -x86_64 pip3"
+        PYTHON_CMD="arch -x86_64 python3"
+        echo "🔄 Using Rosetta emulation for x64 build"
+    else
+        echo "⚠️  Warning: Building x64 bundle on ARM64 system without x64 Python"
+    fi
+fi
+
+echo "🐍 Using Python: $PYTHON_CMD"
+echo "📦 Using pip: $PIP_CMD"
+
+# Install Python packages with architecture-specific binaries
+echo "📦 Installing Python packages for $TARGET_ARCH..."
+$PIP_CMD install \
     --target python-bundle/python-env/lib/python3.9/site-packages \
     --upgrade --force-reinstall \
     -r requirements-bundle.txt
 
 # Install spaCy English model
-echo "🔤 Installing spaCy English model..."
-pip3 install \
+echo "🔤 Installing spaCy English model for $TARGET_ARCH..."
+$PIP_CMD install \
     --target python-bundle/python-env/lib/python3.9/site-packages \
     --upgrade \
     https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
 # Copy Python standard library
 echo "📚 Copying Python standard library..."
-cp -r /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9 \
-    python-bundle/python-env/lib/
+
+# Find the correct Python installation for the target architecture
+PYTHON_STDLIB_PATH=""
+
+# Try different common Python installation paths
+POSSIBLE_PATHS=(
+    "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9"
+    "/usr/local/lib/python3.9"
+    "/opt/homebrew/lib/python3.9"
+    "/usr/lib/python3.9"
+)
+
+for path in "${POSSIBLE_PATHS[@]}"; do
+    if [ -d "$path" ]; then
+        PYTHON_STDLIB_PATH="$path"
+        echo "📚 Found Python standard library at: $path"
+        break
+    fi
+done
+
+if [ -z "$PYTHON_STDLIB_PATH" ]; then
+    echo "⚠️  Warning: Could not find Python standard library, using system Python"
+    # Create minimal stdlib structure
+    mkdir -p python-bundle/python-env/lib/python3.9
+else
+    cp -r "$PYTHON_STDLIB_PATH" python-bundle/python-env/lib/
+fi
 
 # Copy websocket servers
 echo "🌐 Copying websocket servers..."
 if [ -d 'Vosk-Server/websocket' ]; then
     mkdir -p python-bundle/python-env/vosk-server
-    cp -r Vosk-Server/websocket/* python-bundle/python-env/vosk-server/
-    echo "✅ Vosk server copied"
+    # Copy all files except the models directory (to avoid duplicating zip files)
+    find Vosk-Server/websocket -maxdepth 1 -type f -exec cp {} python-bundle/python-env/vosk-server/ \;
+    # Copy other directories except models
+    for dir in Vosk-Server/websocket/*/; do
+        if [ -d "$dir" ] && [ "$(basename "$dir")" != "models" ]; then
+            cp -r "$dir" python-bundle/python-env/vosk-server/
+        fi
+    done
+    echo "✅ Vosk server copied (excluding model zip files and models directory)"
 else
     echo "⚠️  Skip: Vosk-Server/websocket not found"
 fi
@@ -153,14 +213,21 @@ PYTHON_WRAPPER_EOF
 # Make the Python wrapper executable
 chmod +x python-bundle/python-env/python3
 
-# Calculate bundle size and create checksum
-echo "📊 Calculating bundle checksum..."
+# Calculate bundle size and create architecture-specific checksum
+echo "📊 Calculating bundle checksum for $TARGET_ARCH..."
 BUNDLE_SIZE=$(find python-bundle/python-env -type f -exec wc -c {} + | tail -1 | awk '{print $1}')
-echo $BUNDLE_SIZE > python-bundle/bundle-checksum.txt
+echo $BUNDLE_SIZE > "python-bundle/bundle-checksum-${TARGET_ARCH}.txt"
 
-echo "✅ Python bundle creation completed successfully!"
+echo "✅ Python bundle creation completed successfully for $TARGET_ARCH!"
 echo "📦 Bundle size: $BUNDLE_SIZE bytes"
 echo "🎯 Bundle location: python-bundle/"
+echo ""
+echo "📦 Creating python-bundle.zip for distribution..."
+
+# Create zip file from the python-bundle directory
+cd python-bundle && zip -r ../python-bundle.zip . && cd ..
+
+echo "✅ Python bundle created and zipped successfully for $TARGET_ARCH!"
 echo ""
 echo "🔍 Bundle contents:"
 echo "   • Isolated Python 3.9 environment"

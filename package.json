@@ -50,7 +50,8 @@
     "build:electron": "npm run build && electron-builder",
     "build:docker": "docker build -t nebulon-gpt .",
     "dist": "npm run build && electron-builder --publish=never",
-    "dist:mac": "npm run build && npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac",
+    "dist:macx64": "npm run build && ELECTRON_BUILDER_ARCH=x64 npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --x64",
+    "dist:macARM64": "npm run build && ELECTRON_BUILDER_ARCH=arm64 npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --arm64",
     "bundle-python-mac": "chmod +x build-python-bundle-mac.sh && ./build-python-bundle-mac.sh",
     "bundle-python-win": "powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1",
     "bundle-python": "node -e \"const os = require('os'); const { execSync } = require('child_process'); const platform = os.platform(); if (platform === 'win32') { execSync('npm run bundle-python-win', { stdio: 'inherit' }); } else if (platform === 'darwin') { execSync('npm run bundle-python-mac', { stdio: 'inherit' }); } else { console.log('Linux bundle not implemented yet, using system Python'); }\"",
@@ -119,15 +120,7 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "public/icon.icns",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ]
+      "target": "dmg"
     },
     "win": {
       "icon": "public/cpace-logo-icon-256.ico",
