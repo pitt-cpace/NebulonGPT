@@ -463,8 +463,19 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
 
     for (const fileName of Array.from(selectedFiles)) {
       try {
-        await axios.delete(`${API_BASE}/api/vosk/models/${encodeURIComponent(fileName)}`);
-        results.push(`✅ ${fileName}: Deleted successfully`);
+        if (isElectron()) {
+          // Use Electron API
+          const result = await electronApi.deleteVoskModel(fileName);
+          if (result.success) {
+            results.push(`✅ ${fileName}: Deleted successfully`);
+          } else {
+            errors.push(`❌ ${fileName}: ${result.error || 'Delete failed'}`);
+          }
+        } else {
+          // Use HTTP API for web/Docker version
+          await axios.delete(`${API_BASE}/api/vosk/models/${encodeURIComponent(fileName)}`);
+          results.push(`✅ ${fileName}: Deleted successfully`);
+        }
       } catch (error: any) {
         console.error(`Error deleting ${fileName}:`, error);
         errors.push(`❌ ${fileName}: ${error.response?.data?.error || 'Delete failed'}`);
@@ -529,7 +540,16 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
             });
           }, 100);
 
-          await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(fileName)}/extract`);
+          if (isElectron()) {
+            // Use Electron API
+            const result = await electronApi.extractVoskModel(fileName);
+            if (!result.success) {
+              throw new Error(result.error || 'Extract failed');
+            }
+          } else {
+            // Use HTTP API for web/Docker version
+            await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(fileName)}/extract`);
+          }
           
           clearInterval(fileProgressInterval);
           completedFiles++;
@@ -541,7 +561,7 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
           
         } catch (error: any) {
           console.error(`Error extracting ${fileName}:`, error);
-          errors.push(`❌ ${fileName}: ${error.response?.data?.error || 'Extract failed'}`);
+          errors.push(`❌ ${fileName}: ${error.response?.data?.error || error.message || 'Extract failed'}`);
           completedFiles++;
         }
       }
