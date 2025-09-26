@@ -101,8 +101,8 @@
       FileOpen $2 "$0\.nebulon-gpt\.python-bundle-checksum" w
       FileWrite $2 "installed"
       FileClose $2
-      ; Delete ZIP to save space
-      Delete "$INSTDIR\resources\python-bundle.zip"
+      ; Keep ZIP file for runtime re-extraction (don't delete)
+      DetailPrint "✓ Keeping ZIP file for runtime re-extraction"
       Goto SkipPython
     
     PythonFailed:
