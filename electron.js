@@ -347,23 +347,11 @@ async function extractPythonBundle() {
       
       console.log(`✅ Python bundle extraction completed. Final size: ${finalBundleSize} bytes`);
       
-      // Send extraction status to renderer process
-      if (mainWindow && mainWindow.webContents) {
-        mainWindow.webContents.executeJavaScript(`
-          console.log('✅ Python bundle extraction completed successfully');
-        `).catch(() => {});
-      }
       
       resolve();
     } catch (error) {
       console.error('❌ Error extracting Python bundle:', error);
       
-      // Send error to renderer process
-      if (mainWindow && mainWindow.webContents) {
-        mainWindow.webContents.executeJavaScript(`
-          console.error('❌ Python bundle extraction failed: ${error.message}');
-        `).catch(() => {});
-      }
       
       reject(error);
     }
@@ -751,13 +739,6 @@ function startVoskServer() {
       VOSK_SERVER_PORT: '2700'
     };
 
-    // Send server startup info to renderer process
-    if (mainWindow && mainWindow.webContents) {
-      mainWindow.webContents.executeJavaScript(`
-        console.log('🐍 Starting Vosk server with: ${pythonCmd}');
-        console.log('🐍 Vosk server script: ${PATHS.voskServer}');
-      `).catch(() => {});
-    }
 
     // Dynamically determine server script path after extraction
     const extractedVoskServer = path.join(PATHS.pythonBundleDir, 'python-env/vosk-server/asr_server_with_models.py');
@@ -779,22 +760,10 @@ function startVoskServer() {
 
     voskProcess.stderr.on('data', (data) => {
       console.error(`[VOSK] ${data}`);
-      // Send error to renderer process
-      if (mainWindow && mainWindow.webContents) {
-        mainWindow.webContents.executeJavaScript(`
-          console.error('❌ Vosk server error: ${data.toString().replace(/'/g, "\\'")}');
-        `).catch(() => {});
-      }
     });
 
     voskProcess.on('close', (code) => {
       console.log(`Vosk process exited with code ${code}`);
-      // Send exit info to renderer process
-      if (mainWindow && mainWindow.webContents) {
-        mainWindow.webContents.executeJavaScript(`
-          console.error('❌ Vosk server exited with code: ${code}');
-        `).catch(() => {});
-      }
       if (!isQuitting) {
         // Restart Vosk if it crashes unexpectedly
         setTimeout(() => startVoskServer(), 2000);
@@ -860,13 +829,6 @@ function startTTSServer() {
       CHCP: '65001'
     };
 
-    // Send server startup info to renderer process
-    if (mainWindow && mainWindow.webContents) {
-      mainWindow.webContents.executeJavaScript(`
-        console.log('🔊 Starting TTS server with: ${pythonCmd}');
-        console.log('🔊 TTS server script: ${PATHS.ttsServer}');
-      `).catch(() => {});
-    }
 
     // Dynamically determine TTS server script path after extraction
     const extractedTTSServer = path.join(PATHS.pythonBundleDir, 'python-env/kokoro-tts/browser_tts_server.py');
@@ -898,23 +860,11 @@ function startTTSServer() {
     if (process.platform !== 'win32') {
       ttsProcess.stderr.on('data', (data) => {
         console.error(`[TTS] ${data}`);
-        // Send error to renderer process
-        if (mainWindow && mainWindow.webContents) {
-          mainWindow.webContents.executeJavaScript(`
-            console.error('❌ TTS server error: ${data.toString().replace(/'/g, "\\'")}');
-          `).catch(() => {});
-        }
       });
     }
 
     ttsProcess.on('close', (code) => {
       console.log(`TTS process exited with code ${code}`);
-      // Send exit info to renderer process
-      if (mainWindow && mainWindow.webContents) {
-        mainWindow.webContents.executeJavaScript(`
-          console.error('❌ TTS server exited with code: ${code}');
-        `).catch(() => {});
-      }
       if (!isQuitting && code !== 0) {
         // Only restart TTS if it crashed (non-zero exit code)
         console.log('TTS server crashed, restarting in 2 seconds...');
