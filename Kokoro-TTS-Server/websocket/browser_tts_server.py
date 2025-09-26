@@ -29,8 +29,15 @@ print(f"📊 HF_DATASETS_CACHE: {os.environ.get('HF_DATASETS_CACHE', 'NOT SET')}
 print(f"📊 HF_HUB_OFFLINE: {os.environ.get('HF_HUB_OFFLINE', 'NOT SET')}")
 print(f"📊 PYTHONPATH: {os.environ.get('PYTHONPATH', 'NOT SET')}")
 
-# Cache Directory Check
-cache_dir = "/app/.cache/huggingface"
+# Cache Directory Check - cross-platform compatible
+# Check if we're in Docker environment first, then use environment variable
+if os.path.exists('/app/.cache/huggingface'):
+    cache_dir = "/app/.cache/huggingface"  # Docker environment
+    print("📁 Using Docker cache directory")
+else:
+    cache_dir = os.environ.get('HF_HOME', '/app/.cache/huggingface')  # Electron.js or other environments
+    print(f"📁 Using environment cache directory: {cache_dir}")
+
 print("")
 print("📁 CACHE DIRECTORY CHECK:")
 print(f"📁 Cache directory exists: {os.path.exists(cache_dir)}")
@@ -245,11 +252,23 @@ class BrowserTTSServer:
     async def initialize_pipeline(self):
         """Initialize Kokoro TTS pipeline with proper cache setup"""
         try:
-            # Ensure cache environment variables are set
-            cache_dir = "/app/.cache/huggingface"
-            os.environ["HF_HOME"] = cache_dir
-            os.environ["TRANSFORMERS_CACHE"] = f"{cache_dir}/transformers"
-            os.environ["HF_DATASETS_CACHE"] = f"{cache_dir}/datasets"
+            # Use cross-platform cache directory detection
+            if os.path.exists('/app/.cache/huggingface'):
+                cache_dir = "/app/.cache/huggingface"  # Docker environment
+                print("🔧 Pipeline using Docker cache directory")
+                # Set environment for Docker
+                os.environ["HF_HOME"] = cache_dir
+                os.environ["TRANSFORMERS_CACHE"] = f"{cache_dir}/transformers"
+                os.environ["HF_DATASETS_CACHE"] = f"{cache_dir}/datasets"
+            else:
+                # Use environment variables from electron.js (or keep existing if already set)
+                cache_dir = os.environ.get('HF_HOME', '/app/.cache/huggingface')
+                print(f"🔧 Pipeline using environment cache directory: {cache_dir}")
+                # Don't override environment variables if they're already set by electron.js
+                if 'TRANSFORMERS_CACHE' not in os.environ:
+                    os.environ["TRANSFORMERS_CACHE"] = f"{cache_dir}/transformers"
+                if 'HF_DATASETS_CACHE' not in os.environ:
+                    os.environ["HF_DATASETS_CACHE"] = f"{cache_dir}/datasets"
             
             # Try offline first, then online if needed
             try:

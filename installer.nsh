@@ -1,6 +1,9 @@
 ; Custom NSIS script for NebulonGPT installer
 ; This script extracts python-bundle.zip during installation
 
+; Declare variables for temp directories
+Var kokoroTemp
+
 ; Force show details view in Modern UI
 !define MUI_INSTFILESPAGE_SHOW_DETAILS
 !define MUI_INSTFILESPAGE_COLORS "FFFFFF 000000"
@@ -66,7 +69,7 @@
   DetailPrint "Checking for python-bundle.zip..."
   
   ; Check if python-bundle.zip exists in resources
-  IfFileExists "$INSTDIR\resources\python-bundle.zip" 0 SkipPython
+  IfFileExists "$INSTDIR\resources\python-bundle.zip" +1 SkipPython
   
   DetailPrint "Found python-bundle.zip (Size: ~500MB compressed)"
   
@@ -97,9 +100,9 @@
     
     PythonSuccess:
       DetailPrint "✓ Python runtime installed successfully"
-      ; Calculate and save directory size as checksum (like runtime)
+      ; Calculate and save directory size as checksum (avoiding NSIS conflicts)
       DetailPrint "Calculating Python bundle checksum..."
-      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$size = (Get-ChildItem \"$0\\.nebulon-gpt\\python-bundle\" -Recurse | Measure-Object -Property Length -Sum).Sum; $size | Out-File -FilePath \"$0\\.nebulon-gpt\\.python-bundle-checksum\" -Encoding utf8 -NoNewline"'
+      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(Get-ChildItem \"$0\\.nebulon-gpt\\python-bundle\" -Recurse | Measure-Object -Property Length -Sum).Sum | Out-File -FilePath \"$0\\.nebulon-gpt\\.python-bundle-checksum\" -Encoding utf8 -NoNewline"'
       Pop $1
       ; Keep ZIP file for runtime re-extraction (don't delete)
       DetailPrint "✓ Keeping ZIP file for runtime re-extraction"
@@ -114,7 +117,7 @@
     DetailPrint "Installing Kokoro TTS cache..."
     
     ; Check if Kokoro TTS models exist
-    IfFileExists "$INSTDIR\resources\models\kokoro\*.*" 0 SkipKokoro
+    IfFileExists "$INSTDIR\resources\models\kokoro\*.*" +1 SkipKokoro
     
     DetailPrint "Found Kokoro TTS cache files"
     
@@ -127,33 +130,48 @@
     
     DoKokoro:
       DetailPrint "Processing Kokoro TTS cache..."
+      DetailPrint "Creating temporary directory for TTS extraction..."
       
-      ; Use simple concatenation and extraction
-      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "cmd /c copy /b \"$INSTDIR\\resources\\models\\kokoro\\huggingface-cache.zip.*\" \"$INSTDIR\\huggingface-cache.zip\""'
+      ; Create temp directory for Kokoro extraction (NSIS-safe)
+      GetTempFileName $kokoroTemp
+      Delete "$kokoroTemp"
+      StrCpy $kokoroTemp "$kokoroTemp-kokoro"
+      CreateDirectory "$kokoroTemp"
+      
+      ; Step 1: Use simple binary copy for split files (NSIS-safe)
+      DetailPrint "Concatenating Kokoro cache parts..."
+      nsExec::ExecToLog 'cmd /c "copy /b \"$INSTDIR\\resources\\models\\kokoro\\huggingface-cache.zip.*\" \"$kokoroTemp\\huggingface-cache.zip\""'
       Pop $1
       
-      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory(\"$INSTDIR\\huggingface-cache.zip\", \"$0\\.nebulon-gpt\")"'
+      ; Step 2: Extract concatenated ZIP to temp directory
+      DetailPrint "Extracting TTS cache..."
+      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory(\"$kokoroTemp\\huggingface-cache.zip\", \"$kokoroTemp\")"'
       Pop $1
       
-      ; Create datasets directory
+      ; Step 3: Copy extracted content to final location
+      DetailPrint "Installing TTS cache to user directory..."
+      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path \"$kokoroTemp\\huggingface-cache\") { Copy-Item -Recurse -Force \"$kokoroTemp\\huggingface-cache\\*\" \"$0\\.nebulon-gpt\\huggingface-cache\" }"'
+      Pop $1
+      
+      ; Create datasets directory (required by TTS server)
       CreateDirectory "$0\.nebulon-gpt\huggingface-cache\datasets"
       
-      ; Calculate and save directory size as checksum (like runtime)
-      DetailPrint "Calculating Kokoro TTS checksum..."
-      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$size = (Get-ChildItem \"$0\\.nebulon-gpt\\huggingface-cache\" -Recurse | Measure-Object -Property Length -Sum).Sum; $size | Out-File -FilePath \"$0\\.nebulon-gpt\\.huggingface-cache-checksum\" -Encoding utf8 -NoNewline"'
+      ; Calculate and save directory size as checksum (avoiding NSIS conflicts)
+      DetailPrint "Calculating TTS cache checksum..."
+      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(Get-ChildItem \"$0\\.nebulon-gpt\\huggingface-cache\" -Recurse | Measure-Object -Property Length -Sum).Sum | Out-File -FilePath \"$0\\.nebulon-gpt\\.huggingface-cache-checksum\" -Encoding utf8 -NoNewline"'
       Pop $1
       
-      ; Cleanup
-      Delete "$INSTDIR\huggingface-cache.zip"
+      ; Cleanup temp directory
+      RMDir /r "$kokoroTemp"
       
-      DetailPrint "✓ Kokoro TTS cache installed successfully"
+      DetailPrint "✓ Kokoro TTS cache fully extracted and installed successfully"
     
     SkipKokoro:
       ; Extract Vosk models
       DetailPrint "Installing Vosk speech models..."
       
       ; Check if Vosk models exist
-      IfFileExists "$INSTDIR\resources\models\vosk\*.*" 0 SkipVosk
+      IfFileExists "$INSTDIR\resources\models\vosk\*.*" +1 SkipVosk
       
       DetailPrint "Found Vosk model files"
       
@@ -166,24 +184,36 @@
       
       DoVosk:
         DetailPrint "Processing Vosk models..."
+        DetailPrint "Copying model files..."
         
         ; Create target directory
         CreateDirectory "$0\.nebulon-gpt\vosk-models"
         
-        ; Copy and process files
+        ; Copy all files from source to target first
         nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Recurse -Force \"$INSTDIR\\resources\\models\\vosk\\*\" \"$0\\.nebulon-gpt\\vosk-models\""'
         Pop $1
         
-        ; Process split files and extract
-        nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "cd \"$0\\.nebulon-gpt\\vosk-models\"; Get-ChildItem -Filter \"*.zip.*\" | Group-Object {($_.Name -split \"\\.zip\\.\")[0]} | ForEach-Object { $baseName = $_.Name; $parts = $_.Group | Sort-Object Name; if ($parts.Count -gt 1) { cmd /c copy /b ($parts.FullName -join \"+\") \"$baseName.zip\" } }; Add-Type -AssemblyName System.IO.Compression.FileSystem; Get-ChildItem -Filter \"*.zip\" | Where-Object {$_.Name -notmatch \"\\.zip\\.[0-9]+$\"} | ForEach-Object { try { [System.IO.Compression.ZipFile]::ExtractToDirectory($_.FullName, \".\") } catch { } }; Get-ChildItem -Filter \"*.zip*\" | Remove-Item -Force"'
+        ; Step 1: Use simple binary copy for split files (NSIS-safe)
+        DetailPrint "Concatenating split model archives..."
+        nsExec::ExecToLog 'cmd /c "cd /d \"$0\\.nebulon-gpt\\vosk-models\" && for /f \"tokens=1 delims=.\" %a in ('"'"'dir /b *.zip.* 2^>nul^|findstr /r \"\.zip\.[0-9]\"'"'"') do if exist %a.zip.001 copy /b %a.zip.* %a.zip >nul 2>&1"'
         Pop $1
         
-        ; Calculate and save directory size as checksum (like runtime)
+        ; Step 2: Extract all complete ZIP files  
+        DetailPrint "Extracting model archives..."
+        nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; Get-ChildItem \"$0\\.nebulon-gpt\\vosk-models\" -Filter \"*.zip\" | Where-Object {$_.Name -notmatch \"\\.zip\\.[0-9]+\"} | ForEach-Object { try { [System.IO.Compression.ZipFile]::ExtractToDirectory($_.FullName, \"$0\\.nebulon-gpt\\vosk-models\") } catch { } }"'
+        Pop $1
+        
+        ; Step 3: Clean up all ZIP files
+        DetailPrint "Cleaning up ZIP files..."
+        nsExec::ExecToLog 'cmd /c "cd /d \"$0\\.nebulon-gpt\\vosk-models\" && del /q *.zip* >nul 2>&1"'
+        Pop $1
+        
+        ; Calculate and save directory size as checksum (avoiding NSIS conflicts)
         DetailPrint "Calculating Vosk models checksum..."
-        nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$size = (Get-ChildItem \"$0\\.nebulon-gpt\\vosk-models\" -Recurse | Measure-Object -Property Length -Sum).Sum; $size | Out-File -FilePath \"$0\\.nebulon-gpt\\.vosk-models-checksum\" -Encoding utf8 -NoNewline"'
+        nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(Get-ChildItem \"$0\\.nebulon-gpt\\vosk-models\" -Recurse | Measure-Object -Property Length -Sum).Sum | Out-File -FilePath \"$0\\.nebulon-gpt\\.vosk-models-checksum\" -Encoding utf8 -NoNewline"'
         Pop $1
         
-        DetailPrint "✓ Vosk speech models installed successfully"
+        DetailPrint "✓ Vosk speech models extracted and installed successfully"
       
       SkipVosk:
         DetailPrint "Configuring application settings..."
@@ -191,6 +221,9 @@
         DetailPrint "Registering file associations..."
         DetailPrint "✓ NebulonGPT installation completed successfully!"
         DetailPrint "Ready to launch NebulonGPT with AI-powered features"
+        DetailPrint "Finalizing installation..."
+        Sleep 5000
+        DetailPrint "Installation complete!"
 !macroend
 
 !macro customUnInstall
