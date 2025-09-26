@@ -28,7 +28,7 @@
   DetailPrint "- Node.js dependencies"
   DetailPrint "- Application resources"
   DetailPrint "Installing Python bundle (Speech Recognition & TTS)..."
-  DetailPrint "- Python 3.9 runtime environment"
+  DetailPrint "- Python 3.10 runtime environment"
   DetailPrint "- Speech recognition libraries (Vosk)"
   DetailPrint "- Text-to-speech libraries (Kokoro)"
   DetailPrint "- AI models and dependencies"
@@ -61,79 +61,161 @@
   DetailPrint "Installing Node.js modules..."
   DetailPrint "Setting up application structure..."
   
-  ; Extract python-bundle.zip during installation
+  ; Extract python-bundle.zip during installation to user home directory
   DetailPrint "Installing Python bundle (Speech Recognition & TTS)..."
   DetailPrint "Checking for python-bundle.zip..."
   
   ; Check if python-bundle.zip exists in resources
-  IfFileExists "$INSTDIR\resources\python-bundle.zip" 0 SkipExtraction
+  IfFileExists "$INSTDIR\resources\python-bundle.zip" 0 SkipPython
   
   DetailPrint "Found python-bundle.zip (Size: ~500MB compressed)"
-  DetailPrint "Creating python-bundle directory..."
-  ; Create python-bundle directory
-  CreateDirectory "$INSTDIR\resources\python-bundle"
   
-  ; Use PowerShell to extract the ZIP file with verbose output
-  DetailPrint "Extracting Python environment..."
-  DetailPrint "Installing Python 3.9 runtime..."
-  DetailPrint "Installing speech recognition libraries..."
-  DetailPrint "Installing text-to-speech libraries..."
-  DetailPrint "Installing Vosk speech models..."
-  DetailPrint "Installing Kokoro TTS models..."
-  DetailPrint "This may take a few moments..."
+  ; Get user home directory
+  ReadEnvStr $0 "USERPROFILE"
   
-  nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& {Add-Type -AssemblyName System.IO.Compression.FileSystem; Write-Host \"Extracting Python bundle...\"; [System.IO.Compression.ZipFile]::ExtractToDirectory(\"$INSTDIR\\resources\\python-bundle.zip\", \"$INSTDIR\\resources\"); Write-Host \"Extraction completed successfully\"}"'
-  Pop $0
+  ; Create .nebulon-gpt directory
+  CreateDirectory "$0\.nebulon-gpt"
   
-  ; Check if extraction was successful
-  IntCmp $0 0 ExtractionSuccess ExtractionFailed ExtractionFailed
+  ; Simple check - if python-bundle directory exists, skip
+  IfFileExists "$0\.nebulon-gpt\python-bundle\*.*" PythonExists DoPython
   
-  ExtractionSuccess:
-    DetailPrint "✓ Python runtime installed successfully"
-    DetailPrint "✓ Speech recognition libraries installed"
-    DetailPrint "✓ Text-to-speech libraries installed"
-    DetailPrint "✓ AI models installed and ready"
-    DetailPrint "Cleaning up installation files..."
-    ; Delete the ZIP file after successful extraction to save disk space
-    Delete "$INSTDIR\resources\python-bundle.zip"
-    DetailPrint "✓ Installation cleanup completed"
-    DetailPrint "Python bundle installation: SUCCESS"
-    Goto SkipExtraction
+  PythonExists:
+    DetailPrint "✓ Python bundle already installed"
+    Goto SkipPython
   
-  ExtractionFailed:
-    DetailPrint "PowerShell extraction failed, trying alternative method..."
-    DetailPrint "Attempting 7-Zip extraction..."
-    ; Try using 7-Zip if available
-    nsExec::ExecToLog '"$PROGRAMFILES\7-Zip\7z.exe" x "$INSTDIR\resources\python-bundle.zip" -o"$INSTDIR\resources" -y'
-    Pop $0
-    IntCmp $0 0 SevenZipSuccess SevenZipFailed SevenZipFailed
+  DoPython:
+    DetailPrint "Extracting Python environment to user directory..."
+    DetailPrint "Installing Python 3.10 runtime..."
+    DetailPrint "This may take a few moments..."
     
-    SevenZipSuccess:
-      DetailPrint "✓ Python bundle extracted using 7-Zip"
-      DetailPrint "✓ Speech and TTS libraries installed"
+    ; Extract directly to user directory using PowerShell
+    nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory(\"$INSTDIR\\resources\\python-bundle.zip\", \"$0\\.nebulon-gpt\")"'
+    Pop $1
+    
+    ; Check if extraction was successful
+    IntCmp $1 0 PythonSuccess PythonFailed PythonFailed
+    
+    PythonSuccess:
+      DetailPrint "✓ Python runtime installed successfully"
+      ; Create marker file
+      FileOpen $2 "$0\.nebulon-gpt\.python-bundle-checksum" w
+      FileWrite $2 "installed"
+      FileClose $2
+      ; Delete ZIP to save space
       Delete "$INSTDIR\resources\python-bundle.zip"
-      DetailPrint "✓ Installation cleanup completed"
-      Goto SkipExtraction
+      Goto SkipPython
     
-    SevenZipFailed:
-      DetailPrint "⚠ Warning: Python bundle extraction failed"
+    PythonFailed:
+      DetailPrint "⚠ Python bundle extraction failed"
       DetailPrint "⚠ Speech recognition will be set up on first run"
-      DetailPrint "⚠ This may cause slower initial startup"
-      ; Leave ZIP file for runtime extraction
-      Goto SkipExtraction
   
-  SkipExtraction:
-    DetailPrint "Installing Vosk speech models..."
+  SkipPython:
+    ; Extract Kokoro TTS cache
     DetailPrint "Installing Kokoro TTS cache..."
-    DetailPrint "Configuring application settings..."
-    DetailPrint "Creating desktop shortcuts..."
-    DetailPrint "Registering file associations..."
-    DetailPrint "✓ NebulonGPT installation completed successfully!"
-    DetailPrint "Ready to launch NebulonGPT with AI-powered features"
+    
+    ; Check if Kokoro TTS models exist
+    IfFileExists "$INSTDIR\resources\models\kokoro\*.*" 0 SkipKokoro
+    
+    DetailPrint "Found Kokoro TTS cache files"
+    
+    ; Simple check - if huggingface-cache directory exists, skip  
+    IfFileExists "$0\.nebulon-gpt\huggingface-cache\*.*" KokoroExists DoKokoro
+    
+    KokoroExists:
+      DetailPrint "✓ Kokoro TTS cache already installed"
+      Goto SkipKokoro
+    
+    DoKokoro:
+      DetailPrint "Processing Kokoro TTS cache..."
+      
+      ; Use simple concatenation and extraction
+      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "cmd /c copy /b \"$INSTDIR\\resources\\models\\kokoro\\huggingface-cache.zip.*\" \"$INSTDIR\\huggingface-cache.zip\""'
+      Pop $1
+      
+      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory(\"$INSTDIR\\huggingface-cache.zip\", \"$0\\.nebulon-gpt\")"'
+      Pop $1
+      
+      ; Create datasets directory
+      CreateDirectory "$0\.nebulon-gpt\huggingface-cache\datasets"
+      
+      ; Create marker file
+      FileOpen $2 "$0\.nebulon-gpt\.huggingface-cache-checksum" w  
+      FileWrite $2 "installed"
+      FileClose $2
+      
+      ; Cleanup
+      Delete "$INSTDIR\huggingface-cache.zip"
+      
+      DetailPrint "✓ Kokoro TTS cache installed successfully"
+    
+    SkipKokoro:
+      ; Extract Vosk models
+      DetailPrint "Installing Vosk speech models..."
+      
+      ; Check if Vosk models exist
+      IfFileExists "$INSTDIR\resources\models\vosk\*.*" 0 SkipVosk
+      
+      DetailPrint "Found Vosk model files"
+      
+      ; Simple check - if vosk-models directory exists, skip
+      IfFileExists "$0\.nebulon-gpt\vosk-models\*.*" VoskExists DoVosk
+      
+      VoskExists:
+        DetailPrint "✓ Vosk models already installed"
+        Goto SkipVosk
+      
+      DoVosk:
+        DetailPrint "Processing Vosk models..."
+        
+        ; Create target directory
+        CreateDirectory "$0\.nebulon-gpt\vosk-models"
+        
+        ; Copy and process files
+        nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Recurse -Force \"$INSTDIR\\resources\\models\\vosk\\*\" \"$0\\.nebulon-gpt\\vosk-models\""'
+        Pop $1
+        
+        ; Process split files and extract
+        nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "cd \"$0\\.nebulon-gpt\\vosk-models\"; Get-ChildItem -Filter \"*.zip.*\" | Group-Object {($_.Name -split \"\\.zip\\.\")[0]} | ForEach-Object { $baseName = $_.Name; $parts = $_.Group | Sort-Object Name; if ($parts.Count -gt 1) { cmd /c copy /b ($parts.FullName -join \"+\") \"$baseName.zip\" } }; Add-Type -AssemblyName System.IO.Compression.FileSystem; Get-ChildItem -Filter \"*.zip\" | Where-Object {$_.Name -notmatch \"\\.zip\\.[0-9]+$\"} | ForEach-Object { try { [System.IO.Compression.ZipFile]::ExtractToDirectory($_.FullName, \".\") } catch { } }; Get-ChildItem -Filter \"*.zip*\" | Remove-Item -Force"'
+        Pop $1
+        
+        ; Create marker file
+        FileOpen $2 "$0\.nebulon-gpt\.vosk-models-checksum" w
+        FileWrite $2 "installed"
+        FileClose $2
+        
+        DetailPrint "✓ Vosk speech models installed successfully"
+      
+      SkipVosk:
+        DetailPrint "Configuring application settings..."
+        DetailPrint "Creating desktop shortcuts..."
+        DetailPrint "Registering file associations..."
+        DetailPrint "✓ NebulonGPT installation completed successfully!"
+        DetailPrint "Ready to launch NebulonGPT with AI-powered features"
 !macroend
 
 !macro customUnInstall
-  ; Clean up extracted python-bundle directory during uninstall
+  ; Clean up extracted bundles from user directory during uninstall
+  DetailPrint "Cleaning up NebulonGPT user data..."
+  
+  ; Get user home directory
+  ReadEnvStr $0 "USERPROFILE"
+  
+  ; Remove Python bundle
   DetailPrint "Removing Python bundle..."
-  RMDir /r "$INSTDIR\resources\python-bundle"
+  RMDir /r "$0\.nebulon-gpt\python-bundle"
+  
+  ; Remove Kokoro TTS cache  
+  DetailPrint "Removing TTS cache..."
+  RMDir /r "$0\.nebulon-gpt\huggingface-cache"
+  
+  ; Remove Vosk models
+  DetailPrint "Removing Vosk models..."
+  RMDir /r "$0\.nebulon-gpt\vosk-models"
+  
+  ; Remove checksum files
+  Delete "$0\.nebulon-gpt\.python-bundle-checksum"
+  Delete "$0\.nebulon-gpt\.huggingface-cache-checksum"  
+  Delete "$0\.nebulon-gpt\.vosk-models-checksum"
+  
+  DetailPrint "Cleanup completed"
 !macroend
