@@ -97,10 +97,10 @@
     
     PythonSuccess:
       DetailPrint "✓ Python runtime installed successfully"
-      ; Create marker file
-      FileOpen $2 "$0\.nebulon-gpt\.python-bundle-checksum" w
-      FileWrite $2 "installed"
-      FileClose $2
+      ; Calculate and save directory size as checksum (like runtime)
+      DetailPrint "Calculating Python bundle checksum..."
+      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$size = (Get-ChildItem \"$0\\.nebulon-gpt\\python-bundle\" -Recurse | Measure-Object -Property Length -Sum).Sum; $size | Out-File -FilePath \"$0\\.nebulon-gpt\\.python-bundle-checksum\" -Encoding utf8 -NoNewline"'
+      Pop $1
       ; Keep ZIP file for runtime re-extraction (don't delete)
       DetailPrint "✓ Keeping ZIP file for runtime re-extraction"
       Goto SkipPython
@@ -138,10 +138,10 @@
       ; Create datasets directory
       CreateDirectory "$0\.nebulon-gpt\huggingface-cache\datasets"
       
-      ; Create marker file
-      FileOpen $2 "$0\.nebulon-gpt\.huggingface-cache-checksum" w  
-      FileWrite $2 "installed"
-      FileClose $2
+      ; Calculate and save directory size as checksum (like runtime)
+      DetailPrint "Calculating Kokoro TTS checksum..."
+      nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$size = (Get-ChildItem \"$0\\.nebulon-gpt\\huggingface-cache\" -Recurse | Measure-Object -Property Length -Sum).Sum; $size | Out-File -FilePath \"$0\\.nebulon-gpt\\.huggingface-cache-checksum\" -Encoding utf8 -NoNewline"'
+      Pop $1
       
       ; Cleanup
       Delete "$INSTDIR\huggingface-cache.zip"
@@ -178,10 +178,10 @@
         nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "cd \"$0\\.nebulon-gpt\\vosk-models\"; Get-ChildItem -Filter \"*.zip.*\" | Group-Object {($_.Name -split \"\\.zip\\.\")[0]} | ForEach-Object { $baseName = $_.Name; $parts = $_.Group | Sort-Object Name; if ($parts.Count -gt 1) { cmd /c copy /b ($parts.FullName -join \"+\") \"$baseName.zip\" } }; Add-Type -AssemblyName System.IO.Compression.FileSystem; Get-ChildItem -Filter \"*.zip\" | Where-Object {$_.Name -notmatch \"\\.zip\\.[0-9]+$\"} | ForEach-Object { try { [System.IO.Compression.ZipFile]::ExtractToDirectory($_.FullName, \".\") } catch { } }; Get-ChildItem -Filter \"*.zip*\" | Remove-Item -Force"'
         Pop $1
         
-        ; Create marker file
-        FileOpen $2 "$0\.nebulon-gpt\.vosk-models-checksum" w
-        FileWrite $2 "installed"
-        FileClose $2
+        ; Calculate and save directory size as checksum (like runtime)
+        DetailPrint "Calculating Vosk models checksum..."
+        nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$size = (Get-ChildItem \"$0\\.nebulon-gpt\\vosk-models\" -Recurse | Measure-Object -Property Length -Sum).Sum; $size | Out-File -FilePath \"$0\\.nebulon-gpt\\.vosk-models-checksum\" -Encoding utf8 -NoNewline"'
+        Pop $1
         
         DetailPrint "✓ Vosk speech models installed successfully"
       
