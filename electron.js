@@ -738,8 +738,8 @@ function startVoskServer() {
       console.log(`🐍 Could not detect Python version in bundle, skipping extracted packages`);
     }
     
-    if (fs.existsSync(extractedPython) && fs.existsSync(extractedPackages)) {
-      // Use extracted Python with extracted packages
+    if (fs.existsSync(extractedPython) && extractedPackages && fs.existsSync(extractedPackages)) {
+      // Use extracted Python with extracted packages - 100% bundled
       pythonCmd = extractedPython;
       console.log(`Using extracted Python: ${pythonCmd}`);
       console.log(`Extracted packages path: ${extractedPackages}`);
@@ -747,21 +747,18 @@ function startVoskServer() {
       // Set up environment for extracted Python
       pythonEnv.PYTHONPATH = `${path.join(PATHS.pythonBundleDir, 'python-env/vosk-server')}:${extractedPackages}`;
       pythonEnv.PYTHONHOME = path.join(PATHS.pythonBundleDir, 'python-env');
-    } else if (fs.existsSync(extractedPackages)) {
-      // Use system Python with extracted packages
-      pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-      console.log(`Using system Python with extracted packages: ${pythonCmd}`);
-      console.log(`Extracted packages path: ${extractedPackages}`);
-      
-      // Set up environment to use extracted packages with system Python
-      pythonEnv.PYTHONPATH = `${path.join(PATHS.pythonBundleDir, 'vosk-server')}:${extractedPackages}`;
     } else {
-      // Fallback to system Python with dev paths
-      pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-      console.log(`Extracted packages not found, using system Python with dev paths: ${pythonCmd}`);
+      // No system Python fallback - bundled Python environment required
+      const errorMsg = !fs.existsSync(extractedPython) 
+        ? 'Bundled Python executable not found'
+        : !extractedPackages 
+          ? 'Could not detect Python version in bundle'
+          : 'Bundled Python packages not found';
       
-      // Fallback to development paths
-      pythonEnv.PYTHONPATH = `${getResourcePath('Vosk-Server/websocket')}`;
+      console.error(`❌ Vosk server cannot start: ${errorMsg}`);
+      console.error(`❌ Required bundled Python environment is missing`);
+      reject(new Error(errorMsg));
+      return;
     }
     
     const env = {
@@ -835,7 +832,7 @@ function startTTSServer() {
     }
     
     if (fs.existsSync(extractedPython) && extractedPackages && fs.existsSync(extractedPackages)) {
-      // Use extracted Python with extracted packages
+      // Use extracted Python with extracted packages - 100% bundled
       pythonCmd = extractedPython;
       console.log(`Using extracted Python: ${pythonCmd}`);
       console.log(`Extracted packages path: ${extractedPackages}`);
@@ -843,21 +840,18 @@ function startTTSServer() {
       // Set up environment for extracted Python
       pythonEnv.PYTHONPATH = `${path.join(PATHS.pythonBundleDir, 'python-env/kokoro-tts')}:${extractedPackages}`;
       pythonEnv.PYTHONHOME = path.join(PATHS.pythonBundleDir, 'python-env');
-    } else if (extractedPackages && fs.existsSync(extractedPackages)) {
-      // Use system Python with extracted packages
-      pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-      console.log(`Using system Python with extracted packages: ${pythonCmd}`);
-      console.log(`Extracted packages path: ${extractedPackages}`);
-      
-      // Set up environment to use extracted packages with system Python
-      pythonEnv.PYTHONPATH = `${path.join(PATHS.pythonBundleDir, 'kokoro-tts')}:${extractedPackages}`;
     } else {
-      // Fallback to system Python with dev paths
-      pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-      console.log(`Extracted packages not found, using system Python with dev paths: ${pythonCmd}`);
+      // No system Python fallback - bundled Python environment required
+      const errorMsg = !fs.existsSync(extractedPython) 
+        ? 'Bundled Python executable not found'
+        : !extractedPackages 
+          ? 'Could not detect Python version in bundle'
+          : 'Bundled Python packages not found';
       
-      // Fallback to development paths
-      pythonEnv.PYTHONPATH = `${getResourcePath('Kokoro-TTS-Server/websocket')}`;
+      console.error(`❌ TTS server cannot start: ${errorMsg}`);
+      console.error(`❌ Required bundled Python environment is missing`);
+      reject(new Error(errorMsg));
+      return;
     }
     
     const env = {
