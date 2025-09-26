@@ -9,6 +9,7 @@ declare global {
       deleteVoskModel: (modelName: string) => Promise<{ success: boolean; error?: string }>;
       extractVoskModel: (modelName: string) => Promise<{ success: boolean; error?: string }>;
       copyFileToModels: (fileName: string, fileData: Uint8Array) => Promise<{ success: boolean; error?: string }>;
+      updateVoskModelsChecksum: () => Promise<{ success: boolean; size?: number; error?: string }>;
       showSaveDialog: () => Promise<any>;
       showOpenDialog: () => Promise<any>;
       getAppVersion: () => Promise<string>;
@@ -136,6 +137,14 @@ export const electronApi = {
     }
     // Not supported in web/Docker version
     return { success: false, error: 'File copying not supported in web version' };
+  },
+
+  async updateVoskModelsChecksum(): Promise<{ success: boolean; size?: number; error?: string }> {
+    if (isElectron() && window.electronAPI) {
+      return await window.electronAPI.updateVoskModelsChecksum();
+    }
+    // Not needed in web/Docker version (no checksum validation)
+    return { success: true };
   },
 
   // File dialogs (Electron only)

@@ -40,6 +40,23 @@ import axios from 'axios';
 import { VoskRecognitionService } from '../services/vosk';
 import { electronApi, isElectron } from '../services/electronApi';
 
+// Helper function to update Vosk models checksum in Electron mode
+const updateVoskModelsChecksum = async () => {
+  if (!isElectron()) return; // Only for Electron mode
+  
+  try {
+    console.log('📊 Updating Vosk models checksum after model changes...');
+    const result = await electronApi.updateVoskModelsChecksum();
+    if (result.success) {
+      console.log(`✅ Vosk models checksum updated successfully. New size: ${result.size} bytes`);
+    } else {
+      console.warn('Failed to update Vosk models checksum:', result.error);
+    }
+  } catch (error) {
+    console.warn('Failed to update Vosk models checksum:', error);
+  }
+};
+
 interface VoskModel {
   name: string;
   type: 'directory' | 'zip' | 'file';
@@ -225,6 +242,11 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
         }
       }
 
+      // Update checksum after file upload operations (only if using Electron and had successful uploads)
+      if (isElectron() && results.length > 0) {
+        await updateVoskModelsChecksum();
+      }
+
       // Show results
       if (results.length > 0 && errors.length === 0) {
         const action = isElectron() ? 'processed' : 'uploaded';
@@ -264,6 +286,8 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
         const result = await electronApi.deleteVoskModel(modelName);
         if (result.success) {
           setSuccess('Model deleted successfully');
+          // Update checksum after successful deletion
+          await updateVoskModelsChecksum();
         } else {
           setError(result.error || 'Error deleting model');
         }
@@ -303,6 +327,8 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
         if (!result.success) {
           throw new Error(result.error || 'Extract failed');
         }
+        // Update checksum after successful extraction
+        await updateVoskModelsChecksum();
       } else {
         // Use HTTP API for web/Docker version
         await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(modelName)}/extract`);
@@ -482,6 +508,11 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
       }
     }
 
+    // Update checksum after bulk delete operations (only if using Electron and had successful deletions)
+    if (isElectron() && results.length > 0) {
+      await updateVoskModelsChecksum();
+    }
+
     // Show results
     if (results.length > 0 && errors.length === 0) {
       setSuccess(`All ${selectedFiles.size} files deleted successfully:\n${results.join('\n')}`);
@@ -564,6 +595,11 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
           errors.push(`❌ ${fileName}: ${error.response?.data?.error || error.message || 'Extract failed'}`);
           completedFiles++;
         }
+      }
+
+      // Update checksum after bulk extract operations (only if using Electron and had successful extractions)
+      if (isElectron() && results.length > 0) {
+        await updateVoskModelsChecksum();
       }
 
       // Show results

@@ -1321,3 +1321,22 @@ ipcMain.handle('copy-file-to-models', async (event, fileName, fileData) => {
     return { success: false, error: error.message };
   }
 });
+
+ipcMain.handle('update-vosk-models-checksum', async () => {
+  try {
+    console.log('📊 Updating Vosk models checksum...');
+    
+    // Calculate current Vosk models directory size
+    const currentVoskModelsSize = await calculateDirectorySize(PATHS.voskModelsDir);
+    
+    // Save updated checksum
+    const checksumFile = path.join(PATHS.dataDir, '.vosk-models-checksum');
+    fs.writeFileSync(checksumFile, currentVoskModelsSize.toString());
+    
+    console.log(`✅ Vosk models checksum updated. New size: ${currentVoskModelsSize} bytes`);
+    return { success: true, size: currentVoskModelsSize };
+  } catch (error) {
+    console.error('Error updating Vosk models checksum:', error);
+    return { success: false, error: error.message };
+  }
+});
