@@ -187,6 +187,9 @@ ssl/
 python-bundle/
 python-bundle.zip
 
+# TAR docker image files
+*.tar
+
 # Pip install artifacts (version files)
 =*
 
