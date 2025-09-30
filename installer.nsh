@@ -55,107 +55,125 @@ Var kokoroTemp
   SkipPython:
 !macroend
 
-; Macro: Extract TTS Cache
+; ==============================
+; Macro: Extract TTS Cache (Kokoro)
+; Steps: copy -> group/concat -> extract -> cleanup -> datasets -> checksum
+; ==============================
 !macro ExtractTTSCache
   DetailPrint "Installing Kokoro TTS cache..."
-  
-  ; Check if Kokoro TTS models exist
-  IfFileExists "$INSTDIR\resources\models\kokoro\*.*" +1 SkipKokoro
-  
-  DetailPrint "Found Kokoro TTS cache files"
-  
-  ; Get user home directory
-  ReadEnvStr $0 "USERPROFILE"
-  
-  ; Simple check - if huggingface-cache directory exists, skip  
-  IfFileExists "$0\.nebulon-gpt\huggingface-cache\*.*" KokoroExists DoKokoro
-  
-  KokoroExists:
-    DetailPrint "✓ Kokoro TTS cache already installed"
-    Goto SkipKokoro
-  
-  DoKokoro:
-    DetailPrint "Processing Kokoro TTS cache..."
-    
-    ; Simple approach: concatenate then extract like runtime does
-    DetailPrint "Concatenating TTS cache..."
-    nsExec::ExecToLog 'cmd /c "cd /d \"$INSTDIR\\resources\\models\\kokoro\" && copy /b huggingface-cache.zip.001+huggingface-cache.zip.002+huggingface-cache.zip.003+huggingface-cache.zip.004 \"$0\\.nebulon-gpt\\huggingface-cache.zip\""'
-    Pop $1
-    
-    DetailPrint "Extracting TTS cache..."
-    nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory(\"$0\\.nebulon-gpt\\huggingface-cache.zip\", \"$0\\.nebulon-gpt\")"'
-    Pop $1
-    
-    ; Clean up ZIP file
-    Delete "$0\.nebulon-gpt\huggingface-cache.zip"
-    
-    ; Create datasets directory (required by TTS server)
-    CreateDirectory "$0\.nebulon-gpt\huggingface-cache\datasets"
-    
-    ; Calculate and save directory size as checksum
-    DetailPrint "Calculating TTS cache checksum..."
-    nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(Get-ChildItem \"$0\\.nebulon-gpt\\huggingface-cache\" -Recurse -File | Measure-Object -Property Length -Sum).Sum | Out-File -FilePath \"$0\\.nebulon-gpt\\.huggingface-cache-checksum\" -Encoding utf8 -NoNewline"'
-    Pop $1
-    
-    DetailPrint "✓ Kokoro TTS cache extracted successfully"
-  
-  SkipKokoro:
+
+  ; Proceed only if kokoro payload exists inside installer
+  IfFileExists "$INSTDIR\resources\models\kokoro\*.*" DoTTS SkipTTS
+
+  DoTTS:
+    DetailPrint "Found Kokoro TTS cache files"
+
+    ; User home
+    ReadEnvStr $0 "USERPROFILE"
+
+    ; If already there, skip
+    IfFileExists "$0\.nebulon-gpt\huggingface-cache\*.*" TTSExists DoTTSStart
+
+    TTSExists:
+      DetailPrint "✓ Kokoro TTS cache already installed"
+      Goto SkipTTS
+
+    DoTTSStart:
+      DetailPrint "Processing Kokoro TTS cache..."
+      CreateDirectory "$0\.nebulon-gpt\huggingface-cache"
+
+      ; --- Copy all payload files ---
+      DetailPrint "Copying cache files..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Recurse -Force \"$INSTDIR\resources\models\kokoro\*\" \"$0\.nebulon-gpt\huggingface-cache\""'
+      Pop $1
+
+      ; --- Concat all split archives (per base) -> <base>.zip ---
+      DetailPrint "Concatenating split cache archives..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$$dst=\"$0\.nebulon-gpt\huggingface-cache\"; Set-Location -LiteralPath $$dst; $$parts=Get-ChildItem -Filter \"*.zip.*\"; if($$parts){ $$bases=$$parts|ForEach-Object{ $$n=$$_.Name; $$i=$$n.IndexOf(\".zip.\"); if($$i -ge 0){ $$n.Substring(0,$$i) } }|Sort-Object -Unique; foreach($$b in $$bases){ cmd /c \"copy /b $$($$b).zip.* $$($$b).zip\" | Out-Null } }"'
+      Pop $1
+
+      ; --- Extract ALL .zip into ~/.nebulon-gpt (parent) ---
+      DetailPrint "Extracting cache archives..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; $$out=\"$0\.nebulon-gpt\"; Get-ChildItem \"$0\.nebulon-gpt\huggingface-cache\" -Filter \"*.zip\" | ForEach-Object { [System.IO.Compression.ZipFile]::ExtractToDirectory($$_.FullName, $$out) }"'
+      Pop $1
+
+      ; --- Cleanup zip parts ---
+      DetailPrint "Cleaning up ZIP files..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path \"$0\.nebulon-gpt\huggingface-cache\*.zip*\" -Force -ErrorAction SilentlyContinue"'
+      Pop $1
+
+      ; --- Ensure datasets dir exists ---
+      CreateDirectory "$0\.nebulon-gpt\huggingface-cache\datasets"
+
+      ; --- Checksum (sum of file sizes) ---
+      DetailPrint "Calculating TTS cache checksum..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-ChildItem \"$0\.nebulon-gpt\huggingface-cache\" -Recurse -File | Measure-Object -Property Length -Sum).Sum | Out-File -FilePath \"$0\.nebulon-gpt\.huggingface-cache-checksum\" -Encoding utf8 -NoNewline"'
+      Pop $1
+
+      DetailPrint "✓ Kokoro TTS cache extracted successfully"
+
+  SkipTTS:
 !macroend
 
+
+; ============================================
 ; Macro: Extract Vosk Models
+; Steps: copy -> group/concat -> extract -> cleanup -> checksum
+; ============================================
 !macro ExtractVoskModels
   DetailPrint "Installing Vosk speech models..."
-  
-  ; Check if Vosk models exist
-  IfFileExists "$INSTDIR\resources\models\vosk\*.*" +1 SkipVosk
-  
-  DetailPrint "Found Vosk model files"
-  
-  ; Get user home directory
-  ReadEnvStr $0 "USERPROFILE"
-  
-  ; Simple check - if vosk-models directory exists, skip
-  IfFileExists "$0\.nebulon-gpt\vosk-models\*.*" VoskExists DoVosk
-  
-  VoskExists:
-    DetailPrint "✓ Vosk models already installed"
-    Goto SkipVosk
-  
+
+  ; Proceed only if vosk payload exists inside installer
+  IfFileExists "$INSTDIR\resources\models\vosk\*.*" DoVosk SkipVosk
+
   DoVosk:
-    DetailPrint "Processing Vosk models..."
-    DetailPrint "Copying model files..."
-    
-    ; Create target directory
-    CreateDirectory "$0\.nebulon-gpt\vosk-models"
-    
-    ; Copy all files from source to target first
-    nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Recurse -Force \"$INSTDIR\\resources\\models\\vosk\\*\" \"$0\\.nebulon-gpt\\vosk-models\""'
-    Pop $1
-    
-    ; Step 1: Use simple binary copy for split files
-    DetailPrint "Concatenating split model archives..."
-    nsExec::ExecToLog 'cmd /c "cd /d \"$0\\.nebulon-gpt\\vosk-models\" && for /f \"tokens=1 delims=.\" %a in ('"'"'dir /b *.zip.* 2^>nul^|findstr /r \"\.zip\.[0-9]\"'"'"') do if exist %a.zip.001 copy /b %a.zip.* %a.zip >nul 2>&1"'
-    Pop $1
-    
-    ; Step 2: Extract all complete ZIP files  
-    DetailPrint "Extracting model archives..."
-    nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; Get-ChildItem \"$0\\.nebulon-gpt\\vosk-models\" -Filter \"*.zip\" | Where-Object {$_.Name -notmatch \"\\.zip\\.[0-9]+\"} | ForEach-Object { try { [System.IO.Compression.ZipFile]::ExtractToDirectory($_.FullName, \"$0\\.nebulon-gpt\\vosk-models\") } catch { } }"'
-    Pop $1
-    
-    ; Step 3: Clean up all ZIP files
-    DetailPrint "Cleaning up ZIP files..."
-    nsExec::ExecToLog 'cmd /c "cd /d \"$0\\.nebulon-gpt\\vosk-models\" && del /q *.zip* >nul 2>&1"'
-    Pop $1
-    
-    ; Calculate and save directory size as checksum
-    DetailPrint "Calculating Vosk models checksum..."
-    nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "(Get-ChildItem \"$0\\.nebulon-gpt\\vosk-models\" -Recurse -File | Measure-Object -Property Length -Sum).Sum | Out-File -FilePath \"$0\\.nebulon-gpt\\.vosk-models-checksum\" -Encoding utf8 -NoNewline"'
-    Pop $1
-    
-    DetailPrint "✓ Vosk speech models extracted and installed successfully"
-  
+    DetailPrint "Found Vosk model files"
+
+    ; User home
+    ReadEnvStr $0 "USERPROFILE"
+
+    ; If already there, skip
+    IfFileExists "$0\.nebulon-gpt\vosk-models\*.*" VoskExists DoVoskStart
+
+    VoskExists:
+      DetailPrint "✓ Vosk models already installed"
+      Goto SkipVosk
+
+    DoVoskStart:
+      DetailPrint "Processing Vosk models..."
+      CreateDirectory "$0\.nebulon-gpt\vosk-models"
+
+      ; --- Copy all payload files ---
+      DetailPrint "Copying model files..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Recurse -Force \"$INSTDIR\resources\models\vosk\*\" \"$0\.nebulon-gpt\vosk-models\""'
+      Pop $1
+
+      ; --- Concat all split archives (per base) -> <base>.zip ---
+      DetailPrint "Concatenating split model archives (per base)..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$$dst=\"$0\.nebulon-gpt\vosk-models\"; Set-Location -LiteralPath $$dst; $$parts=Get-ChildItem -Filter \"*.zip.*\"; if($$parts){ $$bases=$$parts|ForEach-Object{ $$n=$$_.Name; $$i=$$n.IndexOf(\".zip.\"); if($$i -ge 0){ $$n.Substring(0,$$i) } }|Sort-Object -Unique; foreach($$b in $$bases){ cmd /c \"copy /b $$($$b).zip.* $$($$b).zip\" | Out-Null } }"'
+      Pop $1
+
+      ; --- Extract ALL .zip into ~/.nebulon-gpt/vosk-models ---
+      DetailPrint "Extracting model archives..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; $$dst=\"$0\.nebulon-gpt\vosk-models\"; Get-ChildItem $$dst -Filter \"*.zip\" | ForEach-Object { [System.IO.Compression.ZipFile]::ExtractToDirectory($$_.FullName, $$dst) }"'
+      Pop $1
+
+      ; --- Cleanup zip parts ---
+      DetailPrint "Cleaning up ZIP files..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path \"$0\.nebulon-gpt\vosk-models\*.zip*\" -Force -ErrorAction SilentlyContinue"'
+      Pop $1
+
+      ; --- Checksum (sum of file sizes) ---
+      DetailPrint "Calculating Vosk models checksum..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-ChildItem \"$0\.nebulon-gpt\vosk-models\" -Recurse -File | Measure-Object -Property Length -Sum).Sum | Out-File -FilePath \"$0\.nebulon-gpt\.vosk-models-checksum\" -Encoding utf8 -NoNewline"'
+      Pop $1
+
+      DetailPrint "✓ Vosk speech models extracted and installed successfully"
+
   SkipVosk:
 !macroend
+
+
 
 ; Force show details view in Modern UI
 !define MUI_INSTFILESPAGE_SHOW_DETAILS
