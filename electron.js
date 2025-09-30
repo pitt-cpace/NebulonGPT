@@ -175,18 +175,18 @@ async function extractPythonBundle() {
         console.log('📦 No Python bundle checksum file found, extracting...');
         needsExtraction = true;
       }
-      // Step 3: Compare current extracted bundle size with saved size
+      // Step 3: Only re-extract if checksum is bigger than current size (files missing)
       else {
         try {
           const currentExtractedSize = await calculateDirectorySize(pythonBundleDir);
-          const savedSize = fs.readFileSync(checksumFile, 'utf8').trim();
+          const savedSize = parseInt(fs.readFileSync(checksumFile, 'utf8').trim());
           
-          if (savedSize === currentExtractedSize.toString()) {
-            console.log('✅ Python bundle size unchanged, skipping extraction');
-            needsExtraction = false;
-          } else {
-            console.log(`📦 Python bundle size changed (${savedSize} -> ${currentExtractedSize}), extracting...`);
+          if (savedSize > currentExtractedSize) {
+            console.log(`📦 Python bundle incomplete (expected: ${savedSize}, current: ${currentExtractedSize}), extracting...`);
             needsExtraction = true;
+          } else {
+            console.log('✅ Python bundle size adequate, skipping extraction');
+            needsExtraction = false;
           }
         } catch (error) {
           console.log('📦 Could not read Python bundle checksum file, extracting...');
