@@ -293,8 +293,8 @@ if (Test-Path $zipFile) {
             # Calculate bundle size for compression ratio
             $bundleSize = Calculate-DirectorySize 'python-bundle'
             
-            # Compress the bundle with optimal compression
-            Compress-Archive -Path 'python-bundle\*' -DestinationPath $zipFile -CompressionLevel Optimal -Force
+            # Compress the bundle with fastest compression
+            Compress-Archive -Path 'python-bundle\*' -DestinationPath $zipFile -CompressionLevel Fastest -Force
             
             # Calculate compressed size
             $compressedSize = (Get-Item $zipFile).Length
