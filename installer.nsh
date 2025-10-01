@@ -72,7 +72,7 @@ Var kokoroTemp
     ReadEnvStr $0 "USERPROFILE"
 
     ; If already there, skip
-    IfFileExists "$0\.nebulon-gpt\huggingface-cache\*.*" TTSExists DoTTSStart
+    IfFileExists "$0\.nebulon-gpt\huggingface\*.*" TTSExists DoTTSStart
 
     TTSExists:
       DetailPrint "✓ Kokoro TTS cache already installed"
@@ -80,34 +80,39 @@ Var kokoroTemp
 
     DoTTSStart:
       DetailPrint "Processing Kokoro TTS cache..."
-      CreateDirectory "$0\.nebulon-gpt\huggingface-cache"
+      CreateDirectory "$0\.nebulon-gpt\huggingface"
 
       ; --- Copy all payload files ---
       DetailPrint "Copying cache files..."
-      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Recurse -Force \"$INSTDIR\resources\models\kokoro\*\" \"$0\.nebulon-gpt\huggingface-cache\""'
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Recurse -Force \"$INSTDIR\resources\models\kokoro\*\" \"$0\.nebulon-gpt\huggingface\""'
       Pop $1
 
       ; --- Concat all split archives (per base) -> <base>.zip ---
       DetailPrint "Concatenating split cache archives..."
-      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$$dst=\"$0\.nebulon-gpt\huggingface-cache\"; Set-Location -LiteralPath $$dst; $$parts=Get-ChildItem -Filter \"*.zip.*\"; if($$parts){ $$bases=$$parts|ForEach-Object{ $$n=$$_.Name; $$i=$$n.IndexOf(\".zip.\"); if($$i -ge 0){ $$n.Substring(0,$$i) } }|Sort-Object -Unique; foreach($$b in $$bases){ cmd /c \"copy /b $$($$b).zip.* $$($$b).zip\" | Out-Null } }"'
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$$dst=\"$0\.nebulon-gpt\huggingface\"; Set-Location -LiteralPath $$dst; $$parts=Get-ChildItem -Filter \"*.zip.*\"; if($$parts){ $$bases=$$parts|ForEach-Object{ $$n=$$_.Name; $$i=$$n.IndexOf(\".zip.\"); if($$i -ge 0){ $$n.Substring(0,$$i) } }|Sort-Object -Unique; foreach($$b in $$bases){ cmd /c \"copy /b $$($$b).zip.* $$($$b).zip\" | Out-Null } }"'
       Pop $1
 
       ; --- Extract ALL .zip into ~/.nebulon-gpt (parent) ---
       DetailPrint "Extracting cache archives..."
-      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; $$out=\"$0\.nebulon-gpt\"; Get-ChildItem \"$0\.nebulon-gpt\huggingface-cache\" -Filter \"*.zip\" | ForEach-Object { [System.IO.Compression.ZipFile]::ExtractToDirectory($$_.FullName, $$out) }"'
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; $$out=\"$0\.nebulon-gpt\"; Get-ChildItem \"$0\.nebulon-gpt\huggingface\" -Filter \"*.zip\" | ForEach-Object { [System.IO.Compression.ZipFile]::ExtractToDirectory($$_.FullName, $$out) }"'
+      Pop $1
+
+      ; --- Rename extracted huggingface-cache to huggingface ---
+      DetailPrint "Renaming extracted directory..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path \"$0\.nebulon-gpt\huggingface-cache\") { if (Test-Path \"$0\.nebulon-gpt\huggingface\") { Move-Item \"$0\.nebulon-gpt\huggingface-cache\*\" \"$0\.nebulon-gpt\huggingface\" -Force; Remove-Item \"$0\.nebulon-gpt\huggingface-cache\" -Force } else { Rename-Item \"$0\.nebulon-gpt\huggingface-cache\" \"huggingface\" } }"'
       Pop $1
 
       ; --- Cleanup zip parts ---
       DetailPrint "Cleaning up ZIP files..."
-      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path \"$0\.nebulon-gpt\huggingface-cache\*.zip*\" -Force -ErrorAction SilentlyContinue"'
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path \"$0\.nebulon-gpt\huggingface\*.zip*\" -Force -ErrorAction SilentlyContinue"'
       Pop $1
 
       ; --- Ensure datasets dir exists ---
-      CreateDirectory "$0\.nebulon-gpt\huggingface-cache\datasets"
+      CreateDirectory "$0\.nebulon-gpt\huggingface\datasets"
 
       ; --- Checksum (sum of file sizes) ---
       DetailPrint "Calculating TTS cache checksum..."
-      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-ChildItem \"$0\.nebulon-gpt\huggingface-cache\" -Recurse -File | Measure-Object -Property Length -Sum).Sum | Out-File -FilePath \"$0\.nebulon-gpt\.huggingface-cache-checksum\" -Encoding utf8 -NoNewline"'
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "(Get-ChildItem \"$0\.nebulon-gpt\huggingface\" -Recurse -File | Measure-Object -Property Length -Sum).Sum | Out-File -FilePath \"$0\.nebulon-gpt\.huggingface-checksum\" -Encoding utf8 -NoNewline"'
       Pop $1
 
       DetailPrint "✓ Kokoro TTS cache extracted successfully"
@@ -263,7 +268,7 @@ Var kokoroTemp
   
   ; Remove Kokoro TTS cache  
   DetailPrint "Removing TTS cache..."
-  RMDir /r "$0\.nebulon-gpt\huggingface-cache"
+  RMDir /r "$0\.nebulon-gpt\huggingface"
   
   ; Remove Vosk models
   DetailPrint "Removing Vosk models..."
@@ -271,7 +276,7 @@ Var kokoroTemp
   
   ; Remove checksum files
   Delete "$0\.nebulon-gpt\.python-bundle-checksum"
-  Delete "$0\.nebulon-gpt\.huggingface-cache-checksum"  
+  Delete "$0\.nebulon-gpt\.huggingface-checksum"
   Delete "$0\.nebulon-gpt\.vosk-models-checksum"
   
   DetailPrint "Cleanup completed"

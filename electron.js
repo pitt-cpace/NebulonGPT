@@ -73,7 +73,7 @@ const PATHS = {
   dataDir: path.join(os.homedir(), '.nebulon-gpt'),
   chatsFile: path.join(os.homedir(), '.nebulon-gpt', 'chats.json'),
   voskModelsDir: path.join(os.homedir(), '.nebulon-gpt', 'vosk-models'),
-  hfCacheDir: path.join(os.homedir(), '.nebulon-gpt', 'huggingface-cache'),
+  hfCacheDir: path.join(os.homedir(), '.nebulon-gpt', 'huggingface'),
   pythonBundleDir: path.join(os.homedir(), '.nebulon-gpt', 'python-bundle')
 };
 
@@ -291,7 +291,7 @@ async function extractKokoroCache() {
       }
       
       // Check if we need to extract with 3-step verification (like extractVoskModels)
-      const checksumFile = path.join(PATHS.dataDir, '.huggingface-cache-checksum');
+      const checksumFile = path.join(PATHS.dataDir, '.huggingface-checksum');
       
       let needsExtraction = false;
       
@@ -366,7 +366,7 @@ async function extractKokoroCache() {
 
       console.log(`Found ${splitFiles.length} Kokoro cache parts to concatenate`);
       
-      // Concatenate split files
+      // Concatenate split files  
       const zipPath = path.join(tempDir, 'huggingface-cache.zip');
       const writeStream = fs.createWriteStream(zipPath);
       
@@ -380,9 +380,13 @@ async function extractKokoroCache() {
       // Extract using extract-zip library
       await extractZip(zipPath, { dir: tempDir });
       
-      // Move extracted content to final location
+      // Move extracted content to final location (ZIP contains 'huggingface-cache' folder)
       const extractedDir = path.join(tempDir, 'huggingface-cache');
       if (fs.existsSync(extractedDir)) {
+        // First rename the extracted folder to correct name
+        const renamedDir = path.join(tempDir, 'huggingface');
+        fs.renameSync(extractedDir, renamedDir);
+        
         await new Promise((resolveMove, rejectMove) => {
           // Cross-platform recursive copy function
           const copyRecursive = (src, dest) => {
@@ -407,7 +411,7 @@ async function extractKokoroCache() {
           };
           
           try {
-            copyRecursive(extractedDir, PATHS.hfCacheDir);
+            copyRecursive(renamedDir, PATHS.hfCacheDir);
             resolveMove();
           } catch (error) {
             rejectMove(error);
