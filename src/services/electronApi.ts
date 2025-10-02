@@ -185,49 +185,44 @@ export const electronApi = {
 
 // WebSocket URL helpers for different environments
 export const getWebSocketUrls = () => {
+  // Scenario 1 & 2: Electron (production or dev) - always use direct connections
   if (isElectron()) {
-    // In Electron, connect directly to local Python servers
-    console.log('⚡ Using direct WebSocket connections for Electron');
+    console.log('⚡ Electron detected - using direct WebSocket connections');
     return {
-      vosk: 'ws://localhost:2700',  // Default Vosk WebSocket port
-      tts: 'ws://localhost:2701'    // Default TTS WebSocket port
+      vosk: 'ws://localhost:2700',  // Direct connection to Vosk server
+      tts: 'ws://localhost:2701'    // Direct connection to TTS server
     };
-  } else {
-    // Enhanced detection for development vs production
-    const isDevelopment = (
-      // Check for React dev server indicators
-      window.location.hostname === 'localhost' &&
-      window.location.port === '3000' &&
-      (
-        // Check for webpack HMR
-        (window as any).webpackHotUpdate !== undefined ||
-        // Check for React dev tools
-        (window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ !== undefined ||
-        // Check for development mode in document
-        document.querySelector('script[src*="webpack"]') !== null ||
-        // Check if we're running from React dev server
-        (window as any).process?.env?.NODE_ENV === 'development'
-      )
-    );
-    
-    if (isDevelopment) {
-      // In React development mode, connect directly to Python servers
-      console.log('🔧 Using direct WebSocket connections for React dev server');
-      return {
-        vosk: 'ws://localhost:2700',
-        tts: 'ws://localhost:2701'
-      };
-    } else {
-      // In Docker/production mode, use nginx proxy paths
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      console.log('🐳 Using proxied WebSocket connections for Docker/production');
-      return {
-        vosk: `${protocol}//${host}/vosk`,
-        tts: `${protocol}//${host}/tts`
-      };
-    }
   }
+  
+  // We're in a web browser - determine if it's React dev server or Docker/production
+  
+  // Check for React dev server indicators
+  const hasWebpack = (
+    (window as any).webpackHotUpdate !== undefined ||
+    document.querySelector('script[src*="webpack"]') !== null
+  );
+  
+  const isDevEnvironment = (
+    (window as any).process?.env?.NODE_ENV === 'development'
+  );
+  
+  // Scenario 3: React dev server - use direct connections
+  if (hasWebpack || isDevEnvironment) {
+    console.log('🔧 React dev server detected - using direct WebSocket connections');
+    return {
+      vosk: 'ws://localhost:2700',
+      tts: 'ws://localhost:2701'
+    };
+  }
+  
+  // Scenario 4: Docker/production (nginx proxy) - use proxy paths with current host/port
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host; // Includes hostname:port (e.g., localhost:5578)
+  console.log(`🐳 Docker/production detected on ${host} - using nginx proxy paths`);
+  return {
+    vosk: `${protocol}//${host}/vosk`,
+    tts: `${protocol}//${host}/tts`
+  };
 };
 
 export default electronApi;
