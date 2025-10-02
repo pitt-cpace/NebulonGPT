@@ -57,7 +57,7 @@ Var kokoroTemp
 
 ; ==============================
 ; Macro: Extract TTS Cache (Kokoro)
-; Steps: copy -> group/concat -> extract -> cleanup -> datasets -> checksum
+; Steps: copy -> group/concat -> extract -> rename -> materialize links -> cleanup -> datasets -> checksum
 ; ==============================
 !macro ExtractTTSCache
   DetailPrint "Installing Kokoro TTS cache..."
@@ -102,6 +102,11 @@ Var kokoroTemp
       nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path \"$0\.nebulon-gpt\huggingface-cache\") { if (Test-Path \"$0\.nebulon-gpt\huggingface\") { Move-Item \"$0\.nebulon-gpt\huggingface-cache\*\" \"$0\.nebulon-gpt\huggingface\" -Force; Remove-Item \"$0\.nebulon-gpt\huggingface-cache\" -Force } else { Rename-Item \"$0\.nebulon-gpt\huggingface-cache\" \"huggingface\" } }"'
       Pop $1
 
+      ; --- Materialize HuggingFace symlinks (simplified working approach) ---
+      DetailPrint "Converting symlinks to actual files..."
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "$$hfDir=\"$0\.nebulon-gpt\huggingface\"; $$models=Get-ChildItem \"$$hfDir\hub\models--*--*\" -Directory -ErrorAction SilentlyContinue; foreach($$model in $$models){ $$blobsDir=Join-Path $$model.FullName \"blobs\"; $$snapsDir=Join-Path $$model.FullName \"snapshots\"; if((Test-Path $$blobsDir) -and (Test-Path $$snapsDir)){ Get-ChildItem $$snapsDir -Recurse -File | Where-Object{$$_.Length -lt 1024} | ForEach-Object{ try{ $$content=(Get-Content $$_.FullName -Raw).Trim(); if($$content -match \"([0-9a-f]{40,64})\"){ $$hash=$$Matches[1]; $$blobFile=Join-Path $$blobsDir $$hash; if(Test-Path $$blobFile){ Copy-Item $$blobFile $$_.FullName -Force } } }catch{} } } }"'
+      Pop $1
+
       ; --- Cleanup zip parts ---
       DetailPrint "Cleaning up ZIP files..."
       nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item -Path \"$0\.nebulon-gpt\huggingface\*.zip*\" -Force -ErrorAction SilentlyContinue"'
@@ -119,7 +124,6 @@ Var kokoroTemp
 
   SkipTTS:
 !macroend
-
 
 ; ============================================
 ; Macro: Extract Vosk Models
@@ -177,8 +181,6 @@ Var kokoroTemp
 
   SkipVosk:
 !macroend
-
-
 
 ; Force show details view in Modern UI
 !define MUI_INSTFILESPAGE_SHOW_DETAILS
