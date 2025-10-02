@@ -196,19 +196,40 @@ export const getWebSocketUrls = () => {
   
   // We're in a web browser - determine if it's React dev server or Docker/production
   
-  // Check for React dev server indicators
-  const hasWebpack = (
+  // Check for React development server indicators (webpack dev server)
+  const hasWebpackDevServer = (
     (window as any).webpackHotUpdate !== undefined ||
-    document.querySelector('script[src*="webpack"]') !== null
+    (window as any).__webpack_dev_server__ !== undefined ||
+    document.querySelector('script[src*="webpack"]') !== null ||
+    document.querySelector('script[src*="hot-update"]') !== null ||
+    document.querySelector('script[src*="sockjs-node"]') !== null ||
+    document.querySelector('script[src*="hot-reload"]') !== null
   );
   
-  const isDevEnvironment = (
-    (window as any).process?.env?.NODE_ENV === 'development'
+  // Check for React development build indicators  
+  const hasReactDevTools = (
+    (window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ !== undefined ||
+    document.querySelector('script[src*="bundle.js"]') !== null ||
+    document.querySelector('script[src*="main."]') !== null
   );
   
-  // Scenario 3: React dev server - use direct connections
-  if (hasWebpack || isDevEnvironment) {
-    console.log('🔧 React dev server detected - using direct WebSocket connections');
+  // Additional development environment checks
+  const isReactDevServer = (
+    window.location.hostname === 'localhost' && 
+    window.location.port === '3000' &&
+    (hasWebpackDevServer || hasReactDevTools)
+  );
+  
+  // Check for unbuilt/development assets (these indicate dev mode)
+  const hasDevAssets = document.querySelector('script[src*="/static/js/bundle.js"]') !== null;
+  
+  // Combine development indicators - must have webpack dev server OR be on localhost:3000 with dev assets
+  const isDevelopmentMode = hasWebpackDevServer || (isReactDevServer && hasDevAssets);
+  
+  // Scenario 3: Development mode (React dev server) - use direct connections to Python services
+  if (isDevelopmentMode) {
+    console.log('🔧 Development environment detected (React dev server) - using direct WebSocket connections');
+    console.log(`🔧 Development indicators: webpack=${hasWebpackDevServer}, reactDev=${isReactDevServer}, devAssets=${hasDevAssets}`);
     return {
       vosk: 'ws://localhost:2700',
       tts: 'ws://localhost:2701'
@@ -217,8 +238,9 @@ export const getWebSocketUrls = () => {
   
   // Scenario 4: Docker/production (nginx proxy) - use proxy paths with current host/port
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host; // Includes hostname:port (e.g., localhost:5578)
+  const host = window.location.host; // Includes hostname:port (e.g., localhost:8080, myapp.com:443)
   console.log(`🐳 Docker/production detected on ${host} - using nginx proxy paths`);
+  console.log(`🐳 Environment indicators: webpack=${hasWebpackDevServer}, port=${window.location.port}, hostname=${window.location.hostname}`);
   return {
     vosk: `${protocol}//${host}/vosk`,
     tts: `${protocol}//${host}/tts`
