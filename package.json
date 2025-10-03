@@ -38,25 +38,29 @@
     "wait-on": "^7.2.0"
   },
   "scripts": {
+
+    "start:both": "concurrently \"npm run server\" \"npm start\"",
+    "electron-dev-win": "set NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && node node_modules\\electron\\cli.js .\"",
+    "electron-dev-mac": "export NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && electron .\"",
+    "dist:macx64": "npm run build && ELECTRON_BUILDER_ARCH=x64 npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --x64",
+    "dist:macARM64": "npm run build && ELECTRON_BUILDER_ARCH=arm64 npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --arm64",
+    "dist:win": "npm run build && npm run bundle-python && copy electron.js build\\ && copy preload.js build\\ && copy public\\vosk-audio-processor.js build\\ && electron-builder --win",
+
+    "bundle-python": "node -e \"const os = require('os'); const { execSync } = require('child_process'); const platform = os.platform(); if (platform === 'win32') { execSync('npm run bundle-python-win', { stdio: 'inherit' }); } else if (platform === 'darwin') { execSync('npm run bundle-python-mac', { stdio: 'inherit' }); } else { console.log('Linux bundle not implemented yet, using system Python'); }\"",
+
+
+    "bundle-python-mac": "chmod +x build-python-bundle-mac.sh && ./build-python-bundle-mac.sh",
+    "bundle-python-win": "powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "server": "node server.js",
-    "start:both": "concurrently \"npm run server\" \"npm start\"",
     "electron": "npm run build && set NODE_ENV=production && node node_modules\\electron\\cli.js .",
-    "electron-dev-win": "set NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && node node_modules\\electron\\cli.js .\"",
-    "electron-dev-mac": "export NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && electron .\"",
     "start-python-services": "./start-python-services.sh",
     "build:electron": "npm run build && electron-builder",
-    "build:docker": "docker build -t nebulon-gpt .",
+    "build:docker": "docker build .",
     "dist": "npm run build && electron-builder --publish=never",
-    "dist:macx64": "npm run build && ELECTRON_BUILDER_ARCH=x64 npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --x64",
-    "dist:macARM64": "npm run build && ELECTRON_BUILDER_ARCH=arm64 npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --arm64",
-    "bundle-python-mac": "chmod +x build-python-bundle-mac.sh && ./build-python-bundle-mac.sh",
-    "bundle-python-win": "powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1",
-    "bundle-python": "node -e \"const os = require('os'); const { execSync } = require('child_process'); const platform = os.platform(); if (platform === 'win32') { execSync('npm run bundle-python-win', { stdio: 'inherit' }); } else if (platform === 'darwin') { execSync('npm run bundle-python-mac', { stdio: 'inherit' }); } else { console.log('Linux bundle not implemented yet, using system Python'); }\"",
-    "dist:win": "npm run build && npm run bundle-python && copy electron.js build\\ && copy preload.js build\\ && copy public\\vosk-audio-processor.js build\\ && electron-builder --win",
     "dist:linux": "npm run build && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --linux"
   },
   "eslintConfig": {
