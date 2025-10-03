@@ -42,8 +42,8 @@
     "start:both": "concurrently \"npm run server\" \"npm start\"",
     "electron-dev-win": "set NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && node node_modules\\electron\\cli.js .\"",
     "electron-dev-mac": "export NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && electron .\"",
-    "dist:macx64": "npm run build && ELECTRON_BUILDER_ARCH=x64 npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --x64",
-    "dist:macARM64": "npm run build && ELECTRON_BUILDER_ARCH=arm64 npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --arm64",
+    "dist:mac-x64": "npm run build && ELECTRON_BUILDER_ARCH=x64 npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --x64",
+    "dist:mac-arm64": "npm run build && ELECTRON_BUILDER_ARCH=arm64 npm run bundle-python-mac && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --arm64",
     "dist:win": "npm run build && npm run bundle-python && copy electron.js build\\ && copy preload.js build\\ && copy public\\vosk-audio-processor.js build\\ && electron-builder --win",
 
     "bundle-python": "node -e \"const os = require('os'); const { execSync } = require('child_process'); const platform = os.platform(); if (platform === 'win32') { execSync('npm run bundle-python-win', { stdio: 'inherit' }); } else if (platform === 'darwin') { execSync('npm run bundle-python-mac', { stdio: 'inherit' }); } else { console.log('Linux bundle not implemented yet, using system Python'); }\"",
