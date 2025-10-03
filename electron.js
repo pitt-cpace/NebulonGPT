@@ -959,7 +959,7 @@ function createWindow() {
     setTimeout(() => mainWindow.setAlwaysOnTop(false), 1000);
     
     // Keep DevTools enabled for debugging as requested
-    mainWindow.webContents.openDevTools();
+    // mainWindow.webContents.openDevTools();
   });
 
   // Also force show immediately after load
