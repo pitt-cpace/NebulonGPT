@@ -368,16 +368,32 @@ async function extractKokoroCache() {
       
       // Concatenate split files  
       const zipPath = path.join(tempDir, 'huggingface-cache.zip');
-      const writeStream = fs.createWriteStream(zipPath);
       
-      for (const splitFile of splitFiles) {
-        const partPath = path.join(kokoroModelsDir, splitFile);
-        const data = fs.readFileSync(partPath);
-        writeStream.write(data);
-      }
-      writeStream.end();
+      // Wait for concatenation to complete before extracting
+      await new Promise((resolveConcatenation, rejectConcatenation) => {
+        const writeStream = fs.createWriteStream(zipPath);
+        
+        writeStream.on('finish', () => {
+          console.log('📦 Concatenation completed successfully');
+          resolveConcatenation();
+        });
+        
+        writeStream.on('error', (error) => {
+          console.error('📦 Error during concatenation:', error);
+          rejectConcatenation(error);
+        });
+        
+        for (const splitFile of splitFiles) {
+          const partPath = path.join(kokoroModelsDir, splitFile);
+          const data = fs.readFileSync(partPath);
+          writeStream.write(data);
+        }
+        
+        writeStream.end();
+      });
 
       // Extract using extract-zip library
+      console.log('📦 Starting extraction of concatenated ZIP...');
       await extractZip(zipPath, { dir: tempDir });
       
       // Move extracted content to final location (ZIP contains 'huggingface-cache' folder)
