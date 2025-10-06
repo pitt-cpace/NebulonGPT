@@ -711,20 +711,25 @@ async function cleanupExtractedModels() {
 // Helper function to dynamically detect Python version in extracted bundle
 function detectPythonVersion(pythonBundleDir) {
   try {
-    // Try lowercase 'lib' first (macOS/Linux), then 'Lib' (Windows might use this)
-    let libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'lib');
-    if (!fs.existsSync(libDir)) {
-      libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'Lib');
-      if (!fs.existsSync(libDir)) {
-        return null;
+    // Windows python-build-standalone uses Lib/site-packages directly (no versioned subdirectory)
+    if (process.platform === 'win32') {
+      const libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'Lib');
+      const sitePackagesDir = path.join(libDir, 'site-packages');
+      if (fs.existsSync(sitePackagesDir)) {
+        console.log(`🐍 Detected Windows Python with direct site-packages`);
+        return 'direct'; // Special marker for Windows direct structure
       }
-    }
-    
-    const pythonVersions = fs.readdirSync(libDir).filter(dir => dir.startsWith('python3.'));
-    if (pythonVersions.length > 0) {
-      const pythonVersion = pythonVersions[0]; // Take the first (and typically only) version
-      console.log(`🐍 Detected Python version: ${pythonVersion}`);
-      return pythonVersion;
+    } else {
+      // macOS/Linux: Try lowercase 'lib' with versioned subdirectory
+      const libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'lib');
+      if (fs.existsSync(libDir)) {
+        const pythonVersions = fs.readdirSync(libDir).filter(dir => dir.startsWith('python3.'));
+        if (pythonVersions.length > 0) {
+          const pythonVersion = pythonVersions[0]; // Take the first (and typically only) version
+          console.log(`🐍 Detected Python version: ${pythonVersion}`);
+          return pythonVersion;
+        }
+      }
     }
     
     return null;
@@ -756,12 +761,15 @@ function startVoskServer() {
     
     let extractedPackages = null;
     if (pythonVersion) {
-      // Try lowercase 'lib' first (macOS/Linux), then 'Lib' (Windows might use this)
-      extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
-      if (!fs.existsSync(extractedPackages)) {
-        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'Lib', pythonVersion, 'site-packages');
+      if (pythonVersion === 'direct') {
+        // Windows: Direct site-packages in Lib/
+        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'Lib', 'site-packages');
+        console.log(`🐍 Using Windows direct site-packages`);
+      } else {
+        // macOS/Linux: Versioned subdirectory
+        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
+        console.log(`🐍 Using dynamic Python version: ${pythonVersion}`);
       }
-      console.log(`🐍 Using dynamic Python version: ${pythonVersion}`);
       console.log(`🐍 Checking extracted packages: ${extractedPackages}`);
       console.log(`🐍 Packages exist: ${fs.existsSync(extractedPackages)}`);
     } else {
@@ -856,12 +864,15 @@ function startTTSServer() {
     
     let extractedPackages = null;
     if (pythonVersion) {
-      // Try lowercase 'lib' first (macOS/Linux), then 'Lib' (Windows might use this)
-      extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
-      if (!fs.existsSync(extractedPackages)) {
-        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'Lib', pythonVersion, 'site-packages');
+      if (pythonVersion === 'direct') {
+        // Windows: Direct site-packages in Lib/
+        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'Lib', 'site-packages');
+        console.log(`🔊 Using Windows direct site-packages`);
+      } else {
+        // macOS/Linux: Versioned subdirectory
+        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
+        console.log(`🔊 Using dynamic Python version: ${pythonVersion}`);
       }
-      console.log(`🔊 Using dynamic Python version: ${pythonVersion}`);
       console.log(`🔊 Checking extracted packages: ${extractedPackages}`);
       console.log(`🔊 Packages exist: ${fs.existsSync(extractedPackages)}`);
     } else {

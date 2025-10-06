@@ -16,27 +16,27 @@ $PBS_VERSION = "20240726"
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "🏗️  $Message" -ForegroundColor Cyan
+    Write-Host "STEP: $Message" -ForegroundColor Cyan
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "✅ $Message" -ForegroundColor Green
+    Write-Host "SUCCESS: $Message" -ForegroundColor Green
 }
 
 function Write-Warning {
     param([string]$Message)
-    Write-Host "⚠️  $Message" -ForegroundColor Yellow
+    Write-Host "WARNING: $Message" -ForegroundColor Yellow
 }
 
 function Write-Error-Message {
     param([string]$Message)
-    Write-Host "❌ $Message" -ForegroundColor Red
+    Write-Host "ERROR: $Message" -ForegroundColor Red
 }
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "📦 $Message" -ForegroundColor Blue
+    Write-Host "INFO: $Message" -ForegroundColor Blue
 }
 
 function Calculate-DirectorySize {
@@ -80,6 +80,7 @@ function Test-NeedsRebuild {
 }
 
 Write-Step "Building Python bundle for architecture: $Architecture"
+Write-Info "You can specify architecture: .\build-python-bundle-win.ps1 -Architecture [x64]"
 
 # Check if rebuild is needed
 if (-not (Test-NeedsRebuild)) {
@@ -206,10 +207,10 @@ Compress-Archive -Path "python-bundle\*" -DestinationPath "python-bundle.zip" -F
 
 Write-Success "Python bundle created and zipped successfully for $Architecture!"
 Write-Host ""
-Write-Host "🔍 Bundle contents:" -ForegroundColor Magenta
-Write-Host "   • Standalone Python $PYTHON_VERSION from python-build-standalone" -ForegroundColor White
-Write-Host "   • All required packages (vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
-Write-Host "   • Vosk ASR server" -ForegroundColor White
-Write-Host "   • Kokoro TTS server" -ForegroundColor White
+Write-Host "Bundle contents:" -ForegroundColor Magenta
+Write-Host "   - Standalone Python $PYTHON_VERSION from python-build-standalone" -ForegroundColor White
+Write-Host "   - All required packages (vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
+Write-Host "   - Vosk ASR server" -ForegroundColor White
+Write-Host "   - Kokoro TTS server" -ForegroundColor White
 Write-Host ""
-Write-Host "🚀 Ready for distribution!" -ForegroundColor Green
+Write-Host "Ready for distribution!" -ForegroundColor Green
