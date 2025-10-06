@@ -711,7 +711,7 @@ async function cleanupExtractedModels() {
 // Helper function to dynamically detect Python version in extracted bundle
 function detectPythonVersion(pythonBundleDir) {
   try {
-    const libDir = path.join(pythonBundleDir, 'python-env', 'lib');
+    const libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'lib');
     if (!fs.existsSync(libDir)) {
       return null;
     }
@@ -739,7 +739,7 @@ function startVoskServer() {
     let pythonEnv = { ...process.env };
     
     // Check if extracted Python executable exists in home directory
-    const extractedPython = path.join(PATHS.pythonBundleDir, 'python-env', process.platform === 'win32' ? 'python.exe' : 'python3');
+    const extractedPython = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'bin', process.platform === 'win32' ? 'python.exe' : 'python3');
     
     // Dynamically detect Python version - MUST be dynamic, no fallback to hardcoded version
     const pythonVersion = detectPythonVersion(PATHS.pythonBundleDir);
@@ -749,7 +749,7 @@ function startVoskServer() {
     
     let extractedPackages = null;
     if (pythonVersion) {
-      extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'lib', pythonVersion, 'site-packages');
+      extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
       console.log(`🐍 Using dynamic Python version: ${pythonVersion}`);
       console.log(`🐍 Checking extracted packages: ${extractedPackages}`);
       console.log(`🐍 Packages exist: ${fs.existsSync(extractedPackages)}`);
@@ -765,7 +765,7 @@ function startVoskServer() {
       
       // Set up environment for extracted Python
       pythonEnv.PYTHONPATH = `${path.join(PATHS.pythonBundleDir, 'python-env/vosk-server')}:${extractedPackages}`;
-      pythonEnv.PYTHONHOME = path.join(PATHS.pythonBundleDir, 'python-env');
+      pythonEnv.PYTHONHOME = path.join(PATHS.pythonBundleDir, 'python-env/python-dist');
     } else {
       // No system Python fallback - bundled Python environment required
       const errorMsg = !fs.existsSync(extractedPython) 
@@ -832,7 +832,7 @@ function startTTSServer() {
     let pythonEnv = { ...process.env };
     
     // Check if extracted Python executable exists in home directory
-    const extractedPython = path.join(PATHS.pythonBundleDir, 'python-env', process.platform === 'win32' ? 'python.exe' : 'python3');
+    const extractedPython = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'bin', process.platform === 'win32' ? 'python.exe' : 'python3');
     
     // Dynamically detect Python version - MUST be dynamic, no fallback to hardcoded version
     const pythonVersion = detectPythonVersion(PATHS.pythonBundleDir);
@@ -842,7 +842,7 @@ function startTTSServer() {
     
     let extractedPackages = null;
     if (pythonVersion) {
-      extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'lib', pythonVersion, 'site-packages');
+      extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
       console.log(`🔊 Using dynamic Python version: ${pythonVersion}`);
       console.log(`🔊 Checking extracted packages: ${extractedPackages}`);
       console.log(`🔊 Packages exist: ${fs.existsSync(extractedPackages)}`);
@@ -858,7 +858,7 @@ function startTTSServer() {
       
       // Set up environment for extracted Python
       pythonEnv.PYTHONPATH = `${path.join(PATHS.pythonBundleDir, 'python-env/kokoro-tts')}:${extractedPackages}`;
-      pythonEnv.PYTHONHOME = path.join(PATHS.pythonBundleDir, 'python-env');
+      pythonEnv.PYTHONHOME = path.join(PATHS.pythonBundleDir, 'python-env/python-dist');
     } else {
       // No system Python fallback - bundled Python environment required
       const errorMsg = !fs.existsSync(extractedPython) 

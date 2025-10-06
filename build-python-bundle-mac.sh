@@ -1,13 +1,26 @@
 #!/bin/bash
 
-# NebulonGPT Python Bundle Builder for macOS
+# NebulonGPT Python Bundle Builder for macOS using python-build-standalone
 # This script creates a completely isolated Python environment with all dependencies
+# Uses python-build-standalone for true standalone Python (no system Python required)
 
 set -e  # Exit on any error
 
-# Detect target architecture and create architecture-specific bundle
-TARGET_ARCH=${ELECTRON_BUILDER_ARCH:-$(uname -m)}
-echo "🏗️  Building Python bundle for architecture: $TARGET_ARCH"
+# Accept architecture as parameter, or detect from system
+if [ -n "$1" ]; then
+    TARGET_ARCH="$1"
+    echo "🏗️  Building Python bundle for specified architecture: $TARGET_ARCH"
+else
+    TARGET_ARCH=$(uname -m)
+    echo "🏗️  Building Python bundle for detected architecture: $TARGET_ARCH"
+    echo "💡 You can specify architecture: ./build-python-bundle-mac.sh [x64|arm64]"
+fi
+
+# Python version to use
+PYTHON_VERSION="3.9.19"
+
+# python-build-standalone release tag
+PBS_VERSION="20240726"
 
 # Function to calculate directory size
 calculate_dir_size() {
@@ -53,7 +66,7 @@ if ! needs_rebuild; then
     exit 0
 fi
 
-echo "🔨 Creating universal Python bundle for macOS..."
+echo "🔨 Creating standalone Python bundle for macOS $TARGET_ARCH..."
 
 # Clean up any existing bundle
 echo "🧹 Cleaning up existing bundle..."
@@ -61,81 +74,77 @@ rm -rf python-bundle
 
 # Create directory structure
 echo "📁 Creating directory structure..."
-mkdir -p python-bundle/python-env/lib/python3.9/site-packages
+mkdir -p python-bundle/python-env
 
-# Determine the correct pip command for the target architecture
-PIP_CMD="pip3"
-PYTHON_CMD="python3"
-
-# For x64 builds on ARM64 systems, try to use x64-specific Python if available
-if [ "$TARGET_ARCH" = "x64" ] && [ "$(uname -m)" = "arm64" ]; then
-    # Check if we have x64 Python available (e.g., via Rosetta or Intel Python)
-    if command -v /usr/local/bin/python3 >/dev/null 2>&1; then
-        PYTHON_CMD="/usr/local/bin/python3"
-        PIP_CMD="/usr/local/bin/pip3"
-        echo "🔄 Using x64 Python for x64 build: $PYTHON_CMD"
-    elif command -v arch >/dev/null 2>&1; then
-        # Use arch command to run pip under x64 emulation
-        PIP_CMD="arch -x86_64 pip3"
-        PYTHON_CMD="arch -x86_64 python3"
-        echo "🔄 Using Rosetta emulation for x64 build"
-    else
-        echo "⚠️  Warning: Building x64 bundle on ARM64 system without x64 Python"
-    fi
+# Determine the correct python-build-standalone URL based on architecture
+if [ "$TARGET_ARCH" = "arm64" ]; then
+    PBS_ARCH="aarch64-apple-darwin"
+    echo "📥 Downloading python-build-standalone for ARM64..."
+elif [ "$TARGET_ARCH" = "x64" ]; then
+    PBS_ARCH="x86_64-apple-darwin"
+    echo "📥 Downloading python-build-standalone for x64..."
+else
+    echo "❌ Unsupported architecture: $TARGET_ARCH"
+    exit 1
 fi
 
-echo "🐍 Using Python: $PYTHON_CMD"
-echo "📦 Using pip: $PIP_CMD"
+# Download URL for python-build-standalone
+PBS_URL="https://github.com/indygreg/python-build-standalone/releases/download/${PBS_VERSION}/cpython-${PYTHON_VERSION}+${PBS_VERSION}-${PBS_ARCH}-install_only.tar.gz"
 
-# Install Python packages with architecture-specific binaries
+echo "🌐 Downloading from: $PBS_URL"
+
+# Download python-build-standalone
+TEMP_DIR=$(mktemp -d)
+cd "$TEMP_DIR"
+
+if ! curl -L -o python.tar.gz "$PBS_URL"; then
+    echo "❌ Failed to download python-build-standalone"
+    cd -
+    rm -rf "$TEMP_DIR"
+    exit 1
+fi
+
+echo "📦 Extracting standalone Python..."
+tar -xzf python.tar.gz
+
+# Move extracted Python to our bundle directory
+cd -
+mv "$TEMP_DIR/python" python-bundle/python-env/python-dist
+
+# Cleanup temp directory
+rm -rf "$TEMP_DIR"
+
+# Install Python packages into the standalone Python
 echo "📦 Installing Python packages for $TARGET_ARCH..."
-$PIP_CMD install \
-    --target python-bundle/python-env/lib/python3.9/site-packages \
+
+# Use the bundled Python's pip to install packages
+BUNDLED_PYTHON="python-bundle/python-env/python-dist/bin/python3"
+
+if [ ! -f "$BUNDLED_PYTHON" ]; then
+    echo "❌ Bundled Python not found at: $BUNDLED_PYTHON"
+    exit 1
+fi
+
+echo "🐍 Using bundled Python: $BUNDLED_PYTHON"
+
+# Install packages using bundled pip
+$BUNDLED_PYTHON -m pip install --upgrade pip
+
+$BUNDLED_PYTHON -m pip install \
     --upgrade --force-reinstall \
     -r requirements-bundle.txt
 
 # Install spaCy English model
 echo "🔤 Installing spaCy English model for $TARGET_ARCH..."
-$PIP_CMD install \
-    --target python-bundle/python-env/lib/python3.9/site-packages \
+$BUNDLED_PYTHON -m pip install \
     --upgrade \
     https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
-
-# Copy Python standard library
-echo "📚 Copying Python standard library..."
-
-# Find the correct Python installation for the target architecture
-PYTHON_STDLIB_PATH=""
-
-# Try different common Python installation paths
-POSSIBLE_PATHS=(
-    "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9"
-    "/usr/local/lib/python3.9"
-    "/opt/homebrew/lib/python3.9"
-    "/usr/lib/python3.9"
-)
-
-for path in "${POSSIBLE_PATHS[@]}"; do
-    if [ -d "$path" ]; then
-        PYTHON_STDLIB_PATH="$path"
-        echo "📚 Found Python standard library at: $path"
-        break
-    fi
-done
-
-if [ -z "$PYTHON_STDLIB_PATH" ]; then
-    echo "⚠️  Warning: Could not find Python standard library, using system Python"
-    # Create minimal stdlib structure
-    mkdir -p python-bundle/python-env/lib/python3.9
-else
-    cp -r "$PYTHON_STDLIB_PATH" python-bundle/python-env/lib/
-fi
 
 # Copy websocket servers
 echo "🌐 Copying websocket servers..."
 if [ -d 'Vosk-Server/websocket' ]; then
     mkdir -p python-bundle/python-env/vosk-server
-    # Copy all files except the models directory (to avoid duplicating zip files)
+    # Copy all files except the models directory
     find Vosk-Server/websocket -maxdepth 1 -type f -exec cp {} python-bundle/python-env/vosk-server/ \;
     # Copy other directories except models
     for dir in Vosk-Server/websocket/*/; do
@@ -143,7 +152,7 @@ if [ -d 'Vosk-Server/websocket' ]; then
             cp -r "$dir" python-bundle/python-env/vosk-server/
         fi
     done
-    echo "✅ Vosk server copied (excluding model zip files and models directory)"
+    echo "✅ Vosk server copied"
 else
     echo "⚠️  Skip: Vosk-Server/websocket not found"
 fi
@@ -155,63 +164,6 @@ if [ -d 'Kokoro-TTS-Server/websocket' ]; then
 else
     echo "⚠️  Skip: Kokoro-TTS-Server/websocket not found"
 fi
-
-# Create the fixed Python wrapper script
-echo "🔧 Creating Python wrapper with proper file execution..."
-cat > python-bundle/python-env/python3 << 'PYTHON_WRAPPER_EOF'
-#!/usr/bin/python3
-import sys
-import os
-
-# Get the directory containing this script
-script_dir = os.path.dirname(os.path.abspath(__file__))
-bundle_site_packages = os.path.join(script_dir, "lib", "python3.9", "site-packages")
-bundle_stdlib = os.path.join(script_dir, "lib", "python3.9")
-
-# Completely replace sys.path with only bundled paths
-sys.path = [
-    bundle_site_packages,
-    bundle_stdlib,
-    os.path.join(bundle_stdlib, "lib-dynload"),
-]
-
-# Set environment variables for complete isolation
-os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
-os.environ["PYTHONNOUSERSITE"] = "1"
-os.environ["PYTHONIOENCODING"] = "utf-8"
-
-# Remove system Python paths from environment
-if "PYTHONPATH" in os.environ:
-    del os.environ["PYTHONPATH"]
-if "PYTHONSTARTUP" in os.environ:
-    del os.environ["PYTHONSTARTUP"]
-if "PYTHONOPTIMIZE" in os.environ:
-    del os.environ["PYTHONOPTIMIZE"]
-
-# Execute the provided arguments
-if len(sys.argv) > 1:
-    if sys.argv[1] == "-c" and len(sys.argv) > 2:
-        exec(sys.argv[2])
-    else:
-        # Execute a Python file
-        script_path = sys.argv[1]
-        if os.path.isfile(script_path):
-            # Set sys.argv to match what the script expects
-            sys.argv = sys.argv[1:]  # Remove the wrapper script from argv
-            with open(script_path, 'r') as f:
-                code = compile(f.read(), script_path, 'exec')
-                exec(code, {'__file__': script_path, '__name__': '__main__'})
-        else:
-            print(f"Error: File '{script_path}' not found", file=sys.stderr)
-            sys.exit(1)
-else:
-    # Interactive mode
-    import code
-    code.interact()
-PYTHON_WRAPPER_EOF
-
-# Make the Python wrapper executable
-chmod +x python-bundle/python-env/python3
 
 # Calculate bundle size and create architecture-specific checksum
 echo "📊 Calculating bundle checksum for $TARGET_ARCH..."
@@ -230,10 +182,9 @@ cd python-bundle && zip -r ../python-bundle.zip . && cd ..
 echo "✅ Python bundle created and zipped successfully for $TARGET_ARCH!"
 echo ""
 echo "🔍 Bundle contents:"
-echo "   • Isolated Python 3.9 environment"
+echo "   • Standalone Python $PYTHON_VERSION from python-build-standalone"
 echo "   • All required packages (vosk, torch, spacy, kokoro, etc.)"
 echo "   • Vosk ASR server"
 echo "   • Kokoro TTS server"
-echo "   • Fixed Python wrapper for proper script execution"
 echo ""
 echo "🚀 Ready for distribution!"
