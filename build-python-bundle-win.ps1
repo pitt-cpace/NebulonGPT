@@ -1,43 +1,55 @@
-# NebulonGPT Python Bundle Builder for Windows
+# NebulonGPT Python Bundle Builder for Windows using python-build-standalone
 # This script creates a completely isolated Python environment with all dependencies
+# Uses python-build-standalone for true standalone Python (no system Python required)
 
 param(
-    [switch]$Verbose
+    [string]$Architecture = "x64"
 )
 
 $ErrorActionPreference = 'Stop'
 
+# Python version to use
+$PYTHON_VERSION = "3.9.19"
+
+# python-build-standalone release tag
+$PBS_VERSION = "20240726"
+
 function Write-Step {
     param([string]$Message)
-    Write-Host "STEP: $Message" -ForegroundColor Cyan
+    Write-Host "🏗️  $Message" -ForegroundColor Cyan
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "SUCCESS: $Message" -ForegroundColor Green
+    Write-Host "✅ $Message" -ForegroundColor Green
 }
 
 function Write-Warning {
     param([string]$Message)
-    Write-Host "WARNING: $Message" -ForegroundColor Yellow
+    Write-Host "⚠️  $Message" -ForegroundColor Yellow
+}
+
+function Write-Error-Message {
+    param([string]$Message)
+    Write-Host "❌ $Message" -ForegroundColor Red
 }
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "INFO: $Message" -ForegroundColor Blue
+    Write-Host "📦 $Message" -ForegroundColor Blue
 }
 
 function Calculate-DirectorySize {
     param([string]$Path)
     if (Test-Path $Path) {
-        return (Get-ChildItem -Path $Path -Recurse | Measure-Object -Property Length -Sum).Sum
+        return (Get-ChildItem -Path $Path -Recurse -File | Measure-Object -Property Length -Sum).Sum
     }
     return 0
 }
 
 function Test-NeedsRebuild {
-    $bundleDir = 'python-bundle/python-env'
-    $checksumFile = 'python-bundle/bundle-checksum.txt'
+    $bundleDir = "python-bundle\python-env"
+    $checksumFile = "python-bundle\bundle-checksum-$Architecture.txt"
     
     if (-not (Test-Path $bundleDir)) {
         Write-Info "Bundle directory not found, creating bundle..."
@@ -50,12 +62,8 @@ function Test-NeedsRebuild {
     }
     
     try {
-        $savedSizeText = Get-Content $checksumFile -Raw -ErrorAction Stop
-        $savedSize = [long]($savedSizeText.Trim())
+        $savedSize = [long](Get-Content $checksumFile -Raw).Trim()
         $currentSize = Calculate-DirectorySize $bundleDir
-        
-        Write-Info "Saved size: $savedSize bytes"
-        Write-Info "Current size: $currentSize bytes"
         
         if ($currentSize -lt $savedSize) {
             Write-Warning "Bundle size is smaller than expected (saved: $savedSize, current: $currentSize), recreating bundle..."
@@ -64,255 +72,144 @@ function Test-NeedsRebuild {
         
         Write-Success "Bundle is up to date (size: $currentSize bytes)"
         return $false
-    } catch {
-        Write-Warning "Error reading checksum file: $($_.Exception.Message), recreating bundle..."
+    }
+    catch {
+        Write-Info "Could not read checksum file, creating bundle..."
         return $true
     }
 }
 
-Write-Step "Checking Python bundle for Windows..."
+Write-Step "Building Python bundle for architecture: $Architecture"
 
 # Check if rebuild is needed
-$needsRebuild = Test-NeedsRebuild
-if (-not $needsRebuild) {
+if (-not (Test-NeedsRebuild)) {
     Write-Success "Python bundle already exists and is valid - skipping rebuild"
-} else {
-    Write-Step "Creating Python bundle for Windows..."
+    exit 0
+}
+
+Write-Step "Creating standalone Python bundle for Windows $Architecture..."
 
 # Clean up any existing bundle
 Write-Step "Cleaning up existing bundle..."
-if (Test-Path 'python-bundle') {
-    Remove-Item -Recurse -Force 'python-bundle'
+if (Test-Path "python-bundle") {
+    Remove-Item -Recurse -Force "python-bundle"
 }
 
 # Create directory structure
-Write-Step "Creating directory structure..."
-New-Item -ItemType Directory -Path 'python-bundle/python-env/lib/python3.10/site-packages' -Force | Out-Null
+Write-Info "Creating directory structure..."
+New-Item -ItemType Directory -Path "python-bundle\python-env" -Force | Out-Null
 
-# Download and extract embedded Python
-Write-Step "Downloading Python 3.10 embedded..."
-$zipUrl = 'https://www.python.org/ftp/python/3.10.8/python-3.10.8-embed-amd64.zip'
-$zipPath = 'python-embed.zip'
+# Determine the correct python-build-standalone URL based on architecture
+if ($Architecture -eq "x64") {
+    $PBS_ARCH = "x86_64-pc-windows-msvc"
+    Write-Info "Downloading python-build-standalone for x64..."
+}
+else {
+    Write-Error-Message "Unsupported architecture: $Architecture"
+    exit 1
+}
+
+# Download URL for python-build-standalone
+$PBS_URL = "https://github.com/indygreg/python-build-standalone/releases/download/$PBS_VERSION/cpython-$PYTHON_VERSION+$PBS_VERSION-$PBS_ARCH-install_only.tar.gz"
+
+Write-Info "Downloading from: $PBS_URL"
+
+# Download python-build-standalone
+$tempDir = New-TemporaryFile | ForEach-Object { Remove-Item $_; New-Item -ItemType Directory -Path $_ }
 
 try {
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
-    Write-Success "Python downloaded successfully"
-} catch {
-    Write-Warning "Retrying download..."
-    Start-Sleep -Seconds 2
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+    $tarGzPath = Join-Path $tempDir.FullName "python.tar.gz"
+    Invoke-WebRequest -Uri $PBS_URL -OutFile $tarGzPath -UseBasicParsing
+    
+    Write-Info "Extracting standalone Python..."
+    
+    # Extract tar.gz using tar command (available in Windows 10+)
+    $extractPath = Join-Path $tempDir.FullName "extracted"
+    New-Item -ItemType Directory -Path $extractPath -Force | Out-Null
+    
+    # Use tar to extract (Windows 10+ has built-in tar)
+    tar -xzf $tarGzPath -C $extractPath
+    
+    # Move extracted Python to our bundle directory
+    $pythonDir = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1
+    Move-Item -Path $pythonDir.FullName -Destination "python-bundle\python-env\python-dist"
+    
+    Write-Success "Python extracted successfully"
+}
+catch {
+    Write-Error-Message "Failed to download or extract python-build-standalone: $($_.Exception.Message)"
+    Remove-Item -Recurse -Force $tempDir
+    exit 1
+}
+finally {
+    Remove-Item -Recurse -Force $tempDir
 }
 
-Write-Step "Extracting Python..."
-Expand-Archive -Path $zipPath -DestinationPath 'python-bundle/python-env/' -Force
-Remove-Item $zipPath
+# Install Python packages into the standalone Python
+Write-Info "Installing Python packages for $Architecture..."
 
-# Configure Python path
-Write-Step "Configuring Python path..."
-$pathConfig = @(
-    'python310.zip',
-    'lib/python3.10/site-packages',
-    '',
-    '# Uncomment to run site.main() automatically',
-    'import site'
-)
-$pathConfig | Set-Content 'python-bundle/python-env/python310._pth'
+# Use the bundled Python's pip to install packages
+$bundledPython = "python-bundle\python-env\python-dist\python.exe"
 
-# Download and install pip
-Write-Step "Setting up pip..."
-$getPipPath = 'python-bundle/python-env/get-pip.py'
-if (-not (Test-Path $getPipPath)) {
-    Write-Info "Downloading get-pip.py..."
-    try {
-        Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile $getPipPath -UseBasicParsing
-    } catch {
-        Start-Sleep -Seconds 2
-        Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile $getPipPath -UseBasicParsing
-    }
-} else {
-    Write-Info "Using existing get-pip.py"
+if (-not (Test-Path $bundledPython)) {
+    Write-Error-Message "Bundled Python not found at: $bundledPython"
+    exit 1
 }
 
-$pythonExe = '.\python-bundle\python-env\python.exe'
-Write-Step "Bootstrapping pip..."
-& $pythonExe -s -E $getPipPath pip==24.2 --no-warn-script-location
+Write-Info "Using bundled Python: $bundledPython"
 
-# Set pip environment variables
-$env:PIP_DISABLE_PIP_VERSION_CHECK = '1'
-$env:PIP_NO_INPUT = '1'
-$env:PIP_CONFIG_FILE = $null
-$targetDir = 'python-bundle/python-env/lib/python3.10/site-packages'
+# Install packages using bundled pip
+& $bundledPython -m pip install --upgrade pip
 
-# Install packages from requirements
-Write-Step "Installing Python packages from requirements-bundle.txt..."
-if (Test-Path 'requirements-bundle.txt') {
-    & $pythonExe -s -E -m pip install --no-cache-dir --upgrade --ignore-installed --isolated --no-warn-script-location --target $targetDir -r requirements-bundle.txt
-    Write-Success "Requirements installed successfully"
-} else {
-    Write-Warning "requirements-bundle.txt not found, installing core packages manually..."
-    
-    Write-Info "Installing core packages..."
-    & $pythonExe -s -E -m pip install --no-cache-dir --upgrade --ignore-installed --isolated --no-warn-script-location --target $targetDir pip==24.2 vosk==0.3.45 websockets==11.0.3 torch==2.2.2 soundfile==0.12.1 kokoro==0.7.16 numpy==1.26.4 huggingface_hub==0.24.6
-    
-    Write-Info "Installing TTS dependencies..."
-    & $pythonExe -s -E -m pip install --no-cache-dir --upgrade --ignore-installed --isolated --no-warn-script-location --target $targetDir spacy==3.7.5 phonemizer-fork==3.3.0 spacy-curated-transformers==0.3.1 num2words==0.5.13 espeakng-loader==0.2.4
-    
-    Write-Info "Installing Misaki and spaCy model..."
-    & $pythonExe -s -E -m pip install --no-cache-dir --upgrade --ignore-installed --isolated --no-warn-script-location --target $targetDir 'misaki[en]==0.7.16' https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
-    
-    Write-Info "Installing additional utilities..."
-    & $pythonExe -s -E -m pip install --no-cache-dir --upgrade --ignore-installed --isolated --no-warn-script-location --target $targetDir colorama==0.4.6 tqdm==4.66.4 regex==2024.5.15 filelock==3.15.4 attrs==24.2.0 urllib3==2.2.2 typing_extensions==4.12.2 charset-normalizer==3.3.2 idna==3.7 certifi==2024.7.4 cffi==1.16.0 pycparser==2.22
-}
+& $bundledPython -m pip install --upgrade --force-reinstall -r requirements-bundle.txt
 
 # Install spaCy English model
-Write-Step "Installing spaCy English model..."
-& $pythonExe -s -E -m pip install --no-cache-dir --upgrade --ignore-installed --isolated --no-warn-script-location --target $targetDir https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+Write-Info "Installing spaCy English model for $Architecture..."
+& $bundledPython -m pip install --upgrade https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
-# Copy websocket servers (excluding models directory)
-Write-Step "Copying websocket servers..."
-if (Test-Path 'Vosk-Server/websocket') {
-    if (-not (Test-Path 'python-bundle/python-env/vosk-server')) {
-        New-Item -ItemType Directory -Path 'python-bundle/python-env/vosk-server' -Force | Out-Null
-    }
+# Copy websocket servers
+Write-Info "Copying websocket servers..."
+if (Test-Path "Vosk-Server\websocket") {
+    New-Item -ItemType Directory -Path "python-bundle\python-env\vosk-server" -Force | Out-Null
     
-    # Copy Python files and requirements, but exclude models directory
-    Get-ChildItem -Path 'Vosk-Server/websocket' -Exclude 'models' | ForEach-Object {
-        Copy-Item -Recurse -Force $_.FullName 'python-bundle/python-env/vosk-server/'
-    }
-    Write-Success "Vosk server copied (excluding models directory)"
-} else {
-    Write-Warning "Skip: Vosk-Server/websocket not found"
+    # Copy all files except the models directory
+    Get-ChildItem -Path "Vosk-Server\websocket" -Exclude "models" | Copy-Item -Destination "python-bundle\python-env\vosk-server" -Recurse -Force
+    
+    Write-Success "Vosk server copied"
+}
+else {
+    Write-Warning "Skip: Vosk-Server\websocket not found"
 }
 
-if (Test-Path 'Kokoro-TTS-Server/websocket') {
-    if (-not (Test-Path 'python-bundle/python-env/kokoro-tts')) {
-        New-Item -ItemType Directory -Path 'python-bundle/python-env/kokoro-tts' -Force | Out-Null
-    }
-    Copy-Item -Recurse -Force 'Kokoro-TTS-Server/websocket/*' 'python-bundle/python-env/kokoro-tts/'
+if (Test-Path "Kokoro-TTS-Server\websocket") {
+    New-Item -ItemType Directory -Path "python-bundle\python-env\kokoro-tts" -Force | Out-Null
+    Copy-Item -Path "Kokoro-TTS-Server\websocket\*" -Destination "python-bundle\python-env\kokoro-tts" -Recurse -Force
     Write-Success "Kokoro TTS server copied"
-} else {
-    Write-Warning "Skip: Kokoro-TTS-Server/websocket not found"
+}
+else {
+    Write-Warning "Skip: Kokoro-TTS-Server\websocket not found"
 }
 
-# Create the fixed Python wrapper script
-Write-Step "Creating Python wrapper with proper file execution..."
-$pythonWrapper = @'
-#!/usr/bin/env python3
-import sys
-import os
+# Calculate bundle size and create architecture-specific checksum
+Write-Info "Calculating bundle checksum for $Architecture..."
+$bundleSize = Calculate-DirectorySize "python-bundle\python-env"
+$bundleSize | Out-File -FilePath "python-bundle\bundle-checksum-$Architecture.txt" -Encoding utf8
 
-# Get the directory containing this script
-script_dir = os.path.dirname(os.path.abspath(__file__))
-bundle_site_packages = os.path.join(script_dir, "lib", "python3.10", "site-packages")
-bundle_stdlib = os.path.join(script_dir, "lib", "python3.10")
-
-# Completely replace sys.path with only bundled paths
-sys.path = [
-    bundle_site_packages,
-    bundle_stdlib,
-    os.path.join(bundle_stdlib, "lib-dynload"),
-]
-
-# Set environment variables for complete isolation
-os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
-os.environ["PYTHONNOUSERSITE"] = "1"
-os.environ["PYTHONIOENCODING"] = "utf-8"
-
-# Remove system Python paths from environment
-if "PYTHONPATH" in os.environ:
-    del os.environ["PYTHONPATH"]
-if "PYTHONSTARTUP" in os.environ:
-    del os.environ["PYTHONSTARTUP"]
-if "PYTHONOPTIMIZE" in os.environ:
-    del os.environ["PYTHONOPTIMIZE"]
-
-# Execute the provided arguments
-if len(sys.argv) > 1:
-    if sys.argv[1] == "-c" and len(sys.argv) > 2:
-        exec(sys.argv[2])
-    else:
-        # Execute a Python file
-        script_path = sys.argv[1]
-        if os.path.isfile(script_path):
-            # Set sys.argv to match what the script expects
-            sys.argv = sys.argv[1:]  # Remove the wrapper script from argv
-            with open(script_path, 'r') as f:
-                code = compile(f.read(), script_path, 'exec')
-                exec(code, {'__file__': script_path, '__name__': '__main__'})
-        else:
-            print(f"Error: File '{script_path}' not found", file=sys.stderr)
-            sys.exit(1)
-else:
-    # Interactive mode
-    import code
-    code.interact()
-'@
-
-$pythonWrapper | Set-Content 'python-bundle/python-env/python3.py' -Encoding UTF8
-
-# Create a batch file wrapper for easier execution
-Write-Step "Creating batch file wrapper..."
-$batchWrapper = @'
-@echo off
-"%~dp0python.exe" "%~dp0python3.py" %*
-'@
-$batchWrapper | Set-Content 'python-bundle/python-env/python3.bat' -Encoding ASCII
-
-# Calculate bundle size and create checksum
-Write-Step "Calculating bundle checksum..."
-$bundleSize = (Get-ChildItem -Path 'python-bundle/python-env' -Recurse | Measure-Object -Property Length -Sum).Sum
-$bundleSize | Out-File -FilePath 'python-bundle/bundle-checksum.txt' -Encoding utf8
-
-    Write-Success "Python bundle creation completed successfully!"
-    Write-Info "Bundle size: $bundleSize bytes"
-    Write-Info "Bundle location: python-bundle/"
-    
-    Write-Host ""
-    Write-Host "Bundle contents:" -ForegroundColor Magenta
-    Write-Host "   - Isolated Python 3.10 environment" -ForegroundColor White
-    Write-Host "   - All required packages (vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
-    Write-Host "   - Vosk ASR server" -ForegroundColor White
-    Write-Host "   - Kokoro TTS server" -ForegroundColor White
-    Write-Host "   - Fixed Python wrapper for proper script execution" -ForegroundColor White
-}
-
-# Always check and create ZIP file (regardless of whether bundle was rebuilt)
-Write-Step "Checking for Python bundle ZIP file..."
-$zipFile = 'python-bundle.zip'
-
-if (Test-Path $zipFile) {
-    Write-Info "Compressed bundle already exists: $zipFile"
-    $existingSize = (Get-Item $zipFile).Length
-    Write-Info "Existing ZIP size: $([math]::Round($existingSize / 1MB, 2)) MB"
-    Write-Success "Using existing ZIP file for distribution"
-} else {
-    Write-Step "Compressing Python bundle for distribution..."
-    
-    if (Test-Path 'python-bundle') {
-        try {
-            # Calculate bundle size for compression ratio
-            $bundleSize = Calculate-DirectorySize 'python-bundle'
-            
-            # Compress the bundle with fastest compression
-            Compress-Archive -Path 'python-bundle\*' -DestinationPath $zipFile -CompressionLevel Fastest -Force
-            
-            # Calculate compressed size
-            $compressedSize = (Get-Item $zipFile).Length
-            $compressionRatio = [math]::Round((1 - ($compressedSize / $bundleSize)) * 100, 1)
-            
-            Write-Success "Bundle compressed successfully!"
-            Write-Info "Original size: $([math]::Round($bundleSize / 1MB, 2)) MB"
-            Write-Info "Compressed size: $([math]::Round($compressedSize / 1MB, 2)) MB"
-            Write-Info "Compression ratio: $compressionRatio%"
-            Write-Info "ZIP file created: $zipFile"
-        } catch {
-            Write-Warning "Failed to compress bundle: $($_.Exception.Message)"
-            Write-Info "Continuing without compressed bundle..."
-        }
-    } else {
-        Write-Warning "Python bundle directory not found - cannot create ZIP file"
-    }
-}
-
+Write-Success "Python bundle creation completed successfully for $Architecture!"
+Write-Info "Bundle size: $bundleSize bytes"
+Write-Info "Bundle location: python-bundle\"
 Write-Host ""
-Write-Host "Ready for distribution!" -ForegroundColor Green
+Write-Info "Creating python-bundle.zip for distribution..."
+
+# Create zip file from the python-bundle directory
+Compress-Archive -Path "python-bundle\*" -DestinationPath "python-bundle.zip" -Force
+
+Write-Success "Python bundle created and zipped successfully for $Architecture!"
+Write-Host ""
+Write-Host "🔍 Bundle contents:" -ForegroundColor Magenta
+Write-Host "   • Standalone Python $PYTHON_VERSION from python-build-standalone" -ForegroundColor White
+Write-Host "   • All required packages (vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
+Write-Host "   • Vosk ASR server" -ForegroundColor White
+Write-Host "   • Kokoro TTS server" -ForegroundColor White
+Write-Host ""
+Write-Host "🚀 Ready for distribution!" -ForegroundColor Green

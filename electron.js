@@ -711,9 +711,13 @@ async function cleanupExtractedModels() {
 // Helper function to dynamically detect Python version in extracted bundle
 function detectPythonVersion(pythonBundleDir) {
   try {
-    const libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'lib');
+    // Try lowercase 'lib' first (macOS/Linux), then 'Lib' (Windows might use this)
+    let libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'lib');
     if (!fs.existsSync(libDir)) {
-      return null;
+      libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'Lib');
+      if (!fs.existsSync(libDir)) {
+        return null;
+      }
     }
     
     const pythonVersions = fs.readdirSync(libDir).filter(dir => dir.startsWith('python3.'));
@@ -739,7 +743,10 @@ function startVoskServer() {
     let pythonEnv = { ...process.env };
     
     // Check if extracted Python executable exists in home directory
-    const extractedPython = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'bin', process.platform === 'win32' ? 'python.exe' : 'python3');
+    // Windows python-build-standalone has python.exe in root, macOS/Linux has it in bin/
+    const extractedPython = process.platform === 'win32' 
+      ? path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'python.exe')
+      : path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'bin', 'python3');
     
     // Dynamically detect Python version - MUST be dynamic, no fallback to hardcoded version
     const pythonVersion = detectPythonVersion(PATHS.pythonBundleDir);
@@ -749,7 +756,11 @@ function startVoskServer() {
     
     let extractedPackages = null;
     if (pythonVersion) {
+      // Try lowercase 'lib' first (macOS/Linux), then 'Lib' (Windows might use this)
       extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
+      if (!fs.existsSync(extractedPackages)) {
+        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'Lib', pythonVersion, 'site-packages');
+      }
       console.log(`🐍 Using dynamic Python version: ${pythonVersion}`);
       console.log(`🐍 Checking extracted packages: ${extractedPackages}`);
       console.log(`🐍 Packages exist: ${fs.existsSync(extractedPackages)}`);
@@ -832,7 +843,10 @@ function startTTSServer() {
     let pythonEnv = { ...process.env };
     
     // Check if extracted Python executable exists in home directory
-    const extractedPython = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'bin', process.platform === 'win32' ? 'python.exe' : 'python3');
+    // Windows python-build-standalone has python.exe in root, macOS/Linux has it in bin/
+    const extractedPython = process.platform === 'win32' 
+      ? path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'python.exe')
+      : path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'bin', 'python3');
     
     // Dynamically detect Python version - MUST be dynamic, no fallback to hardcoded version
     const pythonVersion = detectPythonVersion(PATHS.pythonBundleDir);
@@ -842,7 +856,11 @@ function startTTSServer() {
     
     let extractedPackages = null;
     if (pythonVersion) {
+      // Try lowercase 'lib' first (macOS/Linux), then 'Lib' (Windows might use this)
       extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
+      if (!fs.existsSync(extractedPackages)) {
+        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'Lib', pythonVersion, 'site-packages');
+      }
       console.log(`🔊 Using dynamic Python version: ${pythonVersion}`);
       console.log(`🔊 Checking extracted packages: ${extractedPackages}`);
       console.log(`🔊 Packages exist: ${fs.existsSync(extractedPackages)}`);

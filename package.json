@@ -44,13 +44,13 @@
     "electron-dev-mac": "export NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && electron .\"",
     "dist:mac-x64": "npm run build && ./build-python-bundle-mac.sh x64 && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --x64",
     "dist:mac-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --arm64",
-    "dist:win": "npm run build && npm run bundle-python && copy electron.js build\\ && copy preload.js build\\ && copy public\\vosk-audio-processor.js build\\ && electron-builder --win",
+    "dist:win": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64 && copy electron.js build\\ && copy preload.js build\\ && copy public\\vosk-audio-processor.js build\\ && electron-builder --win",
 
     "bundle-python": "node -e \"const os = require('os'); const { execSync } = require('child_process'); const platform = os.platform(); if (platform === 'win32') { execSync('npm run bundle-python-win', { stdio: 'inherit' }); } else if (platform === 'darwin') { execSync('npm run bundle-python-mac', { stdio: 'inherit' }); } else { console.log('Linux bundle not implemented yet, using system Python'); }\"",
 
 
     "bundle-python-mac": "chmod +x build-python-bundle-mac.sh && ./build-python-bundle-mac.sh",
-    "bundle-python-win": "powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1",
+    "bundle-python-win": "powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
