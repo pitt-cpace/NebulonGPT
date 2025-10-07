@@ -15,8 +15,9 @@
     "canvas": "^3.2.0",
     "concurrently": "^8.0.1",
     "cors": "^2.8.5",
+    "electron-is-dev": "^2.0.0",
     "express": "^4.18.2",
-    "extract-zip": "^2.0.1",
+    "js-tiktoken": "^1.0.21",
     "mammoth": "^1.9.0",
     "multer": "^1.4.5-lts.1",
     "pdfjs-dist": "^3.11.174",
@@ -35,20 +36,17 @@
     "@types/react-dom": "^18.2.4",
     "electron": "^28.0.0",
     "electron-builder": "^24.13.3",
+    "extract-zip": "^2.0.1",
     "wait-on": "^7.2.0"
   },
   "scripts": {
-
     "start:both": "concurrently \"npm run server\" \"npm start\"",
     "electron-dev-win": "set NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && node node_modules\\electron\\cli.js .\"",
     "electron-dev-mac": "export NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && electron .\"",
     "dist:mac-x64": "npm run build && ./build-python-bundle-mac.sh x64 && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --x64",
     "dist:mac-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && electron-builder --mac --arm64",
     "dist:win": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64 && copy electron.js build\\ && copy preload.js build\\ && copy public\\vosk-audio-processor.js build\\ && electron-builder --win",
-
     "bundle-python": "node -e \"const os = require('os'); const { execSync } = require('child_process'); const platform = os.platform(); if (platform === 'win32') { execSync('npm run bundle-python-win', { stdio: 'inherit' }); } else if (platform === 'darwin') { execSync('npm run bundle-python-mac', { stdio: 'inherit' }); } else { console.log('Linux bundle not implemented yet, using system Python'); }\"",
-
-
     "bundle-python-mac": "chmod +x build-python-bundle-mac.sh && ./build-python-bundle-mac.sh",
     "bundle-python-win": "powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64",
     "start": "react-scripts start",

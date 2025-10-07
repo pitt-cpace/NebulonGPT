@@ -6,8 +6,7 @@ const os = require('os');
 const crypto = require('crypto');
 const extractZip = require('extract-zip');
 
-// Simple development check without external dependency
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+const isDev = require('electron-is-dev');
 
 // Give Windows a stable identity for permission persistence
 if (process.platform === 'win32') {

@@ -2,6 +2,7 @@ import axios from 'axios';
 import { ModelType, MessageType } from '../types';
 import { ttsService } from './ttsService';
 import { isElectron } from './electronApi';
+import { tokenCountingService } from './tokenCountingService';
 
 // Configure axios with base URL
 // In Electron, connect directly to Ollama
@@ -118,19 +119,92 @@ export const sendMessage = async (
 
     // Check if both full voice mode is enabled AND microphone is listening to add system message
     const ttsSettings = ttsService.getSettings();
-    let finalMessages = formattedMessages;
+    let systemMessage: any = null;
+    let systemMessageTokens = 0;
     
     // Add system message when BOTH full voice mode is enabled AND microphone is listening
     if (ttsSettings.fullVoiceMode && isListening) {
-      const systemMessage = {
+      systemMessage = {
         role: 'system' as const,
         content: 'You are a helpful and conversational assistant. Maintain context across turns and speak naturally as if in an ongoing dialogue.'
       };
       
+      // Count tokens in system message for truncation calculation
+      systemMessageTokens = tokenCountingService.countTokens(systemMessage.content) + 10; // +10 for overhead
+    }
+
+    // Get context length from options
+    const contextLength = options?.num_ctx || 4096;
+    
+    // Log token usage before truncation
+    console.log('📊 Pre-truncation token analysis:');
+    console.log(tokenCountingService.getTokenUsageSummary(messages, contextLength));
+    
+    // Check if we need to truncate messages to fit context length
+    let truncatedMessages = messages;
+    if (tokenCountingService.exceedsContextLength(messages, contextLength)) {
+      console.log('⚠️ Messages exceed context length, applying truncation...');
+      truncatedMessages = tokenCountingService.truncateMessagesToFitContext(
+        messages, // Use original messages for better truncation decisions
+        contextLength,
+        systemMessageTokens
+      );
+      
+      console.log('✅ Post-truncation token analysis:');
+      console.log(tokenCountingService.getTokenUsageSummary(truncatedMessages, contextLength));
+    }
+    
+    // Now format the (possibly truncated) messages for the API
+    const messagesToSend = truncatedMessages.map(msg => {
+      // If the message has attachments, handle them appropriately
+      if (msg.attachments && msg.attachments.length > 0) {
+        // Create a new content string that includes the text file content
+        let enhancedContent = msg.content;
+        // Array to hold image attachments for this specific message
+        const messageImages: string[] = [];
+        
+        // Process each attachment
+        msg.attachments.forEach(attachment => {
+          // Handle text and PDF attachments by including their content in the message
+          if ((attachment.type === 'text' || attachment.type === 'pdf') && attachment.content) {
+            enhancedContent += `\n\n--- File: ${attachment.name} ---\n${attachment.content}\n---\n`;
+          }
+          
+          // Collect image attachments for this message
+          if (attachment.type === 'image' && attachment.content) {
+            // Extract base64 data from data URL (remove the prefix like "data:image/jpeg;base64,")
+            const base64Data = attachment.content.split(',')[1];
+            if (base64Data) {
+              messageImages.push(base64Data);
+              // Also add to the global array for logging purposes
+              imageAttachments.push(base64Data);
+            }
+          }
+        });
+          
+        // Return message with images included in the message object per Ollama API docs
+        return {
+          role: msg.role,
+          content: enhancedContent,
+          // Only include images field if there are images
+          ...(messageImages.length > 0 && { images: messageImages })
+        };
+      }
+      
+      // If no attachments, just return the original message
+      return {
+        role: msg.role,
+        content: msg.content,
+      };
+    });
+    
+    // Prepare final messages with system message if needed
+    let finalMessages = messagesToSend;
+    if (systemMessage) {
       // Insert system message at the beginning if it's not already there
       const hasSystemMessage = finalMessages.some(msg => msg.role === 'system');
       if (!hasSystemMessage) {
-        finalMessages = [systemMessage, ...formattedMessages];
+        finalMessages = [systemMessage, ...messagesToSend];
       }
     }
   
