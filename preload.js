@@ -17,10 +17,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Vosk models management
   getVoskModels: () => ipcRenderer.invoke('get-vosk-models'),
-    deleteVoskModel: (modelName) => ipcRenderer.invoke('delete-vosk-model', modelName),
-    extractVoskModel: (modelName) => ipcRenderer.invoke('extract-vosk-model', modelName),
-    copyFileToModels: (fileName, fileData) => ipcRenderer.invoke('copy-file-to-models', fileName, fileData),
-    updateVoskModelsChecksum: () => ipcRenderer.invoke('update-vosk-models-checksum'),
+  deleteVoskModel: (modelName) => ipcRenderer.invoke('delete-vosk-model', modelName),
+  extractVoskModel: (modelName) => ipcRenderer.invoke('extract-vosk-model', modelName),
+  copyFileToModels: (fileName, fileData) => ipcRenderer.invoke('copy-file-to-models', fileName, fileData),
+  updateVoskModelsChecksum: () => ipcRenderer.invoke('update-vosk-models-checksum'),
   
   // Platform detection
   platform: process.platform,

@@ -993,6 +993,26 @@ function createWindow() {
     ? 'http://localhost:3000' 
     : `file://${path.join(PATHS.buildDir, 'index.html')}`;
   
+  // Enable context menu (use Menu from existing require at top)
+  const { Menu } = require('electron');
+
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    console.log('context-menu fired'); // Sanity check log
+    
+    // Clean minimal template that adapts to what's under the cursor
+    const template = [
+      ...(params.isEditable ? [{ role: 'cut' }, { role: 'copy' }, { role: 'paste' }] : []),
+      ...(!params.isEditable && params.selectionText ? [{ role: 'copy' }] : []),
+      ...(params.isEditable || params.selectionText ? [{ type: 'separator' }] : []),
+      { role: 'selectAll' },
+      ...(params.linkURL ? [{ type: 'separator' }, { label: 'Open Link', click: () => shell.openExternal(params.linkURL) }] : [])
+    ];
+
+    const menu = Menu.buildFromTemplate(template);
+    // Use mainWindow directly instead of trying to get from event.sender
+    menu.popup({ window: mainWindow });
+  });
+
   mainWindow.loadURL(startUrl);
 
   // Force window to show and focus
