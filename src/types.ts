@@ -25,6 +25,8 @@ export interface MessageType {
   content: string;
   timestamp: string;
   attachments?: FileAttachment[]; // Add support for file attachments
+  tokenCount?: number; // Track individual message tokens
+  contextTokensUsed?: number; // Track total context tokens sent to LLM for this message
 }
 
 export interface ChatType {
@@ -34,6 +36,12 @@ export interface ChatType {
   messages: MessageType[];
   createdAt: string;
   updatedAt?: string;
+  tokenStats?: {
+    totalTokensSent: number;
+    totalTokensReceived: number;
+    contextLength: number;
+    lastUpdated: string;
+  };
 }
 
 export interface SuggestedPrompt {

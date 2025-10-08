@@ -1591,6 +1591,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     const textDirectionStyles = getTextDirectionStyles(message.content);
     const mixedContentAnalysis = analyzeMixedContent(message.content);
     
+    
     return (
       <Box
         key={message.id}
@@ -1627,6 +1628,45 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 </>
               )}
             </Typography>
+
+            {/* Token count display - always on right side for both user and AI messages */}
+            {chat?.tokenStats && (
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'flex-end', // Always on right side
+                mt: 0.5 
+              }}>
+                {isUser && message.contextTokensUsed && message.contextTokensUsed > 0 ? (
+                  // User messages: Show total context sent to LLM
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontSize: '9px',
+                      color: 'text.disabled',
+                      opacity: 0.4,
+                      fontFamily: 'monospace',
+                      userSelect: 'none',
+                    }}
+                  >
+                    ~{message.contextTokensUsed}/{chat.tokenStats.contextLength}
+                  </Typography>
+                ) : !isUser && message.tokenCount && message.tokenCount > 0 ? (
+                  // AI messages: Show only tokens received in this response
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontSize: '9px',
+                      color: 'text.disabled',
+                      opacity: 0.4,
+                      fontFamily: 'monospace',
+                      userSelect: 'none',
+                    }}
+                  >
+                    ~{message.tokenCount}/{chat.tokenStats.contextLength}
+                  </Typography>
+                ) : null}
+              </Box>
+            )}
             
             {/* Render file attachments if present */}
             {message.attachments && message.attachments.length > 0 && (

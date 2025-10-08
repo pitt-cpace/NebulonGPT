@@ -68,7 +68,10 @@ export const sendMessage = async (
   options?: Record<string, any>,
   onStreamUpdate?: (chunk: string, responseData?: any) => void,
   isListening?: boolean
-): Promise<string> => {
+): Promise<{response: string, tokensSent: number, tokensReceived: number}> => {
+  // Initialize token counting variables outside try block for proper scope
+  let tokensSent = 0;
+
   try {
     // Extract image attachments and text attachments
     const imageAttachments: string[] = [];
@@ -207,6 +210,10 @@ export const sendMessage = async (
         finalMessages = [systemMessage, ...messagesToSend];
       }
     }
+
+    // Calculate tokens sent (after truncation and formatting)
+    let tokensSent = tokenCountingService.countTotalTokens(truncatedMessages) + systemMessageTokens;
+    console.log(`📤 Tokens sent to LLM: ${tokensSent}`);
   
     
 const endpoint = '/chat';
@@ -286,7 +293,9 @@ const endpoint = '/chat';
         // Check if this is a cancellation error
         if (error.message === 'User cancelled the response') {
           console.log('Stream was cancelled by user');
-          return fullResponse;
+          const tokensReceived = tokenCountingService.countTokens(fullResponse);
+          console.log(`📥 Tokens received from LLM: ${tokensReceived} (cancelled)`);
+          return { response: fullResponse, tokensSent, tokensReceived };
         }
         console.error('Error reading stream:', error);
         throw error;
@@ -294,7 +303,10 @@ const endpoint = '/chat';
         currentReader = null;
       }
       
-      return fullResponse;
+      // Calculate tokens received and return complete object
+      const tokensReceived = tokenCountingService.countTokens(fullResponse);
+      console.log(`📥 Tokens received from LLM: ${tokensReceived}`);
+      return { response: fullResponse, tokensSent, tokensReceived };
     } else {
       // Non-streaming mode (fallback)
       // Prepare the request payload
@@ -319,11 +331,13 @@ const endpoint = '/chat';
       
       
       if (response.data && response.data.message) {
-        return response.data.message.content;
+        const tokensReceived = tokenCountingService.countTokens(response.data.message.content);
+        console.log(`📥 Tokens received from LLM: ${tokensReceived} (non-streaming)`);
+        return { response: response.data.message.content, tokensSent, tokensReceived };
       }
     }
     
-    return 'No response from the model. Please check the Ollama API is running correctly.';
+    return { response: 'No response from the model. Please check the Ollama API is running correctly.', tokensSent, tokensReceived: 0 };
   } catch (error: any) {
     console.error('Error sending message to Ollama API:', error);
     
@@ -347,7 +361,7 @@ const endpoint = '/chat';
       console.error('Error message:', error.message);
     }
     
-    return errorMessage;
+    return { response: errorMessage, tokensSent: tokensSent || 0, tokensReceived: 0 };
   }
 };
 

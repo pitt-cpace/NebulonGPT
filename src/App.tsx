@@ -285,6 +285,12 @@ const App: React.FC = () => {
         modelId: defaultModel.id,
         messages: [],
         createdAt: new Date().toISOString(),
+        tokenStats: {
+          totalTokensSent: 0,
+          totalTokensReceived: 0,
+          contextLength: contextLength,
+          lastUpdated: new Date().toISOString()
+        }
       };
       
       // Don't save empty chat to server immediately - only save when it gets messages
@@ -350,6 +356,12 @@ const App: React.FC = () => {
       modelId: selectedModel.id,
       messages: [],
       createdAt: new Date().toISOString(),
+      tokenStats: {
+        totalTokensSent: 0,
+        totalTokensReceived: 0,
+        contextLength: contextLength,
+        lastUpdated: new Date().toISOString()
+      }
     };
     
     // Don't save empty chat to server immediately - only save when it gets messages
@@ -480,6 +492,18 @@ const App: React.FC = () => {
       timestamp: new Date().toISOString(),
       attachments, // Add attachments to the message
     };
+
+    // Calculate token count synchronously for immediate context management
+    const { tokenCountingService } = await import('./services/tokenCountingService');
+    const userTokenCount = tokenCountingService.countMessageTokens(userMessage);
+    userMessage.tokenCount = userTokenCount;
+    
+    // Calculate cumulative context (all previous messages + current message) 
+    const allMessages = [...currentChat.messages, userMessage];
+    const cumulativeContextTokens = tokenCountingService.countTotalTokens(allMessages);
+    userMessage.contextTokensUsed = cumulativeContextTokens;
+    
+    console.log(`📊 User message: ${userTokenCount} tokens, Cumulative context: ${cumulativeContextTokens} tokens`);
     
     // Update current chat with user message
     const updatedChat = {
@@ -689,7 +713,7 @@ const App: React.FC = () => {
       };
       
       // Start both operations in parallel using Promise.all or separate promises
-      const mainResponsePromise = sendMessage(
+      const apiResult = await sendMessage(
         selectedModel.id,
         [...updatedChat.messages], // Include the new user message
         {
@@ -700,8 +724,58 @@ const App: React.FC = () => {
         isListening // Pass listening state for system message logic
       );
       
-      // Wait for the main response to complete (title generation continues in background)
-      await mainResponsePromise;
+      // Update chat with token statistics and context tracking
+      setCurrentChat(prevChat => {
+        if (!prevChat) return null;
+        
+        // Update messages - DON'T change user message contextTokensUsed (keep immediate display)
+        const updatedMessages = prevChat.messages.map(msg => {
+          if (msg.id === aiMessageId) {
+            // AI message: Calculate async for accurate token count
+            (async () => {
+              if (msg.content) {
+                const aiTokenCount = await tokenCountingService.countMessageTokensAsync(msg);
+                // Update the message with async calculated tokens
+                setCurrentChat(currentChat => {
+                  if (!currentChat) return null;
+                  const updatedMsgs = currentChat.messages.map(m => 
+                    m.id === msg.id ? { ...m, tokenCount: aiTokenCount } : m
+                  );
+                  return { ...currentChat, messages: updatedMsgs };
+                });
+              }
+            })();
+            // Initially set with API result, will be updated async above
+            return { ...msg, tokenCount: apiResult.tokensReceived };
+          }
+          return msg; // Keep user message unchanged (preserves immediate contextTokensUsed)
+        });
+        
+        const updatedChat = {
+          ...prevChat,
+          messages: updatedMessages,
+          tokenStats: {
+            totalTokensSent: (prevChat.tokenStats?.totalTokensSent || 0) + apiResult.tokensSent,
+            totalTokensReceived: (prevChat.tokenStats?.totalTokensReceived || 0) + apiResult.tokensReceived,
+            contextLength: contextLength,
+            lastUpdated: new Date().toISOString()
+          }
+        };
+        
+        // Update the chats array with token stats
+        setChats(prevChats => 
+          prevChats.map(chat => 
+            chat.id === prevChat.id ? updatedChat : chat
+          )
+        );
+        
+        // Save the updated chat with token stats to server
+        saveChatToServer(updatedChat);
+        
+        return updatedChat;
+      });
+      
+      console.log(`📊 Context Tracking - ACTUAL tokens sent to LLM: ${apiResult.tokensSent}, Pre-calculation was: ${cumulativeContextTokens}`);
       
       // Send any remaining text in the TTS buffer after streaming is complete
       if (ttsSettings.fullVoiceMode && isListening && ttsBuffer.trim()) {

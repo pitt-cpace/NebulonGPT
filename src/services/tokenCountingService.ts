@@ -4,6 +4,7 @@ import { MessageType, FileAttachment } from '../types';
 /**
  * Token counting and context management service
  * Uses JavaScript-based tokenization (js-tiktoken) - no Python dependencies
+ * Implements correct OpenAI vision token calculation using tile-based rule
  */
 class TokenCountingService {
   private encoder: any;
@@ -41,7 +42,8 @@ class TokenCountingService {
   }
 
   /**
-   * Count tokens in a file attachment
+   * Count tokens in a file attachment (SYNC for sending prompts - context management)
+   * MUST be sync because we need immediate token count for context truncation before sending
    */
   countAttachmentTokens(attachment: FileAttachment): number {
     let tokenCount = 0;
@@ -56,55 +58,117 @@ class TokenCountingService {
       tokenCount += 20;
     }
     
-    // For images, calculate actual token cost based on image data
+    // For images, use quick fallback for immediate context management
     if (attachment.type === 'image' && attachment.content) {
-      tokenCount += this.countImageTokens(attachment.content);
+      tokenCount += 255; // Standard vision token estimate (85 base + 170*1 tile) - SYNC fallback
     }
     
     return tokenCount;
   }
 
   /**
-   * Calculate actual tokens for image attachments based on image data
+   * Count tokens in a file attachment (ASYNC for receiving responses - accuracy)
+   * Can be async because receiving tokens don't affect context limits, only for display
    */
-  private countImageTokens(imageContent: string): number {
+  async countAttachmentTokensAsync(attachment: FileAttachment): Promise<number> {
+    let tokenCount = 0;
+    
+    // Count tokens for the filename (this gets included in the message)
+    tokenCount += this.countTokens(attachment.name);
+    
+    // Count tokens for the content if it's a text-based attachment
+    if ((attachment.type === 'text' || attachment.type === 'pdf') && attachment.content) {
+      tokenCount += this.countTokens(attachment.content);
+      // Add some overhead for formatting (file headers, etc.)
+      tokenCount += 20;
+    }
+    
+    // For images, use REAL accurate OpenAI vision calculation
+    if (attachment.type === 'image' && attachment.content) {
+      tokenCount += await this.calculateVisionImageTokens(attachment.content);
+    }
+    
+    return tokenCount;
+  }
+
+  /**
+   * Calculate REAL vision image tokens using official OpenAI tile-based rule
+   */
+  private async calculateVisionImageTokens(imageContent: string): Promise<number> {
     try {
-      // Remove data URL prefix (e.g., "data:image/jpeg;base64,")
       const base64Data = imageContent.split(',')[1];
       if (!base64Data) {
-        return 100; // Minimal fallback if no valid base64 data
+        return 85; // Minimum tokens for any image
       }
 
-      // Calculate the actual size of the base64 encoded image
-      const base64Length = base64Data.length;
+      // Convert base64 to blob to get actual image dimensions
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const blob = new Blob([bytes]);
       
-      // Base64 encoding increases size by ~33%, so get approximate original file size
-      const approximateFileSize = Math.floor(base64Length * 0.75);
+      // Get real image dimensions
+      const imageBitmap = await createImageBitmap(blob);
+      const width = imageBitmap.width;
+      const height = imageBitmap.height;
       
-      // For vision models, token cost typically depends on image dimensions and complexity
-      // Since we can't decode the image here, we use file size as a proxy
-      // Rough calculation: ~1 token per 750 bytes (based on OpenAI's vision model pricing)
-      const estimatedTokens = Math.ceil(approximateFileSize / 750);
+      // Clean up
+      imageBitmap.close();
       
-      // Set reasonable bounds: minimum 50 tokens, maximum 2000 tokens per image
-      const minTokens = 50;
-      const maxTokens = 2000;
+      // Use official OpenAI vision token calculation (tile-based, NOT tiktoken)
+      const tokens = this.estimateVisionImageTokens(width, height, "high", "gpt-4o");
       
-      const actualTokens = Math.max(minTokens, Math.min(maxTokens, estimatedTokens));
+      console.log(`🖼️ REAL vision token calculation: ${width}×${height} → ${tokens} actual vision tokens (OpenAI tile-based)`);
       
-      console.log(`🖼️ Image token calculation: ${base64Length} base64 chars → ~${approximateFileSize} bytes → ${actualTokens} tokens`);
-      
-      return actualTokens;
+      return tokens;
       
     } catch (error) {
-      console.error('Error calculating image tokens:', error);
-      // Fallback to a reasonable estimate if calculation fails
-      return 500;
+      console.error('Error in real vision token calculation:', error);
+      return 85; // Default minimum for any image
     }
   }
 
   /**
-   * Count tokens in a single message including all attachments
+   * Estimate image tokens per OpenAI o-series rule.
+   * detail: "low" = flat 85 tokens
+   * detail: "high" = 85 + 170 × tiles(512×512) after:
+   *   1) fit inside 2048×2048
+   *   2) downscale so the short side is 768 (never upscale)
+   */
+  private estimateVisionImageTokens(
+    width: number,
+    height: number,
+    detail: "low" | "high" = "high",
+    model: "gpt-4o" | "gpt-4.1" | "gpt-4.1-mini" | "o4-mini" = "gpt-4o"
+  ): number {
+    // Model constants (adjust if your provider specifies different numbers)
+    const base = 85;
+    const perTile = 170;
+
+    if (detail === "low") return base;
+
+    // Step 1: fit within 2048×2048
+    const s1 = Math.min(1, 2048 / Math.max(width, height));
+    let w = Math.round(width * s1);
+    let h = Math.round(height * s1);
+
+    // Step 2: ensure short side = 768 (downscale only)
+    const short = Math.min(w, h);
+    if (short > 768) {
+      const s2 = 768 / short;
+      w = Math.round(w * s2);
+      h = Math.round(h * s2);
+    }
+
+    // Step 3: count 512×512 tiles
+    const tiles = Math.ceil(w / 512) * Math.ceil(h / 512);
+    return base + perTile * tiles;
+  }
+
+  /**
+   * Count tokens in a single message including all attachments (sync version)
    */
   countMessageTokens(message: MessageType): number {
     let tokenCount = 0;
@@ -112,7 +176,7 @@ class TokenCountingService {
     // Count tokens in the message content
     tokenCount += this.countTokens(message.content);
     
-    // Count tokens for attachments
+    // Count tokens for attachments (sync)
     if (message.attachments && message.attachments.length > 0) {
       for (const attachment of message.attachments) {
         tokenCount += this.countAttachmentTokens(attachment);
@@ -126,10 +190,43 @@ class TokenCountingService {
   }
 
   /**
-   * Count total tokens in an array of messages
+   * Count tokens in a single message including all attachments (async with real vision calculation)
+   */
+  async countMessageTokensAsync(message: MessageType): Promise<number> {
+    let tokenCount = 0;
+    
+    // Count tokens in the message content
+    tokenCount += this.countTokens(message.content);
+    
+    // Count tokens for attachments (async for accurate vision calculation)
+    if (message.attachments && message.attachments.length > 0) {
+      for (const attachment of message.attachments) {
+        tokenCount += await this.countAttachmentTokensAsync(attachment);
+      }
+    }
+    
+    // Add some overhead for message structure (role, timestamp, etc.)
+    tokenCount += 10;
+    
+    return tokenCount;
+  }
+
+  /**
+   * Count total tokens in an array of messages (sync version)
    */
   countTotalTokens(messages: MessageType[]): number {
     return messages.reduce((total, message) => total + this.countMessageTokens(message), 0);
+  }
+
+  /**
+   * Count total tokens in an array of messages (async version)
+   */
+  async countTotalTokensAsync(messages: MessageType[]): Promise<number> {
+    let total = 0;
+    for (const message of messages) {
+      total += await this.countMessageTokensAsync(message);
+    }
+    return total;
   }
 
   /**
