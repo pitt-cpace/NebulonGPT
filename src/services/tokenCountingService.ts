@@ -235,15 +235,32 @@ class TokenCountingService {
    */
   truncateMessagesToFitContext(
     messages: MessageType[], 
-    maxContextLength: number,
+    maxContextLength: number = 0,
     systemMessageTokens: number = 0
   ): MessageType[] {
     if (messages.length === 0) {
       return messages;
     }
 
+    // Get current context length from settings if not provided
+    let contextLength = maxContextLength;
+    if (!contextLength || contextLength === 0) {
+      contextLength = 4096; // Default fallback
+      try {
+        const savedContextLength = localStorage.getItem('contextLength');
+        if (savedContextLength) {
+          const parsed = parseInt(savedContextLength, 10);
+          if (!isNaN(parsed) && parsed >= 2000) {
+            contextLength = parsed;
+          }
+        }
+      } catch (error) {
+        console.error('Error reading context length from settings:', error);
+      }
+    }
+
     // Reserve some tokens for the system message and response generation
-    const availableTokens = maxContextLength - systemMessageTokens - 500; // Reserve 500 tokens for response
+    const availableTokens = contextLength - systemMessageTokens - 500; // Reserve 500 tokens for response
     
     if (availableTokens <= 0) {
       console.warn('Context length is too small for meaningful conversation');
@@ -421,7 +438,24 @@ class TokenCountingService {
   /**
    * Get a summary of token usage for debugging
    */
-  getTokenUsageSummary(messages: MessageType[], contextLength: number): string {
+  getTokenUsageSummary(messages: MessageType[], contextLength: number = 0): string {
+    // Get current context length from settings if not provided
+    let currentContextLength = contextLength;
+    if (!currentContextLength || currentContextLength === 0) {
+      currentContextLength = 4096; // Default fallback
+      try {
+        const savedContextLength = localStorage.getItem('contextLength');
+        if (savedContextLength) {
+          const parsed = parseInt(savedContextLength, 10);
+          if (!isNaN(parsed) && parsed >= 2000) {
+            currentContextLength = parsed;
+          }
+        }
+      } catch (error) {
+        console.error('Error reading context length from settings:', error);
+      }
+    }
+
     const totalTokens = this.countTotalTokens(messages);
     const breakdown = messages.map((msg, index) => ({
       index,
@@ -431,7 +465,7 @@ class TokenCountingService {
     }));
 
     return `Token Usage Summary:
-Total: ${totalTokens}/${contextLength} tokens (${Math.round((totalTokens/contextLength)*100)}%)
+Total: ${totalTokens}/${currentContextLength} tokens (${Math.round((totalTokens/currentContextLength)*100)}%)
 Messages: ${messages.length}
 Breakdown: ${breakdown.map(b => `${b.index}:${b.role}(${b.tokens}t,${b.hasAttachments}a)`).join(', ')}`;
   }
@@ -439,9 +473,26 @@ Breakdown: ${breakdown.map(b => `${b.index}:${b.role}(${b.tokens}t,${b.hasAttach
   /**
    * Check if messages exceed context length
    */
-  exceedsContextLength(messages: MessageType[], contextLength: number): boolean {
+  exceedsContextLength(messages: MessageType[], contextLength: number = 0): boolean {
+    // Get current context length from settings if not provided
+    let currentContextLength = contextLength;
+    if (!currentContextLength || currentContextLength === 0) {
+      currentContextLength = 4096; // Default fallback
+      try {
+        const savedContextLength = localStorage.getItem('contextLength');
+        if (savedContextLength) {
+          const parsed = parseInt(savedContextLength, 10);
+          if (!isNaN(parsed) && parsed >= 2000) {
+            currentContextLength = parsed;
+          }
+        }
+      } catch (error) {
+        console.error('Error reading context length from settings:', error);
+      }
+    }
+
     const totalTokens = this.countTotalTokens(messages);
-    return totalTokens > contextLength - 500; // Reserve 500 tokens for response
+    return totalTokens > currentContextLength - 500; // Reserve 500 tokens for response
   }
 
   /**

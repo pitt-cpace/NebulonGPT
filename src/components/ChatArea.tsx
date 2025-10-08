@@ -121,6 +121,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [detectionSensitivity, setDetectionSensitivity] = useState<number>(100); // Default sensitivity display value (inverse of internal 0)
   const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
+  const [currentTokens, setCurrentTokens] = useState(0);
+  const [isContextExceeded, setIsContextExceeded] = useState(false);
+  const [contextWarning, setContextWarning] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -275,6 +278,106 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       console.log(`🎚️ Detection sensitivity set to 100 (internal: ${internalValue})`);
     }
   }, [voskRecognition]);
+
+  // Real-time token calculation function
+  const calculateCurrentTokens = useCallback(async () => {
+    try {
+      const { tokenCountingService } = await import('../services/tokenCountingService');
+      
+      // Calculate tokens for current input
+      let totalTokens = 0;
+      
+      // Add tokens from existing chat messages
+      if (chat?.messages) {
+        totalTokens += tokenCountingService.countTotalTokens(chat.messages);
+      }
+      
+      // Add tokens from current message text
+      totalTokens += tokenCountingService.countTokens(message);
+      
+      // Add tokens from current attachments
+      for (const attachment of attachments) {
+        totalTokens += tokenCountingService.countAttachmentTokens(attachment);
+      }
+      
+      // Add overhead for message structure
+      totalTokens += 10;
+      
+      setCurrentTokens(totalTokens);
+      
+      // Get current context length from settings (localStorage)
+      let contextLength = 4096; // Default fallback
+      try {
+        const savedContextLength = localStorage.getItem('contextLength');
+        if (savedContextLength) {
+          const parsed = parseInt(savedContextLength, 10);
+          if (!isNaN(parsed) && parsed >= 2000) {
+            contextLength = parsed;
+          }
+        }
+      } catch (error) {
+        console.error('Error reading context length from settings:', error);
+      }
+      
+      const isExceeded = totalTokens > contextLength - 500; // Reserve 500 tokens for response
+      
+      setIsContextExceeded(isExceeded);
+      
+      if (isExceeded) {
+        setContextWarning(`Context limit exceeded! ~${totalTokens}/${contextLength} tokens. Remove some text/attachments or increase context length from settings.`);
+      } else if (totalTokens > contextLength - 1000) {
+        setContextWarning(`Approaching context limit: ${totalTokens}/${contextLength} tokens. Consider keeping your message shorter or increase context length from settings.`);
+      } else {
+        setContextWarning(null);
+      }
+      
+      console.log(`📊 Real-time token calculation: ${totalTokens}/${contextLength} tokens`);
+       
+    } catch (error) {
+      console.error('Error calculating real-time tokens:', error);
+    }
+  }, [message, attachments, chat]);
+
+  // Real-time token calculation - recalculate when message or attachments change
+  useEffect(() => {
+    if (chat) {
+      calculateCurrentTokens();
+    }
+  }, [message, attachments, chat, calculateCurrentTokens]);
+
+  // Listen for localStorage changes to recalculate when settings are updated
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      // Only recalculate if context length setting changed
+      if (event.key === 'contextLength' && chat) {
+        console.log('🔄 Context length setting changed, recalculating tokens...');
+        calculateCurrentTokens();
+      }
+    };
+
+    // Listen for localStorage changes from other windows/tabs
+    window.addEventListener('storage', handleStorageChange);
+
+    // Also listen for manual localStorage updates in same window
+    const originalSetItem = localStorage.setItem;
+    localStorage.setItem = function(key: string, value: string) {
+      const result = originalSetItem.call(this, key, value);
+      if (key === 'contextLength' && chat) {
+        console.log('🔄 Context length setting updated, recalculating tokens...');
+        // Use setTimeout to ensure the value is saved before recalculating
+        setTimeout(() => {
+          calculateCurrentTokens();
+        }, 100);
+      }
+      return result;
+    };
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      // Restore original setItem (though component unmount usually means app is closing)
+      localStorage.setItem = originalSetItem;
+    };
+  }, [calculateCurrentTokens, chat]);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -1630,43 +1733,59 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             </Typography>
 
             {/* Token count display - always on right side for both user and AI messages */}
-            {chat?.tokenStats && (
-              <Box sx={{ 
-                display: 'flex', 
-                justifyContent: 'flex-end', // Always on right side
-                mt: 0.5 
-              }}>
-                {isUser && message.contextTokensUsed && message.contextTokensUsed > 0 ? (
-                  // User messages: Show total context sent to LLM
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      fontSize: '9px',
-                      color: 'text.disabled',
-                      opacity: 0.4,
-                      fontFamily: 'monospace',
-                      userSelect: 'none',
-                    }}
-                  >
-                    ~{message.contextTokensUsed}/{chat.tokenStats.contextLength}
-                  </Typography>
-                ) : !isUser && message.tokenCount && message.tokenCount > 0 ? (
-                  // AI messages: Show only tokens received in this response
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      fontSize: '9px',
-                      color: 'text.disabled',
-                      opacity: 0.4,
-                      fontFamily: 'monospace',
-                      userSelect: 'none',
-                    }}
-                  >
-                    ~{message.tokenCount}/{chat.tokenStats.contextLength}
-                  </Typography>
-                ) : null}
-              </Box>
-            )}
+            {(() => {
+              // Get current context length from settings (localStorage)
+              let currentContextLength = 4096; // Default fallback
+              try {
+                const savedContextLength = localStorage.getItem('contextLength');
+                if (savedContextLength) {
+                  const parsed = parseInt(savedContextLength, 10);
+                  if (!isNaN(parsed) && parsed >= 2000) {
+                    currentContextLength = parsed;
+                  }
+                }
+              } catch (error) {
+                console.error('Error reading context length from settings:', error);
+              }
+
+              return (
+                <Box sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'flex-end', // Always on right side
+                  mt: 0.5 
+                }}>
+                  {isUser && message.contextTokensUsed && message.contextTokensUsed > 0 ? (
+                    // User messages: Show total context sent to LLM
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: '9px',
+                        color: 'text.disabled',
+                        opacity: 0.4,
+                        fontFamily: 'monospace',
+                        userSelect: 'none',
+                      }}
+                    >
+                      ~{message.contextTokensUsed}/{currentContextLength}
+                    </Typography>
+                  ) : !isUser && message.tokenCount && message.tokenCount > 0 ? (
+                    // AI messages: Show only tokens received in this response
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: '9px',
+                        color: 'text.disabled',
+                        opacity: 0.4,
+                        fontFamily: 'monospace',
+                        userSelect: 'none',
+                      }}
+                    >
+                      ~{message.tokenCount}/{currentContextLength}
+                    </Typography>
+                  ) : null}
+                </Box>
+              );
+            })()}
             
             {/* Render file attachments if present */}
             {message.attachments && message.attachments.length > 0 && (
@@ -2613,6 +2732,38 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               </Box>
               
               <Box sx={{ width: '100%' }}>
+                {/* Context warning display */}
+                {contextWarning && (
+                  <Box 
+                    sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center',
+                      gap: 1,
+                      p: 1, 
+                      mb: 1,
+                      borderRadius: 1,
+                      bgcolor: isContextExceeded ? 'rgba(244, 67, 54, 0.1)' : 'rgba(255, 152, 0, 0.1)',
+                      border: `1px solid ${isContextExceeded ? 'rgba(244, 67, 54, 0.3)' : 'rgba(255, 152, 0, 0.3)'}`,
+                      width: '100%'
+                    }}
+                  >
+                    {isContextExceeded ? (
+                      <ErrorIcon sx={{ fontSize: 16, color: 'error.main' }} />
+                    ) : (
+                      <WarningIcon sx={{ fontSize: 16, color: 'warning.main' }} />
+                    )}
+                    <Typography 
+                      variant="caption" 
+                      sx={{ 
+                        color: isContextExceeded ? 'error.main' : 'warning.main',
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      {contextWarning}
+                    </Typography>
+                  </Box>
+                )}
+
                 {/* File attachment chips displayed above the text field */}
                 {attachments.length > 0 && (
                   <Box 
@@ -2718,10 +2869,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 </IconButton>
               ) : (
                 <IconButton
-                  color="primary"
+                  color={isContextExceeded ? "error" : "primary"}
                   onClick={handleSendMessage}
-                  disabled={!message.trim() && attachments.length === 0}
-                  sx={{ ml: 1 }}
+                  disabled={(!message.trim() && attachments.length === 0) || isContextExceeded}
+                  title={isContextExceeded ? "Cannot send: Context limit exceeded" : "Send message"}
+                  sx={{ 
+                    ml: 1,
+                    ...(isContextExceeded && {
+                      backgroundColor: 'rgba(244, 67, 54, 0.1)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(244, 67, 54, 0.2)',
+                      },
+                      '&.Mui-disabled': {
+                        color: 'error.main',
+                        opacity: 0.6,
+                      },
+                    })
+                  }}
                 >
                   <SendIcon />
                 </IconButton>
