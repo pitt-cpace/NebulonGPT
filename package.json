@@ -123,7 +123,8 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "public/icon.icns",
-      "target": "dmg"
+      "target": "dmg",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "win": {
       "icon": "public/cpace-logo-icon-256.ico",

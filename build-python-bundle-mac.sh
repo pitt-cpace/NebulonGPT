@@ -130,8 +130,31 @@ echo "🐍 Using bundled Python: $BUNDLED_PYTHON"
 # Install packages using bundled pip
 $BUNDLED_PYTHON -m pip install --upgrade pip
 
+# Install PyTorch with platform-specific handling
+echo "🔥 Installing PyTorch for $TARGET_ARCH..."
+if [ "$TARGET_ARCH" = "x64" ]; then
+    # For Intel Macs (x64), explicitly install CPU-only PyTorch to ensure compatibility
+    echo "📦 Installing Intel Mac (x64) compatible PyTorch..."
+    $BUNDLED_PYTHON -m pip install \
+        --upgrade --force-reinstall \
+        torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
+else
+    # For ARM64 Macs, install from standard PyPI
+    echo "📦 Installing ARM64 Mac compatible PyTorch..."
+    $BUNDLED_PYTHON -m pip install \
+        --upgrade --force-reinstall \
+        torch==2.2.2 torchvision==0.17.2
+fi
+
+# Install remaining packages from requirements (excluding torch and torchvision)
+echo "📦 Installing remaining Python packages for $TARGET_ARCH..."
 $BUNDLED_PYTHON -m pip install \
     --upgrade --force-reinstall \
+    -r requirements-bundle.txt --no-deps
+
+# Now install dependencies of the packages we just installed
+echo "📦 Installing package dependencies..."
+$BUNDLED_PYTHON -m pip install \
     -r requirements-bundle.txt
 
 # Install spaCy English model
