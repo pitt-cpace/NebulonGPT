@@ -208,3 +208,8 @@ builder-*.yaml
 *.tmp
 *.temp
 %TEMP%/
+
+# Code signing certificates (sensitive)
+Certification/*.cer
+Certification/*.p12
+Certification/*.key
