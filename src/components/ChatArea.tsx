@@ -4,6 +4,7 @@ import { TextItem } from 'pdfjs-dist/types/src/display/api';
 import katex from 'katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
 import 'katex/dist/katex.min.css';
 import {
   Box,
@@ -1560,28 +1561,93 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         {renderCellContent(children)}
       </TableCell>
     ),
-    // Improve code blocks with LaTeX support
+    // Improve code blocks - extract and render formulas from LaTeX documents
     code: ({ node, inline, className, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(className || '');
       const content = String(children).replace(/\n$/, '');
       
-      // Check if this is LaTeX code block
-      if (!inline && (className === 'language-latex' || className === 'language-tex' || /^[\s\S]*(?:\\frac|\\beta|\\alpha|\\sum|\\int|\\sqrt|\\begin|\\end)[\s\S]*$/.test(content))) {
-        try {
-          const html = katex.renderToString(content, {
-            displayMode: true,
-            throwOnError: false,
-            output: 'html'
-          });
+      // Check if this is a LaTeX code block
+      if (!inline && (className === 'language-latex' || className === 'language-tex')) {
+        const hasDocumentCommands = /\\documentclass|\\begin\{document\}|\\usepackage/.test(content);
+        
+        if (hasDocumentCommands) {
+          // Extract all formulas from the LaTeX document
+          const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
           
-          return (
-            <Box
-              sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          );
-        } catch (error) {
-          // Fall through to normal code block rendering
+          // Extract \[ \] display formulas
+          const displayMatches = content.match(/\\\[([\s\S]*?)\\\]/g);
+          if (displayMatches) {
+            displayMatches.forEach(match => {
+              const formula = match.replace(/^\\\[/, '').replace(/\\\]$/, '').trim();
+              if (formula) formulas.push({ formula, isDisplay: true });
+            });
+          }
+          
+          // Extract \( \) inline formulas
+          const inlineMatches = content.match(/\\\(([\s\S]*?)\\\)/g);
+          if (inlineMatches) {
+            inlineMatches.forEach(match => {
+              const formula = match.replace(/^\\\(/, '').replace(/\\\)$/, '').trim();
+              if (formula) formulas.push({ formula, isDisplay: false });
+            });
+          }
+          
+          // Render extracted formulas
+          if (formulas.length > 0) {
+            return (
+              <Box sx={{ my: 2 }}>
+                {formulas.map((item, idx) => {
+                  try {
+                    const html = katex.renderToString(item.formula, {
+                      displayMode: item.isDisplay,
+                      throwOnError: false,
+                      output: 'html'
+                    });
+                    
+                    return (
+                      <Box
+                        key={idx}
+                        sx={{ 
+                          my: item.isDisplay ? 2 : 1,
+                          p: item.isDisplay ? 2 : 1,
+                          bgcolor: 'action.hover',
+                          borderRadius: 1
+                        }}
+                        dangerouslySetInnerHTML={{ __html: html }}
+                      />
+                    );
+                  } catch (error) {
+                    return (
+                      <Box key={idx} sx={{ color: 'error.main', fontSize: '0.9em' }}>
+                        Failed to render: {item.formula.substring(0, 50)}...
+                      </Box>
+                    );
+                  }
+                })}
+              </Box>
+            );
+          }
+        } else {
+          // Pure math block without document commands
+          const hasMathContent = /\\frac|\\beta|\\alpha|\\sum|\\int|\\sqrt/.test(content);
+          if (hasMathContent) {
+            try {
+              const html = katex.renderToString(content, {
+                displayMode: true,
+                throwOnError: false,
+                output: 'html'
+              });
+              
+              return (
+                <Box
+                  sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}
+                  dangerouslySetInnerHTML={{ __html: html }}
+                />
+              );
+            } catch (error) {
+              // Fall through to normal code block rendering
+            }
+          }
         }
       }
       
@@ -1677,8 +1743,97 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Function to detect and render tables from markdown
   const renderMarkdownWithTables = (content: string) => {
+    // First, check if this is a full LaTeX document in plain text (not in code block)
+    const hasDocumentCommands = /\\documentclass|\\begin\{document\}|\\usepackage/.test(content);
+    
+    if (hasDocumentCommands) {
+      // Extract and render formulas from the LaTeX document
+      const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
+      
+      // Extract \[ \] display formulas
+      const displayMatches = content.match(/\\\[([\s\S]*?)\\\]/g);
+      if (displayMatches) {
+        displayMatches.forEach(match => {
+          const formula = match.replace(/^\\\[/, '').replace(/\\\]$/, '').trim();
+          if (formula) formulas.push({ formula, isDisplay: true });
+        });
+      }
+      
+      // Extract \( \) inline formulas
+      const inlineMatches = content.match(/\\\(([\s\S]*?)\\\)/g);
+      if (inlineMatches) {
+        inlineMatches.forEach(match => {
+          const formula = match.replace(/^\\\(/, '').replace(/\\\)$/, '').trim();
+          if (formula) formulas.push({ formula, isDisplay: false });
+        });
+      }
+      
+      // Extract $ $ inline formulas
+      const dollarMatches = content.match(/\$([^\$]+)\$/g);
+      if (dollarMatches) {
+        dollarMatches.forEach(match => {
+          const formula = match.replace(/^\$/, '').replace(/\$$/, '').trim();
+          if (formula) formulas.push({ formula, isDisplay: false });
+        });
+      }
+      
+      // Extract \begin{align*} environments and split into individual equations
+      const alignMatches = content.match(/\\begin\{align\*\}([\s\S]*?)\\end\{align\*\}/g);
+      if (alignMatches) {
+        alignMatches.forEach(match => {
+          const innerContent = match.replace(/\\begin\{align\*\}/, '').replace(/\\end\{align\*\}/, '').trim();
+          // Split by \\ to get individual equations
+          const equations = innerContent.split('\\\\').filter(eq => eq.trim());
+          equations.forEach(equation => {
+            // Remove alignment markers (&) and clean up
+            const cleanedEquation = equation.replace(/&/g, '').trim();
+            if (cleanedEquation) {
+              formulas.push({ formula: cleanedEquation, isDisplay: true });
+            }
+          });
+        });
+      }
+      
+      // If we found formulas, render them
+      if (formulas.length > 0) {
+        return (
+          <Box>
+            {formulas.map((item, idx) => {
+              try {
+                const html = katex.renderToString(item.formula, {
+                  displayMode: item.isDisplay,
+                  throwOnError: false,
+                  output: 'html'
+                });
+                
+                return (
+                  <Box
+                    key={idx}
+                    sx={{ 
+                      my: item.isDisplay ? 2 : 0.5,
+                      p: item.isDisplay ? 2 : 0.5,
+                      bgcolor: item.isDisplay ? 'action.hover' : 'transparent',
+                      borderRadius: 1
+                    }}
+                    dangerouslySetInnerHTML={{ __html: html }}
+                  />
+                );
+              } catch (error) {
+                return null; // Skip formulas that fail to render
+              }
+            })}
+          </Box>
+        );
+      }
+    }
+    
+    // Convert HTML sub/sup tags to LaTeX notation wrapped in $ delimiters
+    let contentWithLatex = content
+      .replace(/<sub>([^<]+)<\/sub>/g, '$_{$1}$')
+      .replace(/<sup>([^<]+)<\/sup>/g, '$^{$1}$');
+    
     // Preprocess content to fix Llama3-3 table format
-    let processedContent = preprocessLlama3TableFormat(content);
+    let processedContent = preprocessLlama3TableFormat(contentWithLatex);
     
     // Detect and replace HTML tables
     const htmlTableRegex = /<table[\s\S]*?<\/table>/gi;
@@ -1774,7 +1929,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       return (
         <ReactMarkdown 
           remarkPlugins={[remarkMath as any]}
-          rehypePlugins={[rehypeKatex as any]}
+          rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
           components={customMarkdownComponents}
         >
           {processedContent}
@@ -1798,7 +1953,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             <ReactMarkdown 
               key={`text-${key++}`}
               remarkPlugins={[remarkMath as any]}
-              rehypePlugins={[rehypeKatex as any]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
               {beforeTable}
@@ -1877,7 +2032,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             <ReactMarkdown 
               key={`text-${key++}`}
               remarkPlugins={[remarkMath as any]}
-              rehypePlugins={[rehypeKatex as any]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
               {beforeTable}
@@ -1977,7 +2132,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             <ReactMarkdown 
               key={`text-${key++}`}
               remarkPlugins={[remarkMath as any]}
-              rehypePlugins={[rehypeKatex as any]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
               {beforeTable}
@@ -2072,7 +2227,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             <ReactMarkdown 
               key={`text-${key++}`}
               remarkPlugins={[remarkMath as any]}
-              rehypePlugins={[rehypeKatex as any]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
               {beforeTable}
@@ -2188,7 +2343,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               <ReactMarkdown 
                 key={`text-${key++}`}
                 remarkPlugins={[remarkMath as any]}
-                rehypePlugins={[rehypeKatex as any]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
                 {beforeTable}
@@ -2257,7 +2412,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             <ReactMarkdown 
               key={`text-${key++}`}
               remarkPlugins={[remarkMath as any]}
-              rehypePlugins={[rehypeKatex as any]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
               {remaining}
@@ -2269,7 +2424,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <ReactMarkdown 
             key={`text-${key++}`}
             remarkPlugins={[remarkMath as any]}
-            rehypePlugins={[rehypeKatex as any]}
+            rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
             components={customMarkdownComponents}
           >
             {afterLastTable}
