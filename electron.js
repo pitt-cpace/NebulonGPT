@@ -352,48 +352,94 @@ async function extractKokoroCache() {
         fs.mkdirSync(tempDir, { recursive: true });
       }
 
-      // Find and concatenate split files
-      const splitFiles = fs.readdirSync(kokoroModelsDir)
-        .filter(file => file.startsWith('huggingface-cache.zip.'))
-        .sort();
-
-      if (splitFiles.length === 0) {
-        console.log('No Kokoro cache files found to extract');
-        resolve();
-        return;
-      }
-
-      console.log(`Found ${splitFiles.length} Kokoro cache parts to concatenate`);
+      // Step 1: Find all files and classify them
+      const files = fs.readdirSync(kokoroModelsDir);
       
-      // Concatenate split files  
-      const zipPath = path.join(tempDir, 'huggingface-cache.zip');
+      // Identify split archive parts (files matching *.zip.*)
+      const splitParts = files.filter(file => file.match(/\.zip\..+$/));
       
-      // Wait for concatenation to complete before extracting
-      await new Promise((resolveConcatenation, rejectConcatenation) => {
-        const writeStream = fs.createWriteStream(zipPath);
+      if (splitParts.length > 0) {
+        console.log('📦 Found split ZIP files for Kokoro TTS, concatenating...');
         
-        writeStream.on('finish', () => {
-          console.log('📦 Concatenation completed successfully');
-          resolveConcatenation();
-        });
-        
-        writeStream.on('error', (error) => {
-          console.error('📦 Error during concatenation:', error);
-          rejectConcatenation(error);
-        });
-        
-        for (const splitFile of splitFiles) {
-          const partPath = path.join(kokoroModelsDir, splitFile);
-          const data = fs.readFileSync(partPath);
-          writeStream.write(data);
+        // Step 2: Group split parts by base name (everything before .zip)
+        const splitGroups = new Map();
+        for (const part of splitParts) {
+          // Extract base name: everything before .zip
+          const match = part.match(/^(.+)\.zip\.(.+)$/);
+          if (match) {
+            const baseName = match[1];
+            const extension = match[2];
+            
+            if (!splitGroups.has(baseName)) {
+              splitGroups.set(baseName, []);
+            }
+            splitGroups.get(baseName).push({ fileName: part, extension });
+          }
         }
         
-        writeStream.end();
-      });
+        // Step 3: Concatenate each group of split parts
+        for (const [baseName, parts] of splitGroups) {
+          console.log(`📦 Concatenating split archive: ${baseName} (${parts.length} parts)`);
+          
+          // Sort parts: try numeric first, fall back to alphanumeric
+          parts.sort((a, b) => {
+            // Try to parse as numbers (e.g., 001, 002, 1, 2)
+            const aNum = parseInt(a.extension);
+            const bNum = parseInt(b.extension);
+            
+            if (!isNaN(aNum) && !isNaN(bNum)) {
+              return aNum - bNum;
+            }
+            
+            // Fall back to string comparison (e.g., a, b, c or a1, a2)
+            return a.extension.localeCompare(b.extension, undefined, { numeric: true, sensitivity: 'base' });
+          });
+          
+          const outputZip = path.join(tempDir, `${baseName}.zip`);
+          
+          // Wait for concatenation to complete before continuing
+          await new Promise((resolveConcatenation, rejectConcatenation) => {
+            const writeStream = fs.createWriteStream(outputZip);
+            
+            writeStream.on('finish', () => {
+              console.log(`📦 Created: ${baseName}.zip from parts: ${parts.map(p => p.extension).join(', ')}`);
+              resolveConcatenation();
+            });
+            
+            writeStream.on('error', (error) => {
+              console.error(`❌ Error concatenating ${baseName}:`, error);
+              rejectConcatenation(error);
+            });
+            
+            // Concatenate all parts in order
+            for (const part of parts) {
+              const partPath = path.join(kokoroModelsDir, part.fileName);
+              const data = fs.readFileSync(partPath);
+              writeStream.write(data);
+            }
+            
+            writeStream.end();
+          });
+        }
+      }
 
-      // Extract using extract-zip library
-      console.log('📦 Starting extraction of concatenated ZIP...');
-      await extractZip(zipPath, { dir: tempDir });
+      // Step 2: Extract all complete zip files (both original and newly concatenated)
+      const allFiles = fs.readdirSync(tempDir);
+      
+      for (const zipfile of allFiles) {
+        // Only process files that end with .zip (not .zip.*)
+        if (zipfile.endsWith('.zip') && !zipfile.match(/\.zip\..+$/)) {
+          const zipPath = path.join(tempDir, zipfile);
+          
+          try {
+            console.log(`📦 Extracting: ${zipfile}`);
+            await extractZip(zipPath, { dir: tempDir });
+            console.log(`✅ Successfully extracted: ${zipfile}`);
+          } catch (error) {
+            console.warn(`❌ Failed to extract ${zipfile}:`, error);
+          }
+        }
+      }
       
       // Move extracted content to final location (ZIP contains 'huggingface-cache' folder)
       const extractedDir = path.join(tempDir, 'huggingface-cache');
@@ -559,55 +605,83 @@ async function extractVoskModels() {
         }
       });
 
-      // Step 1: Concatenate all split zip files into single zip files (exactly like Docker)
+      // Step 1: Find all files and classify them
       const files = fs.readdirSync(PATHS.voskModelsDir);
-      const splitFiles = files.filter(file => file.match(/\.zip\.\d+$/));
       
-      if (splitFiles.length > 0) {
+      // Identify split archive parts (files matching *.zip.*)
+      const splitParts = files.filter(file => file.match(/\.zip\..+$/));
+      
+      if (splitParts.length > 0) {
         console.log('📦 Found split ZIP files, concatenating...');
         
-        // Get unique base names (like Docker: sed 's/\.zip\..*$//' | sort -u)
-        const baseNames = [...new Set(splitFiles.map(file => file.replace(/\.zip\.\d+$/, '')))];
-
-        for (const baseName of baseNames) {
-          console.log(`📦 Concatenating split archive: ${baseName}`);
-          
-          // Get all parts for this base name and sort them (like Docker: sort -V)
-          const parts = files
-            .filter(file => file.startsWith(`${baseName}.zip.`))
-            .sort((a, b) => {
-              const aNum = parseInt(a.split('.').pop());
-              const bNum = parseInt(b.split('.').pop());
-              return aNum - bNum;
-            });
-
-          if (parts.length > 0) {
-            const outputZip = path.join(PATHS.voskModelsDir, `${baseName}.zip`);
+        // Step 2: Group split parts by base name (everything before .zip)
+        const splitGroups = new Map();
+        for (const part of splitParts) {
+          // Extract base name: everything before .zip
+          const match = part.match(/^(.+)\.zip\.(.+)$/);
+          if (match) {
+            const baseName = match[1];
+            const extension = match[2];
             
-            // Concatenate parts using cat (like Docker: cat $parts > "${base_name}.zip")
+            if (!splitGroups.has(baseName)) {
+              splitGroups.set(baseName, []);
+            }
+            splitGroups.get(baseName).push({ fileName: part, extension });
+          }
+        }
+        
+        // Step 3: Concatenate each group of split parts
+        for (const [baseName, parts] of splitGroups) {
+          console.log(`📦 Concatenating split archive: ${baseName} (${parts.length} parts)`);
+          
+          // Sort parts: try numeric first, fall back to alphanumeric
+          parts.sort((a, b) => {
+            // Try to parse as numbers (e.g., 001, 002, 1, 2)
+            const aNum = parseInt(a.extension);
+            const bNum = parseInt(b.extension);
+            
+            if (!isNaN(aNum) && !isNaN(bNum)) {
+              return aNum - bNum;
+            }
+            
+            // Fall back to string comparison (e.g., a, b, c or a1, a2)
+            return a.extension.localeCompare(b.extension, undefined, { numeric: true, sensitivity: 'base' });
+          });
+          
+          const outputZip = path.join(PATHS.voskModelsDir, `${baseName}.zip`);
+          
+          // Wait for concatenation to complete before continuing
+          await new Promise((resolveConcatenation, rejectConcatenation) => {
             const writeStream = fs.createWriteStream(outputZip);
             
+            writeStream.on('finish', () => {
+              console.log(`📦 Created: ${baseName}.zip from parts: ${parts.map(p => p.extension).join(', ')}`);
+              resolveConcatenation();
+            });
+            
+            writeStream.on('error', (error) => {
+              console.error(`❌ Error concatenating ${baseName}:`, error);
+              rejectConcatenation(error);
+            });
+            
+            // Concatenate all parts in order
             for (const part of parts) {
-              const partPath = path.join(PATHS.voskModelsDir, part);
+              const partPath = path.join(PATHS.voskModelsDir, part.fileName);
               const data = fs.readFileSync(partPath);
               writeStream.write(data);
             }
-            writeStream.end();
             
-            console.log(`📦 Created: ${baseName}.zip`);
-          }
+            writeStream.end();
+          });
         }
       }
 
-      // Step 2: Extract all zip files (both original and newly concatenated)
+      // Step 2: Extract all complete zip files (both original and newly concatenated)
       const allFiles = fs.readdirSync(PATHS.voskModelsDir);
       
       for (const zipfile of allFiles) {
-        if (zipfile.endsWith('.zip')) {
-          // Skip split file parts (like Docker case statement)
-          if (zipfile.match(/\.zip\.\d+$/)) {
-            continue;
-          }
+        // Only process files that end with .zip (not .zip.*)
+        if (zipfile.endsWith('.zip') && !zipfile.match(/\.zip\..+$/)) {
           
           const zipPath = path.join(PATHS.voskModelsDir, zipfile);
           
@@ -622,12 +696,13 @@ async function extractVoskModels() {
         }
       }
 
-      // Step 3: Clean up - remove all zip files (split parts and complete zips)
-      console.log('📦 Cleaning up zip files...');
+      // Step 3: Clean up - remove all zip files and split parts
+      console.log('📦 Cleaning up zip files and split parts...');
       const finalFiles = fs.readdirSync(PATHS.voskModelsDir);
       
       for (const file of finalFiles) {
-        if (file.endsWith('.zip') || file.match(/\.zip\.\d+$/)) {
+        // Remove both complete zips and split parts
+        if (file.endsWith('.zip') || file.match(/\.zip\..+$/)) {
           try {
             fs.unlinkSync(path.join(PATHS.voskModelsDir, file));
           } catch (error) {
