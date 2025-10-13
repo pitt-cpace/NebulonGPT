@@ -32,6 +32,8 @@ import {
   Cable as CableIcon,
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
+  LightMode as LightModeIcon,
+  DarkMode as DarkModeIcon,
 } from '@mui/icons-material';
 import { ModelType } from '../types';
 import { VoskRecognitionService } from '../services/vosk';
@@ -79,6 +81,10 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   // Store original TTS settings for cancel functionality
   const [originalTtsSettings, setOriginalTtsSettings] = useState({ fullVoiceMode: false, voiceGender: 'female' as 'female' | 'male' });
   
+  // Theme mode state
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>('dark');
+  const [originalThemeMode, setOriginalThemeMode] = useState<'light' | 'dark'>('dark');
+  
   // Ollama API URL state
   const [ollamaApiUrl, setOllamaApiUrl] = useState('');
   const [originalOllamaApiUrl, setOriginalOllamaApiUrl] = useState('');
@@ -101,6 +107,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setFullVoiceMode(settings.fullVoiceMode);
     setVoiceGender(settings.voiceGender);
     setOriginalTtsSettings(settings);
+    
+    // Load theme mode from localStorage
+    const savedThemeMode = localStorage.getItem('themeMode') as 'light' | 'dark' | null;
+    const currentTheme = savedThemeMode || 'dark';
+    setThemeMode(currentTheme);
+    setOriginalThemeMode(currentTheme);
     
     // Load Ollama API URL from localStorage and denormalize for display
     const savedUrl = localStorage.getItem('ollamaApiUrl') || '';
@@ -191,6 +203,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setVoiceGender(currentSettings.voiceGender);
     setOriginalTtsSettings(currentSettings);
     
+    // Refresh theme mode
+    const savedThemeMode = localStorage.getItem('themeMode') as 'light' | 'dark' | null;
+    const currentTheme = savedThemeMode || 'dark';
+    setThemeMode(currentTheme);
+    setOriginalThemeMode(currentTheme);
+    
     // Refresh Ollama API URL and denormalize for display
     const savedUrl = localStorage.getItem('ollamaApiUrl') || '';
     const displayUrl = denormalizeOllamaUrl(savedUrl);
@@ -259,6 +277,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setVoiceGender(originalTtsSettings.voiceGender);
     ttsService.updateSettings(originalTtsSettings);
     
+    // Reset theme mode to original value
+    setThemeMode(originalThemeMode);
+    
     // Reset Ollama API URL and Key to original values
     setOllamaApiUrl(originalOllamaApiUrl);
     setOllamaApiKey(originalOllamaApiKey);
@@ -294,8 +315,14 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     localStorage.setItem('ollamaApiKey', ollamaApiKey.trim());
     setOriginalOllamaApiKey(ollamaApiKey.trim());
     
-    // Trigger page reload to apply new Ollama API URL or Key
-    if (ollamaApiUrl.trim() !== originalOllamaApiUrl || ollamaApiKey.trim() !== originalOllamaApiKey) {
+    // Save theme mode to localStorage
+    localStorage.setItem('themeMode', themeMode);
+    setOriginalThemeMode(themeMode);
+    
+    // Trigger page reload to apply changes
+    if (ollamaApiUrl.trim() !== originalOllamaApiUrl || 
+        ollamaApiKey.trim() !== originalOllamaApiKey || 
+        themeMode !== originalThemeMode) {
       window.location.reload();
     }
     
@@ -498,10 +525,21 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
         keepMounted={false}
       >
         <DialogTitle sx={styles.dialogTitle}>
-          <Typography variant="h6">Model Settings</Typography>
-          <IconButton edge="end" color="inherit" onClick={handleClose} aria-label="close">
-            <CloseIcon />
-          </IconButton>
+          Model Settings
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Tooltip title={themeMode === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
+              <IconButton
+                onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+                color="inherit"
+                size="small"
+              >
+                {themeMode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
+              </IconButton>
+            </Tooltip>
+            <IconButton edge="end" color="inherit" onClick={handleClose} aria-label="close">
+              <CloseIcon />
+            </IconButton>
+          </Box>
         </DialogTitle>
         <DialogContent dividers>
           <Box sx={styles.sectionContainer}>

@@ -1,19 +1,38 @@
 import { createTheme } from '@mui/material/styles';
 
-// Theme configuration extracted from index.tsx
+// Get theme mode from localStorage, default to 'dark'
+const getThemeMode = (): 'light' | 'dark' => {
+  const savedMode = localStorage.getItem('themeMode');
+  return (savedMode === 'light' || savedMode === 'dark') ? savedMode : 'dark';
+};
+
+// Theme configuration with dynamic mode
 const theme = createTheme({
   palette: {
-    mode: 'dark',
-    background: {
-      default: '#121212',
-      paper: '#1e1e1e',
-    },
-    primary: {
-      main: '#90caf9',
-    },
-    secondary: {
-      main: '#f48fb1',
-    },
+    mode: getThemeMode(),
+    ...(getThemeMode() === 'dark' ? {
+      background: {
+        default: '#121212',
+        paper: '#1e1e1e',
+      },
+      primary: {
+        main: '#90caf9',
+      },
+      secondary: {
+        main: '#f48fb1',
+      },
+    } : {
+      background: {
+        default: '#fafafa',
+        paper: '#ffffff',
+      },
+      primary: {
+        main: '#1976d2',
+      },
+      secondary: {
+        main: '#dc004e',
+      },
+    }),
   },
   typography: {
     fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
@@ -21,7 +40,7 @@ const theme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: {
-        body: {
+        body: getThemeMode() === 'dark' ? {
           scrollbarColor: "#6b6b6b #2b2b2b",
           "&::-webkit-scrollbar, & *::-webkit-scrollbar": {
             backgroundColor: "#2b2b2b",
@@ -40,6 +59,26 @@ const theme = createTheme({
           },
           "&::-webkit-scrollbar-thumb:hover, & *::-webkit-scrollbar-thumb:hover": {
             backgroundColor: "#959595",
+          },
+        } : {
+          scrollbarColor: "#bdbdbd #f5f5f5",
+          "&::-webkit-scrollbar, & *::-webkit-scrollbar": {
+            backgroundColor: "#f5f5f5",
+            width: "8px",
+          },
+          "&::-webkit-scrollbar-thumb, & *::-webkit-scrollbar-thumb": {
+            borderRadius: 8,
+            backgroundColor: "#bdbdbd",
+            minHeight: 24,
+          },
+          "&::-webkit-scrollbar-thumb:focus, & *::-webkit-scrollbar-thumb:focus": {
+            backgroundColor: "#9e9e9e",
+          },
+          "&::-webkit-scrollbar-thumb:active, & *::-webkit-scrollbar-thumb:active": {
+            backgroundColor: "#9e9e9e",
+          },
+          "&::-webkit-scrollbar-thumb:hover, & *::-webkit-scrollbar-thumb:hover": {
+            backgroundColor: "#9e9e9e",
           },
         },
       },
