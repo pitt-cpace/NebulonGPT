@@ -13,6 +13,7 @@ declare global {
       showSaveDialog: () => Promise<any>;
       showOpenDialog: () => Promise<any>;
       getAppVersion: () => Promise<string>;
+      copyToClipboard: (text: string) => Promise<{ success: boolean; error?: string }>;
       platform: string;
       isElectron: boolean;
     };

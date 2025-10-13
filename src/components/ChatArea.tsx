@@ -48,6 +48,7 @@ import {
   Error as ErrorIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
+  ContentCopy as ContentCopyIcon,
 } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
@@ -124,6 +125,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [currentTokens, setCurrentTokens] = useState(0);
   const [isContextExceeded, setIsContextExceeded] = useState(false);
   const [contextWarning, setContextWarning] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -1687,8 +1689,62 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     );
   };
 
+  // Function to copy message content to clipboard
+  const handleCopyMessage = useCallback(async (messageId: string, content: string) => {
+    try {
+      // Try Electron clipboard API first (if in Electron environment)
+      if (window.electronAPI && window.electronAPI.copyToClipboard) {
+        const result = await window.electronAPI.copyToClipboard(content);
+        if (result.success) {
+          setCopiedMessageId(messageId);
+          console.log('✅ Message copied successfully using Electron clipboard API');
+        } else {
+          throw new Error(result.error || 'Electron clipboard copy failed');
+        }
+      }
+      // Try modern clipboard API for browsers
+      else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(content);
+        setCopiedMessageId(messageId);
+        console.log('✅ Message copied successfully using browser clipboard API');
+      }
+      // Fallback for older browsers
+      else {
+        const textArea = document.createElement('textarea');
+        textArea.value = content;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            setCopiedMessageId(messageId);
+            console.log('✅ Message copied successfully using fallback method');
+          } else {
+            throw new Error('Copy command failed');
+          }
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+      
+      // Reset copied state after 2 seconds
+      setTimeout(() => {
+        setCopiedMessageId(null);
+      }, 2000);
+    } catch (error) {
+      console.error('❌ Failed to copy message:', error);
+      // Silently fail - just log the error, don't show alert
+    }
+  }, []);
+
   const renderMessage = (message: MessageType) => {
     const isUser = message.role === 'user';
+    const isCopied = copiedMessageId === message.id;
     
     // Auto-detect RTL/LTR for both user and assistant messages
     const textDirectionStyles = getTextDirectionStyles(message.content);
@@ -1930,6 +1986,36 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               </Box>
             )}
           </Box>
+        </Box>
+        
+        {/* Copy button below the message */}
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'flex-start',
+            mt: 0.5,
+            ml: 1,
+          }}
+        >
+          <IconButton
+            size="small"
+            onClick={() => handleCopyMessage(message.id, message.content)}
+            sx={{
+              opacity: 0.6,
+              transition: 'opacity 0.2s, background-color 0.2s',
+              '&:hover': {
+                opacity: 1,
+                backgroundColor: 'rgba(0, 0, 0, 0.05)',
+              },
+            }}
+            title={isCopied ? 'Copied!' : 'Copy message'}
+          >
+            {isCopied ? (
+              <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />
+            ) : (
+              <ContentCopyIcon sx={{ fontSize: 18 }} />
+            )}
+          </IconButton>
         </Box>
       </Box>
     );

@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   copyFileToModels: (fileName, fileData) => ipcRenderer.invoke('copy-file-to-models', fileName, fileData),
   updateVoskModelsChecksum: () => ipcRenderer.invoke('update-vosk-models-checksum'),
   
+  // Clipboard operations
+  copyToClipboard: (text) => ipcRenderer.invoke('copy-to-clipboard', text),
+  
   // Platform detection
   platform: process.platform,
   

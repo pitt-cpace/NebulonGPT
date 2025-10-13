@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
@@ -1520,6 +1520,18 @@ ipcMain.handle('update-vosk-models-checksum', async () => {
     return { success: true, size: currentVoskModelsSize };
   } catch (error) {
     console.error('Error updating Vosk models checksum:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Clipboard operations
+ipcMain.handle('copy-to-clipboard', (event, text) => {
+  try {
+    clipboard.writeText(text);
+    console.log('✅ Text copied to clipboard via Electron API');
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Failed to copy to clipboard:', error);
     return { success: false, error: error.message };
   }
 });
