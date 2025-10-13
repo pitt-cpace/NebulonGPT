@@ -1466,16 +1466,33 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           p: ({ children }) => <span>{children}</span>,
           strong: ({ children }) => <strong>{children}</strong>,
           em: ({ children }) => <em>{children}</em>,
-          code: ({ children }) => (
-            <code style={{ 
-              backgroundColor: 'rgba(0, 0, 0, 0.08)',
-              padding: '2px 4px',
-              borderRadius: '3px',
-              fontSize: '0.9em'
-            }}>
-              {children}
-            </code>
-          ),
+          code: ({ children }) => {
+            const text = String(children);
+            // Check if the inline code contains LaTeX formulas
+            if (/\\frac|\\int|\\sum|\\sqrt|\\pi|\\theta|\\alpha|\\beta|\^|_/.test(text)) {
+              // Remove wrapping backticks if present and render as LaTeX
+              try {
+                const html = katex.renderToString(text, {
+                  displayMode: false,
+                  throwOnError: false,
+                  output: 'html'
+                });
+                return <span dangerouslySetInnerHTML={{ __html: html }} />;
+              } catch (error) {
+                // Fall back to regular code
+              }
+            }
+            return (
+              <code style={{ 
+                backgroundColor: 'rgba(0, 0, 0, 0.08)',
+                padding: '2px 4px',
+                borderRadius: '3px',
+                fontSize: '0.9em'
+              }}>
+                {children}
+              </code>
+            );
+          },
           ul: ({ children }) => (
             <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
               {children}
@@ -1561,91 +1578,113 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         {renderCellContent(children)}
       </TableCell>
     ),
-    // Improve code blocks - extract and render formulas from LaTeX documents
+    // Improve code blocks - extract and render formulas from code blocks
     code: ({ node, inline, className, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(className || '');
       const content = String(children).replace(/\n$/, '');
       
-      // Check if this is a LaTeX code block
-      if (!inline && (className === 'language-latex' || className === 'language-tex')) {
+      // For non-inline code blocks, check if they contain LaTeX formulas
+      if (!inline) {
         const hasDocumentCommands = /\\documentclass|\\begin\{document\}|\\usepackage/.test(content);
+        const hasLatexFormulas = /\$[^\$]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\\frac|\\int|\\sum/.test(content);
         
-        if (hasDocumentCommands) {
-          // Extract all formulas from the LaTeX document
-          const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
-          
-          // Extract \[ \] display formulas
-          const displayMatches = content.match(/\\\[([\s\S]*?)\\\]/g);
-          if (displayMatches) {
-            displayMatches.forEach(match => {
-              const formula = match.replace(/^\\\[/, '').replace(/\\\]$/, '').trim();
-              if (formula) formulas.push({ formula, isDisplay: true });
-            });
-          }
-          
-          // Extract \( \) inline formulas
-          const inlineMatches = content.match(/\\\(([\s\S]*?)\\\)/g);
-          if (inlineMatches) {
-            inlineMatches.forEach(match => {
-              const formula = match.replace(/^\\\(/, '').replace(/\\\)$/, '').trim();
-              if (formula) formulas.push({ formula, isDisplay: false });
-            });
-          }
-          
-          // Render extracted formulas
-          if (formulas.length > 0) {
-            return (
-              <Box sx={{ my: 2 }}>
-                {formulas.map((item, idx) => {
-                  try {
-                    const html = katex.renderToString(item.formula, {
-                      displayMode: item.isDisplay,
-                      throwOnError: false,
-                      output: 'html'
-                    });
-                    
-                    return (
-                      <Box
-                        key={idx}
-                        sx={{ 
-                          my: item.isDisplay ? 2 : 1,
-                          p: item.isDisplay ? 2 : 1,
-                          bgcolor: 'action.hover',
-                          borderRadius: 1
-                        }}
-                        dangerouslySetInnerHTML={{ __html: html }}
-                      />
-                    );
-                  } catch (error) {
-                    return (
-                      <Box key={idx} sx={{ color: 'error.main', fontSize: '0.9em' }}>
-                        Failed to render: {item.formula.substring(0, 50)}...
-                      </Box>
-                    );
-                  }
-                })}
-              </Box>
-            );
-          }
-        } else {
-          // Pure math block without document commands
-          const hasMathContent = /\\frac|\\beta|\\alpha|\\sum|\\int|\\sqrt/.test(content);
-          if (hasMathContent) {
-            try {
-              const html = katex.renderToString(content, {
-                displayMode: true,
-                throwOnError: false,
-                output: 'html'
+        // If it's a LaTeX code block OR any code block with formulas, extract and render
+        if (hasLatexFormulas || className === 'language-latex' || className === 'language-tex') {
+          if (hasDocumentCommands) {
+            // Full LaTeX document - extract formulas
+            const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
+            
+            // Extract \[ \] display formulas
+            const displayMatches = content.match(/\\\[([\s\S]*?)\\\]/g);
+            if (displayMatches) {
+              displayMatches.forEach(match => {
+                const formula = match.replace(/^\\\[/, '').replace(/\\\]$/, '').trim();
+                if (formula) formulas.push({ formula, isDisplay: true });
               });
-              
+            }
+            
+            // Extract \( \) inline formulas
+            const inlineMatches = content.match(/\\\(([\s\S]*?)\\\)/g);
+            if (inlineMatches) {
+              inlineMatches.forEach(match => {
+                const formula = match.replace(/^\\\(/, '').replace(/\\\)$/, '').trim();
+                if (formula) formulas.push({ formula, isDisplay: false });
+              });
+            }
+            
+            // Render extracted formulas
+            if (formulas.length > 0) {
               return (
-                <Box
-                  sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}
-                  dangerouslySetInnerHTML={{ __html: html }}
-                />
+                <Box sx={{ my: 2 }}>
+                  {formulas.map((item, idx) => {
+                    try {
+                      const html = katex.renderToString(item.formula, {
+                        displayMode: item.isDisplay,
+                        throwOnError: false,
+                        output: 'html'
+                      });
+                      
+                      return (
+                        <Box
+                          key={idx}
+                          sx={{ 
+                            my: item.isDisplay ? 2 : 1,
+                            p: item.isDisplay ? 2 : 1,
+                            bgcolor: 'action.hover',
+                            borderRadius: 1
+                          }}
+                          dangerouslySetInnerHTML={{ __html: html }}
+                        />
+                      );
+                    } catch (error) {
+                      return (
+                        <Box key={idx} sx={{ color: 'error.main', fontSize: '0.9em' }}>
+                          Failed to render: {item.formula.substring(0, 50)}...
+                        </Box>
+                      );
+                    }
+                  })}
+                </Box>
               );
-            } catch (error) {
-              // Fall through to normal code block rendering
+            }
+          } else if (hasLatexFormulas) {
+            // Code block with LaTeX formulas but no document structure
+            // Extract $ $ formulas and render them
+            const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
+            
+            // Extract $ $ formulas
+            const dollarMatches = content.match(/\$([^\$]+)\$/g);
+            if (dollarMatches) {
+              dollarMatches.forEach(match => {
+                const formula = match.replace(/^\$/, '').replace(/\$$/, '').trim();
+                if (formula) formulas.push({ formula, isDisplay: false });
+              });
+            }
+            
+            if (formulas.length > 0) {
+              return (
+                <Box sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+                  {formulas.map((item, idx) => {
+                    try {
+                      const html = katex.renderToString(item.formula, {
+                        displayMode: false,
+                        throwOnError: false,
+                        output: 'html'
+                      });
+                      
+                      return (
+                        <Box
+                          key={idx}
+                          sx={{ my: 1 }}
+                          dangerouslySetInnerHTML={{ __html: html }}
+                        />
+                      );
+                    } catch (error) {
+                      return null;
+                    }
+                  })}
+                </Box>
+              );
             }
           }
         }
