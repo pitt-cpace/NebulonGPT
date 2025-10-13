@@ -1133,6 +1133,304 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  // Helper function to parse HTML table to data structure
+  const parseHtmlTable = (htmlString: string): { headers: string[], rows: string[][] } | null => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlString, 'text/html');
+      const table = doc.querySelector('table');
+      
+      if (!table) return null;
+      
+      const headers: string[] = [];
+      const rows: string[][] = [];
+      
+      // Extract headers
+      const headerCells = table.querySelectorAll('th');
+      headerCells.forEach(th => headers.push(th.textContent?.trim() || ''));
+      
+      // Extract rows
+      const tableRows = table.querySelectorAll('tr');
+      tableRows.forEach(tr => {
+        const cells = tr.querySelectorAll('td');
+        if (cells.length > 0) {
+          const rowData: string[] = [];
+          cells.forEach(td => rowData.push(td.textContent?.trim() || ''));
+          rows.push(rowData);
+        }
+      });
+      
+      return headers.length > 0 && rows.length > 0 ? { headers, rows } : null;
+    } catch (error) {
+      console.error('Error parsing HTML table:', error);
+      return null;
+    }
+  };
+
+  // Helper function to parse CSV to data structure
+  const parseCsvTable = (csvString: string): { headers: string[], rows: string[][] } | null => {
+    try {
+      const lines = csvString.trim().split('\n');
+      if (lines.length < 2) return null;
+      
+      // Simple CSV parser (handles quoted values)
+      const parseRow = (line: string): string[] => {
+        const result: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            result.push(current.trim().replace(/^"|"$/g, ''));
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        result.push(current.trim().replace(/^"|"$/g, ''));
+        return result;
+      };
+      
+      const headers = parseRow(lines[0]);
+      const rows = lines.slice(1).map(line => parseRow(line));
+      
+      return { headers, rows };
+    } catch (error) {
+      console.error('Error parsing CSV table:', error);
+      return null;
+    }
+  };
+
+  // Helper function to parse JSON array table
+  const parseJsonTable = (jsonString: string): { headers: string[], rows: string[][] } | null => {
+    try {
+      const data = JSON.parse(jsonString);
+      if (!Array.isArray(data) || data.length === 0) return null;
+      
+      // Extract headers from first object keys
+      const headers = Object.keys(data[0]);
+      
+      // Extract rows
+      const rows = data.map(obj => headers.map(key => String(obj[key] || '')));
+      
+      return { headers, rows };
+    } catch (error) {
+      return null;
+    }
+  };
+
+  // Helper function to parse ASCII/Text table
+  const parseTextTable = (textString: string): { headers: string[], rows: string[][] } | null => {
+    try {
+      const lines = textString.trim().split('\n');
+      if (lines.length < 3) return null;
+      
+      // Find header row (typically between two border lines)
+      let headerIndex = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('|') && !lines[i].match(/^[+\-=|]+$/)) {
+          headerIndex = i;
+          break;
+        }
+      }
+      
+      if (headerIndex === -1) return null;
+      
+      const headerLine = lines[headerIndex];
+      const headers = headerLine.split('|')
+        .filter(cell => cell.trim() && !cell.match(/^[\s+\-=]+$/))
+        .map(cell => cell.trim());
+      
+      // Extract data rows (skip border lines)
+      const rows: string[][] = [];
+      for (let i = headerIndex + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.match(/^[+\-=|]+$/) && line.includes('|')) {
+          const cells = line.split('|')
+            .filter(cell => cell.trim() && !cell.match(/^[\s+\-=]+$/))
+            .map(cell => cell.trim());
+          if (cells.length > 0) {
+            rows.push(cells);
+          }
+        }
+      }
+      
+      return headers.length > 0 && rows.length > 0 ? { headers, rows } : null;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  // State for copied table tracking
+  const [copiedTableId, setCopiedTableId] = useState<string | null>(null);
+
+  // Helper function to extract table data as plain text
+  const tableToPlainText = (headers: string[], rows: string[][]): string => {
+    // Create a plain text representation of the table
+    let result = headers.join('\t') + '\n';
+    rows.forEach(row => {
+      result += row.join('\t') + '\n';
+    });
+    return result;
+  };
+
+  // Helper function to copy table to clipboard
+  const handleCopyTable = useCallback(async (tableId: string, headers: string[], rows: string[][]) => {
+    try {
+      const plainText = tableToPlainText(headers, rows);
+      
+      // Try Electron clipboard API first
+      if (window.electronAPI && window.electronAPI.copyToClipboard) {
+        const result = await window.electronAPI.copyToClipboard(plainText);
+        if (result.success) {
+          setCopiedTableId(tableId);
+        } else {
+          throw new Error(result.error || 'Electron clipboard copy failed');
+        }
+      }
+      // Try modern clipboard API
+      else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(plainText);
+        setCopiedTableId(tableId);
+      }
+      // Fallback method
+      else {
+        const textArea = document.createElement('textarea');
+        textArea.value = plainText;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            setCopiedTableId(tableId);
+          } else {
+            throw new Error('Copy command failed');
+          }
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+      
+      // Reset copied state after 2 seconds
+      setTimeout(() => {
+        setCopiedTableId(null);
+      }, 2000);
+    } catch (error) {
+      console.error('❌ Failed to copy table:', error);
+    }
+  }, []);
+
+  // Helper component to wrap tables with copy functionality
+  const TableWithCopy: React.FC<{
+    tableId: string;
+    headers: string[];
+    rows: string[][];
+    children: React.ReactNode;
+  }> = ({ tableId, headers, rows, children }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    const isCopied = copiedTableId === tableId;
+    
+    return (
+      <Box
+        sx={{ position: 'relative', mb: 2 }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        {children}
+        {(isHovered || isCopied) && (
+          <IconButton
+            size="small"
+            onClick={() => handleCopyTable(tableId, headers, rows)}
+            sx={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+              backdropFilter: 'blur(10px)',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+              opacity: isCopied ? 1 : 0.8,
+              transition: 'all 0.2s',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 1)',
+                opacity: 1,
+                transform: 'scale(1.05)',
+              },
+            }}
+            title={isCopied ? 'Copied!' : 'Copy table'}
+          >
+            {isCopied ? (
+              <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
+            ) : (
+              <ContentCopyIcon sx={{ fontSize: 16 }} />
+            )}
+          </IconButton>
+        )}
+      </Box>
+    );
+  };
+
+  // Helper function to render markdown within table cells
+  const renderCellContent = (content: any): React.ReactNode => {
+    // If content is already a React element, return it
+    if (React.isValidElement(content)) {
+      return content;
+    }
+    
+    // Convert to string if needed
+    const textContent = String(content);
+    
+    // Convert <br> tags to newlines for markdown processing
+    const processedText = textContent.replace(/<br\s*\/?>/gi, '\n');
+    
+    // Render as markdown with custom components
+    return (
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => <span>{children}</span>,
+          strong: ({ children }) => <strong>{children}</strong>,
+          em: ({ children }) => <em>{children}</em>,
+          code: ({ children }) => (
+            <code style={{ 
+              backgroundColor: 'rgba(0, 0, 0, 0.08)',
+              padding: '2px 4px',
+              borderRadius: '3px',
+              fontSize: '0.9em'
+            }}>
+              {children}
+            </code>
+          ),
+          ul: ({ children }) => (
+            <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
+              {children}
+            </ul>
+          ),
+          ol: ({ children }) => (
+            <ol style={{ margin: '4px 0', paddingLeft: '20px' }}>
+              {children}
+            </ol>
+          ),
+          li: ({ children }) => (
+            <li style={{ margin: '2px 0' }}>
+              {children}
+            </li>
+          ),
+          br: () => <br />
+        }}
+      >
+        {processedText}
+      </ReactMarkdown>
+    );
+  };
+
   // Custom renderers for ReactMarkdown
   const markdownComponents = {
     // Override the default table renderer
@@ -1174,7 +1472,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         </TableRow>
       );
     },
-    // Override the default th renderer
+    // Override the default th renderer with markdown support
     th: ({ node, children, ...props }: any) => (
       <TableCell 
         component="th"
@@ -1182,17 +1480,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         sx={styles.tableHeaderCell} 
         {...props}
       >
-        {children}
+        {renderCellContent(children)}
       </TableCell>
     ),
-    // Override the default td renderer
+    // Override the default td renderer with markdown support
     td: ({ node, children, ...props }: any) => (
       <TableCell 
         align="left"
         sx={styles.tableCell} 
         {...props}
       >
-        {children}
+        {renderCellContent(children)}
       </TableCell>
     ),
     // Improve code blocks
@@ -1221,7 +1519,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     },
   };
 
-  // Function to preprocess content to fix Llama3-3 table format
+  // Function to preprocess content to fix Llama3-3 table format and single-line tables
   const preprocessLlama3TableFormat = (content: string): string => {
     // Look for the specific Llama3-3 table pattern
     const llama3TablePattern = /\| [^|]+ \| [^|]+ \| [^|]+ \| \| --- \| --- \| --- \|/;
@@ -1233,13 +1531,125 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                    .replace(/\| --- \| --- \| --- \| \|/g, '| --- | --- | --- |\n|');
     }
     
+    // Fix single-line tables (all on one line)
+    // Pattern: | header | header | ... | |----|----| ... | | data | data | ... |
+    const singleLineTablePattern = /\|[^|\n]+\|[^|\n]+\|[^|\n]*\|\s*\|[-\s]+\|[-\s]+\|[-\s]*\|\s*\|[^|\n]+\|[^|\n]+\|/g;
+    
+    if (singleLineTablePattern.test(content)) {
+      
+      // Split table by separator pattern
+      let processed = content.replace(
+        /(\|[^|\n]+(?:\|[^|\n]+)*\|)\s*(\|[-\s]+(?:\|[-\s]+)*\|)\s*(\|[^|\n]+(?:\|[^|\n]+)*\|)/g,
+        (match, header, separator, dataRows) => {
+          // Add line breaks between header, separator, and data rows
+          let result = header.trim() + '\n' + separator.trim() + '\n';
+          
+          // Split remaining data rows if they're concatenated
+          // Look for patterns like | data | data | immediately followed by | data | data |
+          const remainingText = match.substring(header.length + separator.length).trim();
+          const rows = [];
+          let currentRow = '';
+          let pipeCount = 0;
+          
+          for (let i = 0; i < remainingText.length; i++) {
+            const char = remainingText[i];
+            currentRow += char;
+            
+            if (char === '|') {
+              pipeCount++;
+              // If we've seen enough pipes for a complete row, check if next char starts a new row
+              if (pipeCount >= 4 && i < remainingText.length - 1 && remainingText[i + 1] === ' ') {
+                // Look ahead to see if we're starting a new row
+                const ahead = remainingText.substring(i + 1).trim();
+                if (ahead.startsWith('|')) {
+                  rows.push(currentRow.trim());
+                  currentRow = '';
+                  pipeCount = 0;
+                }
+              }
+            }
+          }
+          
+          // Add the last row
+          if (currentRow.trim()) {
+            rows.push(currentRow.trim());
+          }
+          
+          result += rows.join('\n');
+          return result;
+        }
+      );
+      
+      return processed;
+    }
+    
     return content;
   };
 
   // Function to detect and render tables from markdown
   const renderMarkdownWithTables = (content: string) => {
     // Preprocess content to fix Llama3-3 table format
-    const processedContent = preprocessLlama3TableFormat(content);
+    let processedContent = preprocessLlama3TableFormat(content);
+    
+    // Detect and replace HTML tables
+    const htmlTableRegex = /<table[\s\S]*?<\/table>/gi;
+    const htmlTables = processedContent.match(htmlTableRegex) || [];
+    const htmlTableData: Array<{ index: number, data: { headers: string[], rows: string[][] } | null }> = [];
+    
+    htmlTables.forEach((htmlTable, idx) => {
+      const tableData = parseHtmlTable(htmlTable);
+      if (tableData) {
+        const placeholder = `__HTML_TABLE_${idx}__`;
+        const index = processedContent.indexOf(htmlTable);
+        htmlTableData.push({ index, data: tableData });
+        processedContent = processedContent.replace(htmlTable, placeholder);
+      }
+    });
+    
+    // Detect and replace CSV tables (quoted values with commas)
+    const csvTableRegex = /"[^"]+","[^"]+(?:","[^"]+)*"\n(?:"[^"]+","[^"]+(?:","[^"]+)*"\n)+/g;
+    const csvTables = processedContent.match(csvTableRegex) || [];
+    const csvTableData: Array<{ index: number, data: { headers: string[], rows: string[][] } | null }> = [];
+    
+    csvTables.forEach((csvTable, idx) => {
+      const tableData = parseCsvTable(csvTable);
+      if (tableData) {
+        const placeholder = `__CSV_TABLE_${idx}__`;
+        const index = processedContent.indexOf(csvTable);
+        csvTableData.push({ index, data: tableData });
+        processedContent = processedContent.replace(csvTable, placeholder);
+      }
+    });
+    
+    // Detect and replace JSON array tables
+    const jsonTableRegex = /\[\s*\{[^}]+\}(?:\s*,\s*\{[^}]+\})*\s*\]/g;
+    const jsonTables = processedContent.match(jsonTableRegex) || [];
+    const jsonTableData: Array<{ index: number, data: { headers: string[], rows: string[][] } | null }> = [];
+    
+    jsonTables.forEach((jsonTable, idx) => {
+      const tableData = parseJsonTable(jsonTable);
+      if (tableData) {
+        const placeholder = `__JSON_TABLE_${idx}__`;
+        const index = processedContent.indexOf(jsonTable);
+        jsonTableData.push({ index, data: tableData });
+        processedContent = processedContent.replace(jsonTable, placeholder);
+      }
+    });
+    
+    // Detect and replace ASCII/Text tables
+    const textTableRegex = /\+[-+]+\+\n\|[^\n]+\|\n\+[=+]+\+\n(?:\|[^\n]+\|\n)+\+[-+]+\+/g;
+    const textTables = processedContent.match(textTableRegex) || [];
+    const textTableData: Array<{ index: number, data: { headers: string[], rows: string[][] } | null }> = [];
+    
+    textTables.forEach((textTable, idx) => {
+      const tableData = parseTextTable(textTable);
+      if (tableData) {
+        const placeholder = `__TEXT_TABLE_${idx}__`;
+        const index = processedContent.indexOf(textTable);
+        textTableData.push({ index, data: tableData });
+        processedContent = processedContent.replace(textTable, placeholder);
+      }
+    });
     
     // Detect if content contains a table in Llama3-3 format
     const llama3TableRegex = /\|[^\n]*\|[^\n]*\|\n\|[\s-]*\|[\s-]*\|[\s-]*\|\n(\|[^\n]*\|[^\n]*\|[^\n]*\|\n)+/g;
@@ -1259,6 +1669,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     const hasTabTable = tabTableRegex.test(processedContent);
     const hasMarkdownTable = markdownTableRegex.test(processedContent);
     const hasMediaWikiTable = mediaWikiTableRegex.test(processedContent);
+    const hasAnySpecialTable = htmlTableData.length > 0 || csvTableData.length > 0 || jsonTableData.length > 0 || textTableData.length > 0;
     
     // Reset regex states
     llama3TableRegex.lastIndex = 0;
@@ -1267,7 +1678,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     mediaWikiTableRegex.lastIndex = 0;
     
     // If no tables detected, just render with ReactMarkdown
-    if (!hasLlama3Table && !hasTabTable && !hasMarkdownTable && !hasMediaWikiTable) {
+    if (!hasLlama3Table && !hasTabTable && !hasMarkdownTable && !hasMediaWikiTable && !hasAnySpecialTable) {
       return (
         <ReactMarkdown components={markdownComponents}>
           {processedContent}
@@ -1301,45 +1712,52 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const tableData = parseMediaWikiTable(tableContent);
         
         if (tableData) {
-          // Render Material-UI table
+          // Render Material-UI table with markdown support in cells and copy button
+          const tableId = `mediawiki-table-${key}`;
           result.push(
-            <TableContainer 
+            <TableWithCopy
               key={`table-${key++}`}
-              component={Paper} 
-              sx={styles.tableContainer}
+              tableId={tableId}
+              headers={tableData.headers}
+              rows={tableData.rows}
             >
-              <Table>
-                <TableHead sx={styles.tableHead}>
-                  <TableRow>
-                    {tableData.headers.map((header: string, idx: number) => (
-                      <TableCell 
-                        key={idx}
-                        sx={styles.tableHeaderCell}
-                      >
-                        {header}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {tableData.rows.map((row: string[], rowIdx: number) => (
-                    <TableRow 
-                      key={rowIdx}
-                      sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                    >
-                      {row.map((cell: string, cellIdx: number) => (
+              <TableContainer 
+                component={Paper} 
+                sx={styles.tableContainer}
+              >
+                <Table>
+                  <TableHead sx={styles.tableHead}>
+                    <TableRow>
+                      {tableData.headers.map((header: string, idx: number) => (
                         <TableCell 
-                          key={cellIdx}
-                          sx={styles.tableCell}
+                          key={idx}
+                          sx={styles.tableHeaderCell}
                         >
-                          {cell}
+                          {renderCellContent(header)}
                         </TableCell>
                       ))}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {tableData.rows.map((row: string[], rowIdx: number) => (
+                      <TableRow 
+                        key={rowIdx}
+                        sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                      >
+                        {row.map((cell: string, cellIdx: number) => (
+                          <TableCell 
+                            key={cellIdx}
+                            sx={styles.tableCell}
+                          >
+                            {renderCellContent(cell)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </TableWithCopy>
           );
         }
         
@@ -1385,45 +1803,52 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             .map(cell => cell.trim())
         );
         
-        // Render Material-UI table
+        // Render Material-UI table with markdown support in cells and copy button
+        const tableId = `llama3-table-${key}`;
         result.push(
-          <TableContainer 
+          <TableWithCopy
             key={`table-${key++}`}
-            component={Paper} 
-            sx={styles.tableContainer}
+            tableId={tableId}
+            headers={headers}
+            rows={rows}
           >
-            <Table>
-              <TableHead sx={styles.tableHead}>
-                <TableRow>
-                  {headers.map((header, idx) => (
-                    <TableCell 
-                      key={idx}
-                      sx={styles.tableHeaderCell}
-                    >
-                      {header}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, rowIdx) => (
-                  <TableRow 
-                    key={rowIdx}
-                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                  >
-                    {row.map((cell, cellIdx) => (
+            <TableContainer 
+              component={Paper} 
+              sx={styles.tableContainer}
+            >
+              <Table>
+                <TableHead sx={styles.tableHead}>
+                  <TableRow>
+                    {headers.map((header, idx) => (
                       <TableCell 
-                        key={cellIdx}
-                        sx={styles.tableCell}
+                        key={idx}
+                        sx={styles.tableHeaderCell}
                       >
-                        {cell}
+                        {renderCellContent(header)}
                       </TableCell>
                     ))}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                </TableHead>
+                <TableBody>
+                  {rows.map((row, rowIdx) => (
+                    <TableRow 
+                      key={rowIdx}
+                      sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                    >
+                      {row.map((cell, cellIdx) => (
+                        <TableCell 
+                          key={cellIdx}
+                          sx={styles.tableCell}
+                        >
+                          {renderCellContent(cell)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </TableWithCopy>
         );
         
         // Update lastIndex to after this table
@@ -1468,45 +1893,52 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           })
         );
         
-        // Render Material-UI table
+        // Render Material-UI table with markdown support in cells and copy button
+        const tableId = `tab-table-${key}`;
         result.push(
-          <TableContainer 
+          <TableWithCopy
             key={`table-${key++}`}
-            component={Paper} 
-            sx={styles.tableContainer}
+            tableId={tableId}
+            headers={headers}
+            rows={rows}
           >
-            <Table>
-              <TableHead sx={styles.tableHead}>
-                <TableRow>
-                  {headers.map((header, idx) => (
-                    <TableCell 
-                      key={idx}
-                      sx={styles.tableHeaderCell}
-                    >
-                      {header.replace(/^\*\*(.*)\*\*$/, '$1')} {/* Remove markdown bold formatting */}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, rowIdx) => (
-                  <TableRow 
-                    key={rowIdx}
-                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                  >
-                    {row.map((cell, cellIdx) => (
+            <TableContainer 
+              component={Paper} 
+              sx={styles.tableContainer}
+            >
+              <Table>
+                <TableHead sx={styles.tableHead}>
+                  <TableRow>
+                    {headers.map((header, idx) => (
                       <TableCell 
-                        key={cellIdx}
-                        sx={styles.tableCell}
+                        key={idx}
+                        sx={styles.tableHeaderCell}
                       >
-                        {cell}
+                        {renderCellContent(header)}
                       </TableCell>
                     ))}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                </TableHead>
+                <TableBody>
+                  {rows.map((row, rowIdx) => (
+                    <TableRow 
+                      key={rowIdx}
+                      sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                    >
+                      {row.map((cell, cellIdx) => (
+                        <TableCell 
+                          key={cellIdx}
+                          sx={styles.tableCell}
+                        >
+                          {renderCellContent(cell)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </TableWithCopy>
         );
         
         // Update lastIndex to after this table
@@ -1553,48 +1985,55 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           row
             .split('|')
             .filter(cell => cell.trim() !== '')
-            .map(cell => cell.trim().replace(/^\*\*(.*)\*\*$/, '$1')) // Remove markdown bold formatting
+            .map(cell => cell.trim())
         );
         
-        // Render Material-UI table
+        // Render Material-UI table with markdown support in cells and copy button
+        const tableId = `markdown-table-${key}`;
         result.push(
-          <TableContainer 
+          <TableWithCopy
             key={`table-${key++}`}
-            component={Paper} 
-            sx={styles.tableContainer}
+            tableId={tableId}
+            headers={headers}
+            rows={rows}
           >
-            <Table>
-              <TableHead sx={styles.tableHead}>
-                <TableRow>
-                  {headers.map((header, idx) => (
-                    <TableCell 
-                      key={idx}
-                      sx={styles.tableHeaderCell}
-                    >
-                      {header.replace(/^\*\*(.*)\*\*$/, '$1')} {/* Remove markdown bold formatting */}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, rowIdx) => (
-                  <TableRow 
-                    key={rowIdx}
-                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                  >
-                    {row.map((cell, cellIdx) => (
+            <TableContainer 
+              component={Paper} 
+              sx={styles.tableContainer}
+            >
+              <Table>
+                <TableHead sx={styles.tableHead}>
+                  <TableRow>
+                    {headers.map((header, idx) => (
                       <TableCell 
-                        key={cellIdx}
-                        sx={styles.tableCell}
+                        key={idx}
+                        sx={styles.tableHeaderCell}
                       >
-                        {cell}
+                        {renderCellContent(header)}
                       </TableCell>
                     ))}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                </TableHead>
+                <TableBody>
+                  {rows.map((row, rowIdx) => (
+                    <TableRow 
+                      key={rowIdx}
+                      sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                    >
+                      {row.map((cell, cellIdx) => (
+                        <TableCell 
+                          key={cellIdx}
+                          sx={styles.tableCell}
+                        >
+                          {renderCellContent(cell)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </TableWithCopy>
         );
         
         // Update lastIndex to after this table
@@ -1605,11 +2044,107 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Add any remaining content after the last table
     const afterLastTable = processedContent.substring(lastIndex);
     if (afterLastTable.trim()) {
-      result.push(
-        <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
-          {afterLastTable}
-        </ReactMarkdown>
-      );
+      // Check for special table placeholders and render them
+      let finalContent = afterLastTable;
+      const specialTableMatches: Array<{ type: string, index: number, data: any }> = [];
+      
+      // Find all special table placeholders
+      [...htmlTableData, ...csvTableData, ...jsonTableData, ...textTableData].forEach((tableInfo) => {
+        const match = finalContent.match(/__(?:HTML|CSV|JSON|TEXT)_TABLE_\d+__/);
+        if (match) {
+          specialTableMatches.push({
+            type: match[0],
+            index: finalContent.indexOf(match[0]),
+            data: tableInfo.data
+          });
+        }
+      });
+      
+      // If there are special tables, process them
+      if (specialTableMatches.length > 0) {
+        let currentIndex = 0;
+        
+        specialTableMatches.forEach((tableMatch, idx) => {
+          // Add text before this table
+          const beforeTable = finalContent.substring(currentIndex, tableMatch.index);
+          if (beforeTable.trim()) {
+            result.push(
+              <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
+                {beforeTable}
+              </ReactMarkdown>
+            );
+          }
+          
+          // Render the special table with markdown support in cells and copy button
+          if (tableMatch.data) {
+            const tableId = `special-table-${tableMatch.type}-${key}`;
+            result.push(
+              <TableWithCopy
+                key={`table-${key++}`}
+                tableId={tableId}
+                headers={tableMatch.data.headers}
+                rows={tableMatch.data.rows}
+              >
+                <TableContainer 
+                  component={Paper} 
+                  sx={styles.tableContainer}
+                >
+                  <Table>
+                    <TableHead sx={styles.tableHead}>
+                      <TableRow>
+                        {tableMatch.data.headers.map((header: string, idx: number) => (
+                          <TableCell 
+                            key={idx}
+                            sx={styles.tableHeaderCell}
+                          >
+                            {renderCellContent(header)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {tableMatch.data.rows.map((row: string[], rowIdx: number) => (
+                        <TableRow 
+                          key={rowIdx}
+                          sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                        >
+                          {row.map((cell: string, cellIdx: number) => (
+                            <TableCell 
+                              key={cellIdx}
+                              sx={styles.tableCell}
+                            >
+                              {renderCellContent(cell)}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </TableWithCopy>
+            );
+          }
+          
+          // Move past this table
+          currentIndex = tableMatch.index + tableMatch.type.length;
+        });
+        
+        // Add any remaining content
+        const remaining = finalContent.substring(currentIndex);
+        if (remaining.trim() && !remaining.match(/__(?:HTML|CSV|JSON|TEXT)_TABLE_\d+__/)) {
+          result.push(
+            <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
+              {remaining}
+            </ReactMarkdown>
+          );
+        }
+      } else {
+        result.push(
+          <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
+            {afterLastTable}
+          </ReactMarkdown>
+        );
+      }
     }
     
     return <>{result}</>;
