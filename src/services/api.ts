@@ -23,6 +23,25 @@ const getBaseURL = (): string => {
       : (process.env.REACT_APP_OLLAMA_API_URL || 'http://localhost:11434/api')); // Development
 };
 
+// Function to get the API key from localStorage
+const getApiKey = (): string => {
+  return localStorage.getItem('ollamaApiKey') || '';
+};
+
+// Function to get headers with optional API key
+const getHeaders = (): Record<string, string> => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  const apiKey = getApiKey();
+  if (apiKey && apiKey.trim() !== '') {
+    headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+  }
+  
+  return headers;
+};
+
 // Get the initial base URL
 let baseURL = getBaseURL();
 
@@ -43,7 +62,9 @@ export const updateBaseURL = (newUrl?: string): void => {
 export const fetchModels = async (): Promise<ModelType[]> => {
   try {
     const endpoint = '/tags';
-    const response = await api.get(endpoint);
+    const response = await api.get(endpoint, {
+      headers: getHeaders(),
+    });
     
     if (response.data && response.data.models) {
       return response.data.models.map((model: any) => ({
@@ -260,9 +281,7 @@ const endpoint = '/chat';
       // Use fetch for streaming
       const response = await fetch(`${baseURL}${endpoint}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getHeaders(),
         body: JSON.stringify(payload),
       });
       
@@ -346,7 +365,9 @@ const endpoint = '/chat';
       
       // Log the complete payload with messages containing images
       
-      const response = await api.post(endpoint, payload);
+      const response = await api.post(endpoint, payload, {
+        headers: getHeaders(),
+      });
       
       
       if (response.data && response.data.message) {
@@ -411,6 +432,8 @@ export const fetchModelDetails = async (modelName: string): Promise<any> => {
     const endpoint = '/show';
     const response = await api.post(endpoint, {
       name: modelName
+    }, {
+      headers: getHeaders(),
     });
     
     if (response.data) {

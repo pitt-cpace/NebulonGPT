@@ -30,6 +30,8 @@ import {
   Error as ErrorIcon,
   Refresh as RefreshIcon,
   Cable as CableIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
 import { ModelType } from '../types';
 import { VoskRecognitionService } from '../services/vosk';
@@ -80,6 +82,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   // Ollama API URL state
   const [ollamaApiUrl, setOllamaApiUrl] = useState('');
   const [originalOllamaApiUrl, setOriginalOllamaApiUrl] = useState('');
+  const [ollamaApiKey, setOllamaApiKey] = useState('');
+  const [originalOllamaApiKey, setOriginalOllamaApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
   const [urlValidationStatus, setUrlValidationStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
   const validationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -102,6 +107,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     const displayUrl = denormalizeOllamaUrl(savedUrl);
     setOllamaApiUrl(displayUrl);
     setOriginalOllamaApiUrl(displayUrl);
+    
+    // Load Ollama API Key from localStorage
+    const savedKey = localStorage.getItem('ollamaApiKey') || '';
+    setOllamaApiKey(savedKey);
+    setOriginalOllamaApiKey(savedKey);
     
     // Set up status callback
     ttsService.setStatusCallback(setTtsStatus);
@@ -187,6 +197,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setOllamaApiUrl(displayUrl);
     setOriginalOllamaApiUrl(displayUrl);
     
+    // Refresh Ollama API Key
+    const savedKey = localStorage.getItem('ollamaApiKey') || '';
+    setOllamaApiKey(savedKey);
+    setOriginalOllamaApiKey(savedKey);
+    
     setOpen(true);
     
     // If Full Voice Mode is enabled and TTS is disconnected, try to connect
@@ -244,8 +259,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setVoiceGender(originalTtsSettings.voiceGender);
     ttsService.updateSettings(originalTtsSettings);
     
-    // Reset Ollama API URL to original value
+    // Reset Ollama API URL and Key to original values
     setOllamaApiUrl(originalOllamaApiUrl);
+    setOllamaApiKey(originalOllamaApiKey);
   };
 
   const handleSave = () => {
@@ -274,8 +290,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     localStorage.setItem('ollamaApiUrl', normalizedUrl);
     setOriginalOllamaApiUrl(normalizedUrl);
     
-    // Trigger page reload to apply new Ollama API URL
-    if (ollamaApiUrl.trim() !== originalOllamaApiUrl) {
+    // Save Ollama API Key to localStorage
+    localStorage.setItem('ollamaApiKey', ollamaApiKey.trim());
+    setOriginalOllamaApiKey(ollamaApiKey.trim());
+    
+    // Trigger page reload to apply new Ollama API URL or Key
+    if (ollamaApiUrl.trim() !== originalOllamaApiUrl || ollamaApiKey.trim() !== originalOllamaApiKey) {
       window.location.reload();
     }
     
@@ -654,19 +674,19 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             </Typography>
           </Box>
 
-          {/* Ollama API URL Section */}
+          {/* LLM API URL Section */}
           <Divider sx={{ my: 2 }} />
           <Box sx={styles.sectionContainer}>
             <Typography variant="h6" gutterBottom sx={{ color: 'primary.main' }}>
-              Ollama API Configuration
+              LLM API Configuration
             </Typography>
             <TextField
               fullWidth
-              label="Ollama API URL"
+              label="LLM API URL"
               value={ollamaApiUrl}
               onChange={handleOllamaUrlChange}
               placeholder="http://localhost:11434"
-              helperText="Enter the Ollama server URL. Example: http://192.168.1.100:11434"
+              helperText="Enter the LLM server URL. Example: http://192.168.1.100:11434"
               margin="normal"
               variant="outlined"
               size="small"
@@ -706,6 +726,33 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
                 ),
               }}
               error={urlValidationStatus === 'invalid'}
+            />
+            <TextField
+              fullWidth
+              label="API Key (Optional)"
+              type={showApiKey ? 'text' : 'password'}
+              value={ollamaApiKey}
+              onChange={(e) => setOllamaApiKey(e.target.value)}
+              placeholder="Enter API key if required"
+              helperText="Optional: Only needed if your LLM server requires authentication"
+              margin="normal"
+              variant="outlined"
+              size="small"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title={showApiKey ? "Hide API key" : "Show API key"}>
+                      <IconButton
+                        size="small"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        edge="end"
+                      >
+                        {showApiKey ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              }}
             />
           </Box>
         </DialogContent>
