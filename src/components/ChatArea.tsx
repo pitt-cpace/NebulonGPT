@@ -331,7 +331,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         setContextWarning(null);
       }
       
-      console.log(`📊 Real-time token calculation: ${totalTokens}/${contextLength} tokens`);
+      //console.log(`📊 Real-time token calculation: ${totalTokens}/${contextLength} tokens`);
        
     } catch (error) {
       console.error('Error calculating real-time tokens:', error);
