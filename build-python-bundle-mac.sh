@@ -22,10 +22,13 @@ PYTHON_VERSION="3.9.19"
 # python-build-standalone release tag
 PBS_VERSION="20240726"
 
-# Function to calculate directory size
+# Function to calculate directory size (more reliable using du)
 calculate_dir_size() {
     if [ -d "$1" ]; then
-        find "$1" -type f -exec wc -c {} + | tail -1 | awk '{print $1}'
+        # Use du for more reliable size calculation on macOS
+        # -sk gives size in KB, multiply by 1024 for bytes
+        local size_kb=$(du -sk "$1" | cut -f1)
+        echo $((size_kb * 1024))
     else
         echo "0"
     fi
@@ -36,36 +39,54 @@ needs_rebuild() {
     local bundle_dir="python-bundle/python-env"
     local checksum_file="python-bundle/bundle-checksum-${TARGET_ARCH}.txt"
     
+    echo "🔍 Checking if bundle needs rebuilding..."
+    echo "   Bundle directory: $bundle_dir"
+    echo "   Checksum file: $checksum_file"
+    
+    # Check 1: Does python-env directory exist?
     if [ ! -d "$bundle_dir" ]; then
-        echo "📁 Bundle directory not found, creating bundle..."
+        echo "❌ Check 1 FAILED: Bundle directory not found"
         return 0  # true - needs rebuild
     fi
+    echo "✅ Check 1 PASSED: Bundle directory exists"
     
+    # Check 2: Does checksum file exist?
     if [ ! -f "$checksum_file" ]; then
-        echo "📊 Checksum file not found, creating bundle..."
+        echo "❌ Check 2 FAILED: Checksum file not found"
         return 0  # true - needs rebuild
     fi
+    echo "✅ Check 2 PASSED: Checksum file exists"
     
+    # Check 3: Is current size >= saved size?
     local saved_size=$(cat "$checksum_file" 2>/dev/null || echo "0")
     local current_size=$(calculate_dir_size "$bundle_dir")
     
+    echo "   Saved size: $saved_size bytes"
+    echo "   Current size: $current_size bytes"
+    
     if [ "$current_size" -lt "$saved_size" ]; then
-        echo "⚠️  Bundle size is smaller than expected (saved: $saved_size, current: $current_size), recreating bundle..."
+        echo "❌ Check 3 FAILED: Bundle size is smaller than expected"
+        echo "   This indicates missing or corrupted files"
         return 0  # true - needs rebuild
     fi
+    echo "✅ Check 3 PASSED: Bundle size is adequate"
     
-    echo "✅ Bundle is up to date (size: $current_size bytes)"
+    echo "✅ All checks passed - bundle is valid!"
     return 1  # false - no rebuild needed
 }
 
-echo "🐍 Checking Python bundle for macOS..."
+echo "🐍 Checking Python bundle for macOS $TARGET_ARCH..."
+echo ""
 
 # Check if rebuild is needed
 if ! needs_rebuild; then
+    echo ""
     echo "🎯 Python bundle already exists and is valid - skipping rebuild"
+    echo "💡 To force rebuild, delete: python-bundle/python-env or python-bundle/bundle-checksum-${TARGET_ARCH}.txt"
     exit 0
 fi
 
+echo ""
 echo "🔨 Creating standalone Python bundle for macOS $TARGET_ARCH..."
 
 # Clean up any existing bundle
@@ -190,7 +211,7 @@ fi
 
 # Calculate bundle size and create architecture-specific checksum
 echo "📊 Calculating bundle checksum for $TARGET_ARCH..."
-BUNDLE_SIZE=$(find python-bundle/python-env -type f -exec wc -c {} + | tail -1 | awk '{print $1}')
+BUNDLE_SIZE=$(calculate_dir_size "python-bundle/python-env")
 echo $BUNDLE_SIZE > "python-bundle/bundle-checksum-${TARGET_ARCH}.txt"
 
 echo "✅ Python bundle creation completed successfully for $TARGET_ARCH!"
@@ -209,5 +230,6 @@ echo "   • Standalone Python $PYTHON_VERSION from python-build-standalone"
 echo "   • All required packages (vosk, torch, spacy, kokoro, etc.)"
 echo "   • Vosk ASR server"
 echo "   • Kokoro TTS server"
+echo "   • Checksum file: bundle-checksum-${TARGET_ARCH}.txt"
 echo ""
 echo "🚀 Ready for distribution!"
