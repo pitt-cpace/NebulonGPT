@@ -17,8 +17,20 @@ import {
   Radio,
   FormControl,
   FormLabel,
+  InputAdornment,
+  CircularProgress,
+  Tooltip,
 } from '@mui/material';
-import { Settings as SettingsIcon, Close as CloseIcon, Storage as StorageIcon, RecordVoiceOver as VoiceIcon } from '@mui/icons-material';
+import { 
+  Settings as SettingsIcon, 
+  Close as CloseIcon, 
+  Storage as StorageIcon, 
+  RecordVoiceOver as VoiceIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
+  Refresh as RefreshIcon,
+  Cable as CableIcon,
+} from '@mui/icons-material';
 import { ModelType } from '../types';
 import { VoskRecognitionService } from '../services/vosk';
 import { ttsService, TTSStatus } from '../services/ttsService';
@@ -64,6 +76,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   
   // Store original TTS settings for cancel functionality
   const [originalTtsSettings, setOriginalTtsSettings] = useState({ fullVoiceMode: false, voiceGender: 'female' as 'female' | 'male' });
+  
+  // Ollama API URL state
+  const [ollamaApiUrl, setOllamaApiUrl] = useState('');
+  const [originalOllamaApiUrl, setOriginalOllamaApiUrl] = useState('');
+  const [urlValidationStatus, setUrlValidationStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
+  const validationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Update local state when props change
   useEffect(() => {
@@ -78,6 +96,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setFullVoiceMode(settings.fullVoiceMode);
     setVoiceGender(settings.voiceGender);
     setOriginalTtsSettings(settings);
+    
+    // Load Ollama API URL from localStorage and denormalize for display
+    const savedUrl = localStorage.getItem('ollamaApiUrl') || '';
+    const displayUrl = denormalizeOllamaUrl(savedUrl);
+    setOllamaApiUrl(displayUrl);
+    setOriginalOllamaApiUrl(displayUrl);
     
     // Set up status callback
     ttsService.setStatusCallback(setTtsStatus);
@@ -157,6 +181,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setVoiceGender(currentSettings.voiceGender);
     setOriginalTtsSettings(currentSettings);
     
+    // Refresh Ollama API URL and denormalize for display
+    const savedUrl = localStorage.getItem('ollamaApiUrl') || '';
+    const displayUrl = denormalizeOllamaUrl(savedUrl);
+    setOllamaApiUrl(displayUrl);
+    setOriginalOllamaApiUrl(displayUrl);
+    
     setOpen(true);
     
     // If Full Voice Mode is enabled and TTS is disconnected, try to connect
@@ -213,6 +243,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setFullVoiceMode(originalTtsSettings.fullVoiceMode);
     setVoiceGender(originalTtsSettings.voiceGender);
     ttsService.updateSettings(originalTtsSettings);
+    
+    // Reset Ollama API URL to original value
+    setOllamaApiUrl(originalOllamaApiUrl);
   };
 
   const handleSave = () => {
@@ -236,6 +269,16 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     // Update original settings for next time
     setOriginalTtsSettings({ fullVoiceMode, voiceGender });
     
+    // Normalize and save Ollama API URL to localStorage (add /api automatically)
+    const normalizedUrl = normalizeOllamaUrl(ollamaApiUrl);
+    localStorage.setItem('ollamaApiUrl', normalizedUrl);
+    setOriginalOllamaApiUrl(normalizedUrl);
+    
+    // Trigger page reload to apply new Ollama API URL
+    if (ollamaApiUrl.trim() !== originalOllamaApiUrl) {
+      window.location.reload();
+    }
+    
     setOpen(false);
   };
 
@@ -256,6 +299,164 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setLocalTemperature(newValue as number);
     setTemperatureError('');
   };
+
+  // Function to get the default Ollama URL
+  const getDefaultOllamaUrl = (): string => {
+    return 'http://localhost:11434';
+  };
+
+  // Function to normalize Ollama URL (add /api if not present)
+  const normalizeOllamaUrl = (url: string): string => {
+    if (!url || url.trim() === '') {
+      return '';
+    }
+    
+    let normalizedUrl = url.trim();
+    
+    // Remove trailing slash if present
+    if (normalizedUrl.endsWith('/')) {
+      normalizedUrl = normalizedUrl.slice(0, -1);
+    }
+    
+    // If URL doesn't end with /api, append it
+    if (!normalizedUrl.endsWith('/api')) {
+      normalizedUrl += '/api';
+    }
+    
+    return normalizedUrl;
+  };
+
+  // Function to denormalize Ollama URL for display (remove /api if present)
+  const denormalizeOllamaUrl = (url: string): string => {
+    if (!url || url.trim() === '') {
+      return '';
+    }
+    
+    let displayUrl = url.trim();
+    
+    // Remove /api suffix if present
+    if (displayUrl.endsWith('/api')) {
+      displayUrl = displayUrl.slice(0, -4);
+    }
+    
+    return displayUrl;
+  };
+
+  // Function to validate Ollama URL
+  const validateOllamaUrl = async (url: string): Promise<boolean> => {
+    if (!url || url.trim() === '') {
+      return true; // Empty URL is valid (uses default)
+    }
+
+    const trimmedUrl = url.trim();
+
+    // First, validate URL format
+    try {
+      const urlObj = new URL(trimmedUrl);
+      // Check if it's http or https
+      if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
+        return false;
+      }
+    } catch (error) {
+      // Invalid URL format
+      return false;
+    }
+
+    // Normalize URL (add /api if needed)
+    const normalizedUrl = normalizeOllamaUrl(trimmedUrl);
+
+    // Then, try to connect to the Ollama API with timeout
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+      const response = await fetch(`${normalizedUrl}/tags`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      return response.ok;
+    } catch (error: any) {
+      console.error('Ollama URL validation failed:', error);
+      
+      // If it's a timeout or network error, still return false
+      // But log the specific error for debugging
+      if (error.name === 'AbortError') {
+        console.error('Validation timeout - server took too long to respond');
+      } else if (error.message?.includes('Failed to fetch')) {
+        console.error('Network error - could not reach the server');
+      }
+      
+      return false;
+    }
+  };
+
+  // Handle Ollama URL change with validation
+  const handleOllamaUrlChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newUrl = event.target.value;
+    setOllamaApiUrl(newUrl);
+    
+    // Clear previous timeout
+    if (validationTimeoutRef.current) {
+      clearTimeout(validationTimeoutRef.current);
+    }
+    
+    // If empty, set to valid (uses default)
+    if (!newUrl || newUrl.trim() === '') {
+      setUrlValidationStatus('idle');
+      return;
+    }
+    
+    // Set validating status
+    setUrlValidationStatus('validating');
+    
+    // Debounce validation by 800ms
+    validationTimeoutRef.current = setTimeout(async () => {
+      const isValid = await validateOllamaUrl(newUrl);
+      setUrlValidationStatus(isValid ? 'valid' : 'invalid');
+    }, 800);
+  };
+
+  // Handle reset to default URL
+  const handleResetOllamaUrl = () => {
+    const defaultUrl = getDefaultOllamaUrl();
+    setOllamaApiUrl(defaultUrl);
+    // Trigger validation for the default URL
+    setUrlValidationStatus('validating');
+    setTimeout(async () => {
+      const isValid = await validateOllamaUrl(defaultUrl);
+      setUrlValidationStatus(isValid ? 'valid' : 'invalid');
+    }, 100);
+  };
+
+  // Handle manual connection test
+  const handleTestConnection = async () => {
+    if (!ollamaApiUrl || ollamaApiUrl.trim() === '') {
+      // Test default URL
+      const defaultUrl = getDefaultOllamaUrl();
+      setUrlValidationStatus('validating');
+      const isValid = await validateOllamaUrl(defaultUrl);
+      setUrlValidationStatus(isValid ? 'valid' : 'invalid');
+    } else {
+      // Test current URL
+      setUrlValidationStatus('validating');
+      const isValid = await validateOllamaUrl(ollamaApiUrl);
+      setUrlValidationStatus(isValid ? 'valid' : 'invalid');
+    }
+  };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (validationTimeoutRef.current) {
+        clearTimeout(validationTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <>
@@ -451,6 +652,61 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             <Typography variant="caption" color="text.secondary">
               Lower values produce more deterministic responses, higher values produce more creative responses
             </Typography>
+          </Box>
+
+          {/* Ollama API URL Section */}
+          <Divider sx={{ my: 2 }} />
+          <Box sx={styles.sectionContainer}>
+            <Typography variant="h6" gutterBottom sx={{ color: 'primary.main' }}>
+              Ollama API Configuration
+            </Typography>
+            <TextField
+              fullWidth
+              label="Ollama API URL"
+              value={ollamaApiUrl}
+              onChange={handleOllamaUrlChange}
+              placeholder="http://localhost:11434"
+              helperText="Enter the Ollama server URL. Example: http://192.168.1.100:11434"
+              margin="normal"
+              variant="outlined"
+              size="small"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    {urlValidationStatus === 'validating' && (
+                      <CircularProgress size={20} />
+                    )}
+                    {urlValidationStatus === 'valid' && (
+                      <CheckCircleIcon sx={{ color: 'success.main' }} />
+                    )}
+                    {urlValidationStatus === 'invalid' && (
+                      <ErrorIcon sx={{ color: 'error.main' }} />
+                    )}
+                    <Tooltip title="Reset to default">
+                      <IconButton
+                        size="small"
+                        onClick={handleResetOllamaUrl}
+                        edge="end"
+                        sx={{ ml: 0.5 }}
+                      >
+                        <RefreshIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Test connection">
+                      <IconButton
+                        size="small"
+                        onClick={handleTestConnection}
+                        edge="end"
+                        sx={{ ml: 0.5 }}
+                      >
+                        <CableIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              }}
+              error={urlValidationStatus === 'invalid'}
+            />
           </Box>
         </DialogContent>
         <DialogActions>

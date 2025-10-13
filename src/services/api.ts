@@ -4,14 +4,27 @@ import { ttsService } from './ttsService';
 import { isElectron } from './electronApi';
 import { tokenCountingService } from './tokenCountingService';
 
-// Configure axios with base URL
-// In Electron, connect directly to Ollama
-// In Docker/web, use the proxied path
-const baseURL = isElectron() 
-  ? 'http://localhost:11434/api' // Direct connection to Ollama in Electron
-  : (process.env.NODE_ENV === 'production' 
-    ? '/api/ollama' // Proxied by Nginx in Docker
-    : (process.env.REACT_APP_OLLAMA_API_URL || 'http://localhost:11434/api')); // Development
+// Function to get the base URL, checking localStorage first
+const getBaseURL = (): string => {
+  // Check if user has set a custom Ollama API URL
+  const customUrl = localStorage.getItem('ollamaApiUrl');
+  if (customUrl && customUrl.trim() !== '') {
+    // Custom URL is already normalized with /api appended
+    return customUrl.trim();
+  }
+  
+  // Otherwise, use default logic
+  // In Electron, connect directly to Ollama
+  // In Docker/web, use the proxied path
+  return isElectron() 
+    ? 'http://localhost:11434/api' // Direct connection to Ollama in Electron
+    : (process.env.NODE_ENV === 'production' 
+      ? '/api/ollama' // Proxied by Nginx in Docker
+      : (process.env.REACT_APP_OLLAMA_API_URL || 'http://localhost:11434/api')); // Development
+};
+
+// Get the initial base URL
+let baseURL = getBaseURL();
 
 const api = axios.create({
   baseURL,
@@ -19,6 +32,12 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// Function to update the base URL dynamically
+export const updateBaseURL = (newUrl?: string): void => {
+  baseURL = newUrl || getBaseURL();
+  api.defaults.baseURL = baseURL;
+};
 
 // Fetch available models
 export const fetchModels = async (): Promise<ModelType[]> => {
