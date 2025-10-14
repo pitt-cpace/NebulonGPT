@@ -1510,25 +1510,25 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Convert to string if needed
     let textContent = String(content);
     
-    // Check for LaTeX patterns (all notations)
-    const hasLatex = /\$\$([\s\S]+?)\$\$|\$(.+?)\$|\\\((.+?)\\\)|\\\[([\s\S]+?)\\\]|\((?:[^()]*(?:\\frac|\\beta|\\alpha|\\gamma|\\delta|\\epsilon|\\theta|\\lambda|\\mu|\\sigma|\\mid|\\sum|\\int|\\sqrt|\\log|\\ln|\\exp|\\sin|\\cos|\\tan|\\lim|\\infty|\\pm|\\times|\\div|\\cdot|\\leq|\\geq|\\neq|\\approx|\\equiv|\\in|\\subset|\\cup|\\cap|\\dots|\\ldots|\\partial|\\nabla)[^()]*)\)|\[(?:[^\[\]]*(?:\\frac|\\beta|\\alpha|\\gamma|\\delta|\\epsilon|\\theta|\\lambda|\\mu|\\sigma|\\mid|\\sum|\\int|\\sqrt|\\log|\\ln|\\exp|\\sin|\\cos|\\tan|\\lim|\\infty|\\pm|\\times|\\div|\\cdot|\\leq|\\geq|\\neq|\\approx|\\equiv|\\in|\\subset|\\cup|\\cap|\\dots|\\ldots|\\partial|\\nabla)[^\[\]]*)\]/.test(textContent);
+    // Convert literal \n to actual newlines in code blocks
+    textContent = textContent.replace(/\\n/g, '\n');
     
-    if (hasLatex) {
-      return <>{renderLatex(textContent)}</>;
-    }
-    
-    // Convert <br> tags to newlines for markdown processing
-    const processedText = textContent.replace(/<br\s*\/?>/gi, '\n');
-    
-    // Render as markdown with custom components
+    // Always use ReactMarkdown which has plugins for both markdown AND LaTeX
+    // This ensures proper rendering of bold, italic, line breaks, AND formulas
     return (
       <ReactMarkdown
+        remarkPlugins={[remarkMath as any]}
+        rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
         components={{
           p: ({ children }) => <span>{children}</span>,
           strong: ({ children }) => <strong>{children}</strong>,
           em: ({ children }) => <em>{children}</em>,
           code: ({ children }) => {
-            const text = String(children);
+            let text = String(children);
+            
+            // Convert literal \n to actual newlines
+            text = text.replace(/\\n/g, '\n');
+            
             // Check if the inline code contains LaTeX formulas
             if (/\\frac|\\int|\\sum|\\sqrt|\\pi|\\theta|\\alpha|\\beta|\^|_/.test(text)) {
               // Remove wrapping backticks if present and render as LaTeX
@@ -1543,6 +1543,25 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 // Fall back to regular code
               }
             }
+            // If code contains newlines, render as a code block
+            if (text.includes('\n')) {
+              return (
+                <Box
+                  component="pre"
+                  sx={{
+                    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    fontSize: '0.85em',
+                    overflowX: 'auto',
+                    margin: '4px 0',
+                    whiteSpace: 'pre-wrap'
+                  }}
+                >
+                  <code>{text}</code>
+                </Box>
+              );
+            }
             return (
               <code style={{ 
                 backgroundColor: 'rgba(0, 0, 0, 0.08)',
@@ -1550,7 +1569,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 borderRadius: '3px',
                 fontSize: '0.9em'
               }}>
-                {children}
+                {text}
               </code>
             );
           },
@@ -1572,7 +1591,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           br: () => <br />
         }}
       >
-        {processedText}
+        {textContent}
       </ReactMarkdown>
     );
   };
@@ -1639,13 +1658,93 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         {renderCellContent(children)}
       </TableCell>
     ),
-    // Improve code blocks - extract and render formulas from code blocks
+    // Improve code blocks - extract and render formulas and tables from code blocks
     code: ({ node, inline, className, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(className || '');
       const content = String(children).replace(/\n$/, '');
       
-      // For non-inline code blocks, check if they contain LaTeX formulas
+      // For non-inline code blocks, check if they contain LaTeX tables or formulas
       if (!inline) {
+        // Check for LaTeX table (tabular environment)
+        const hasTabularTable = /\\begin\{tabular\}[\s\S]*?\\end\{tabular\}/.test(content);
+        
+        if (hasTabularTable && (className === 'language-latex' || className === 'language-tex')) {
+          // Parse the LaTeX table - extract the tabular environment with better regex
+          // Handle nested braces in column spec like {|c|l|l|p{8cm}|}
+          const tableMatch = content.match(/\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/);
+          
+          if (tableMatch) {
+            const tableContent = tableMatch[1];
+            // Remove all \hline commands and trim
+            const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+            
+            // Split by \\ and filter out empty lines
+            const lines = cleanedContent
+              .split('\\\\')
+              .map(line => line.trim())
+              .filter(line => line.length > 0);
+            
+            if (lines.length >= 2) {
+              // First line is headers
+              const headerLine = lines[0];
+              const headers = headerLine.split('&').map(h => h.trim()).filter(h => h.length > 0);
+              
+              // Rest are data rows
+              const dataRows = lines.slice(1);
+              const rows = dataRows.map(row => 
+                row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
+              );
+              
+              // Render as Material-UI table with copy button
+              const tableId = `latex-table-${Math.random().toString(36).substr(2, 9)}`;
+              return (
+                <TableWithCopy
+                  tableId={tableId}
+                  headers={headers}
+                  rows={rows}
+                >
+                  <TableContainer 
+                    component={Paper} 
+                    sx={styles.tableContainer}
+                  >
+                    <Table>
+                      <TableHead sx={styles.tableHead}>
+                        <TableRow>
+                          {headers.map((header, idx) => (
+                            <TableCell 
+                              key={idx}
+                              sx={styles.tableHeaderCell}
+                            >
+                              {renderCellContent(header)}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {rows.map((row, rowIdx) => (
+                          <TableRow 
+                            key={rowIdx}
+                            sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                          >
+                            {row.map((cell, cellIdx) => (
+                              <TableCell 
+                                key={cellIdx}
+                                sx={styles.tableCell}
+                              >
+                                {renderCellContent(cell)}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </TableWithCopy>
+              );
+            }
+          }
+        }
+        
         const hasDocumentCommands = /\\documentclass|\\begin\{document\}|\\usepackage/.test(content);
         const hasLatexFormulas = /\$[^\$]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\\frac|\\int|\\sum/.test(content);
         
@@ -1792,15 +1891,36 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     },
   };
 
+  // Function to preprocess LaTeX delimiters for proper rendering
+  const preprocessLatexDelimiters = (content: string): string => {
+    // First, fix common LaTeX errors in \text{} environments
+    let processed = content;
+    
+    // Fix complex unit expressions like \text{N·m}^2/\text{kg}^2
+    // Replace \text{} with \mathrm{} for better handling of units
+    processed = processed.replace(/\\text\{/g, '\\mathrm{');
+    
+    // Convert \( \) to $ $ for inline math (remark-math standard)
+    // Use non-greedy match to handle nested parentheses correctly
+    processed = processed.replace(/\\\(([\s\S]+?)\\\)/g, '$$$1$$');
+    // Convert \[ \] to $$ $$ for display math (remark-math standard)
+    // Use non-greedy match to handle nested brackets correctly
+    processed = processed.replace(/\\\[([\s\S]+?)\\\]/g, '$$$$$$1$$$$');
+    return processed;
+  };
+
   // Function to preprocess content to fix Llama3-3 table format and single-line tables
   const preprocessLlama3TableFormat = (content: string): string => {
+    // Note: LaTeX delimiters are already preprocessed before this function is called
+    let processed = content;
+    
     // Look for the specific Llama3-3 table pattern
     const llama3TablePattern = /\| [^|]+ \| [^|]+ \| [^|]+ \| \| --- \| --- \| --- \|/;
     
-    if (llama3TablePattern.test(content)) {
+    if (llama3TablePattern.test(processed)) {
       // This is likely a Llama3-3 table format
       // Fix the format by adding line breaks and removing extra pipes
-      return content.replace(/\| ([^|]+) \| ([^|]+) \| ([^|]+) \| \|/g, '| $1 | $2 | $3 |\n|')
+      return processed.replace(/\| ([^|]+) \| ([^|]+) \| ([^|]+) \| \|/g, '| $1 | $2 | $3 |\n|')
                    .replace(/\| --- \| --- \| --- \| \|/g, '| --- | --- | --- |\n|');
     }
     
@@ -1808,10 +1928,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Pattern: | header | header | ... | |----|----| ... | | data | data | ... |
     const singleLineTablePattern = /\|[^|\n]+\|[^|\n]+\|[^|\n]*\|\s*\|[-\s]+\|[-\s]+\|[-\s]*\|\s*\|[^|\n]+\|[^|\n]+\|/g;
     
-    if (singleLineTablePattern.test(content)) {
+    if (singleLineTablePattern.test(processed)) {
       
       // Split table by separator pattern
-      let processed = content.replace(
+      processed = processed.replace(
         /(\|[^|\n]+(?:\|[^|\n]+)*\|)\s*(\|[-\s]+(?:\|[-\s]+)*\|)\s*(\|[^|\n]+(?:\|[^|\n]+)*\|)/g,
         (match, header, separator, dataRows) => {
           // Add line breaks between header, separator, and data rows
@@ -1856,20 +1976,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       return processed;
     }
     
-    return content;
+    return processed;
   };
 
   // Function to detect and render tables from markdown
   const renderMarkdownWithTables = (content: string) => {
-    // First, check if this is a full LaTeX document in plain text (not in code block)
-    const hasDocumentCommands = /\\documentclass|\\begin\{document\}|\\usepackage/.test(content);
+    // First, preprocess ALL LaTeX delimiters in the content
+    let processedContent = preprocessLatexDelimiters(content);
+    
+    // Then, check if this is a full LaTeX document in plain text (not in code block)
+    const hasDocumentCommands = /\\documentclass|\\begin\{document\}|\\usepackage/.test(processedContent);
     
     if (hasDocumentCommands) {
       // Extract and render formulas from the LaTeX document
       const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
       
       // Extract \[ \] display formulas
-      const displayMatches = content.match(/\\\[([\s\S]*?)\\\]/g);
+      const displayMatches = processedContent.match(/\\\[([\s\S]*?)\\\]/g);
       if (displayMatches) {
         displayMatches.forEach(match => {
           const formula = match.replace(/^\\\[/, '').replace(/\\\]$/, '').trim();
@@ -1878,7 +2001,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
       
       // Extract \( \) inline formulas
-      const inlineMatches = content.match(/\\\(([\s\S]*?)\\\)/g);
+      const inlineMatches = processedContent.match(/\\\(([\s\S]*?)\\\)/g);
       if (inlineMatches) {
         inlineMatches.forEach(match => {
           const formula = match.replace(/^\\\(/, '').replace(/\\\)$/, '').trim();
@@ -1887,7 +2010,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
       
       // Extract $ $ inline formulas
-      const dollarMatches = content.match(/\$([^\$]+)\$/g);
+      const dollarMatches = processedContent.match(/\$([^\$]+)\$/g);
       if (dollarMatches) {
         dollarMatches.forEach(match => {
           const formula = match.replace(/^\$/, '').replace(/\$$/, '').trim();
@@ -1896,7 +2019,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
       
       // Extract \begin{align*} environments and split into individual equations
-      const alignMatches = content.match(/\\begin\{align\*\}([\s\S]*?)\\end\{align\*\}/g);
+      const alignMatches = processedContent.match(/\\begin\{align\*\}([\s\S]*?)\\end\{align\*\}/g);
       if (alignMatches) {
         alignMatches.forEach(match => {
           const innerContent = match.replace(/\\begin\{align\*\}/, '').replace(/\\end\{align\*\}/, '').trim();
@@ -1946,12 +2069,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
     
     // Convert HTML sub/sup tags to LaTeX notation wrapped in $ delimiters
-    let contentWithLatex = content
+    processedContent = processedContent
       .replace(/<sub>([^<]+)<\/sub>/g, '$_{$1}$')
       .replace(/<sup>([^<]+)<\/sup>/g, '$^{$1}$');
     
-    // Preprocess content to fix Llama3-3 table format
-    let processedContent = preprocessLlama3TableFormat(contentWithLatex);
+    // Preprocess content to fix Llama3-3 table format (which also applies LaTeX preprocessing)
+    processedContent = preprocessLlama3TableFormat(processedContent);
     
     // Detect and replace HTML tables
     const htmlTableRegex = /<table[\s\S]*?<\/table>/gi;
@@ -2165,22 +2288,54 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const lines = tableMatch.trim().split('\n');
         const headerLine = lines[0];
         
+        // Helper function to split by | but not inside backticks
+        const smartSplit = (line: string): string[] => {
+          const cells: string[] = [];
+          let current = '';
+          let inBackticks = false;
+          let backticksCount = 0;
+          
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            
+            // Check for backticks
+            if (char === '`') {
+              current += char;
+              // Count consecutive backticks
+              let count = 1;
+              while (i + 1 < line.length && line[i + 1] === '`') {
+                current += '`';
+                i++;
+                count++;
+              }
+              
+              // Toggle state based on backtick count
+              if (inBackticks && count === backticksCount) {
+                inBackticks = false;
+                backticksCount = 0;
+              } else if (!inBackticks) {
+                inBackticks = true;
+                backticksCount = count;
+              }
+            } else if (char === '|' && !inBackticks) {
+              cells.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          cells.push(current);
+          return cells.filter(cell => cell.trim() !== '').map(cell => cell.trim());
+        };
+        
         // Extract headers
-        const headers = headerLine
-          .split('|')
-          .filter(cell => cell.trim() !== '')
-          .map(cell => cell.trim());
+        const headers = smartSplit(headerLine);
         
         // Skip the separator line (line with |---|---|)
         const dataRows = lines.slice(2);
         
         // Extract rows
-        const rows = dataRows.map(row => 
-          row
-            .split('|')
-            .filter(cell => cell.trim() !== '')
-            .map(cell => cell.trim())
-        );
+        const rows = dataRows.map(row => smartSplit(row));
         
         // Render Material-UI table with markdown support in cells and copy button
         const tableId = `llama3-table-${key}`;
@@ -2360,22 +2515,54 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const lines = tableMatch.trim().split('\n');
         const headerLine = lines[0];
         
-        // Extract headers
-        const headers = headerLine
-          .split('|')
-          .filter(cell => cell.trim() !== '')
-          .map(cell => cell.trim());
+        // Helper function to split by | but not inside backticks
+        const smartSplit = (line: string): string[] => {
+          const cells: string[] = [];
+          let current = '';
+          let inBackticks = false;
+          let backticksCount = 0;
+          
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            
+            // Check for backticks
+            if (char === '`') {
+              current += char;
+              // Count consecutive backticks
+              let count = 1;
+              while (i + 1 < line.length && line[i + 1] === '`') {
+                current += '`';
+                i++;
+                count++;
+              }
+              
+              // Toggle state based on backtick count
+              if (inBackticks && count === backticksCount) {
+                inBackticks = false;
+                backticksCount = 0;
+              } else if (!inBackticks) {
+                inBackticks = true;
+                backticksCount = count;
+              }
+            } else if (char === '|' && !inBackticks) {
+              cells.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          cells.push(current);
+          return cells.filter(cell => cell.trim() !== '').map(cell => cell.trim());
+        };
+        
+        // Extract headers using smart split
+        const headers = smartSplit(headerLine);
         
         // Skip the separator line (line with |---|---|)
         const dataRows = lines.slice(2);
         
-        // Extract rows
-        const rows = dataRows.map(row => 
-          row
-            .split('|')
-            .filter(cell => cell.trim() !== '')
-            .map(cell => cell.trim())
-        );
+        // Extract rows using smart split
+        const rows = dataRows.map(row => smartSplit(row));
         
         // Render Material-UI table with markdown support in cells and copy button
         const tableId = `markdown-table-${key}`;
