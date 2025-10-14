@@ -1647,44 +1647,62 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 </Box>
               );
             }
-          } else if (hasLatexFormulas) {
+          } else if (hasLatexFormulas || className === 'language-latex' || className === 'language-tex') {
             // Code block with LaTeX formulas but no document structure
-            // Extract $ $ formulas and render them
-            const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
             
-            // Extract $ $ formulas
+            // Check if there are $ $ wrapped formulas
             const dollarMatches = content.match(/\$([^\$]+)\$/g);
             if (dollarMatches) {
+              // Extract $ $ formulas and render them
+              const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
               dollarMatches.forEach(match => {
                 const formula = match.replace(/^\$/, '').replace(/\$$/, '').trim();
                 if (formula) formulas.push({ formula, isDisplay: false });
               });
-            }
-            
-            if (formulas.length > 0) {
-              return (
-                <Box sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
-                  {formulas.map((item, idx) => {
-                    try {
-                      const html = katex.renderToString(item.formula, {
-                        displayMode: false,
-                        throwOnError: false,
-                        output: 'html'
-                      });
-                      
-                      return (
-                        <Box
-                          key={idx}
-                          sx={{ my: 1 }}
-                          dangerouslySetInnerHTML={{ __html: html }}
-                        />
-                      );
-                    } catch (error) {
-                      return null;
-                    }
-                  })}
-                </Box>
-              );
+              
+              if (formulas.length > 0) {
+                return (
+                  <Box sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+                    {formulas.map((item, idx) => {
+                      try {
+                        const html = katex.renderToString(item.formula, {
+                          displayMode: false,
+                          throwOnError: false,
+                          output: 'html'
+                        });
+                        
+                        return (
+                          <Box
+                            key={idx}
+                            sx={{ my: 1 }}
+                            dangerouslySetInnerHTML={{ __html: html }}
+                          />
+                        );
+                      } catch (error) {
+                        return null;
+                      }
+                    })}
+                  </Box>
+                );
+              }
+            } else if (className === 'language-latex' || className === 'language-tex') {
+              // Pure LaTeX code block without $ delimiters - render entire content
+              try {
+                const html = katex.renderToString(content, {
+                  displayMode: true,
+                  throwOnError: false,
+                  output: 'html'
+                });
+                
+                return (
+                  <Box
+                    sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}
+                    dangerouslySetInnerHTML={{ __html: html }}
+                  />
+                );
+              } catch (error) {
+                // Fall through to normal code block rendering
+              }
             }
           }
         }
