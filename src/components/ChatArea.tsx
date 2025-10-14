@@ -2882,7 +2882,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, []);
 
-  const renderMessage = (message: MessageType) => {
+  const renderMessage = useCallback((message: MessageType) => {
     const isUser = message.role === 'user';
     const isCopied = copiedMessageId === message.id;
     
@@ -3159,7 +3159,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         </Box>
       </Box>
     );
-  };
+  }, [copiedMessageId, loading, chat, handleCopyMessage]);
 
   return (
     <Box
