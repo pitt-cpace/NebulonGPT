@@ -286,31 +286,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [voskRecognition]);
 
-  // Real-time token calculation function
+  // Real-time token calculation function with intelligent history management
   const calculateCurrentTokens = useCallback(async () => {
     try {
       const { tokenCountingService } = await import('../services/tokenCountingService');
-      
-      // Calculate tokens for current input
-      let totalTokens = 0;
-      
-      // Add tokens from existing chat messages
-      if (chat?.messages) {
-        totalTokens += tokenCountingService.countTotalTokens(chat.messages);
-      }
-      
-      // Add tokens from current message text
-      totalTokens += tokenCountingService.countTokens(message);
-      
-      // Add tokens from current attachments
-      for (const attachment of attachments) {
-        totalTokens += tokenCountingService.countAttachmentTokens(attachment);
-      }
-      
-      // Add overhead for message structure
-      totalTokens += 10;
-      
-      setCurrentTokens(totalTokens);
       
       // Get current context length from settings (localStorage)
       let contextLength = 4096; // Default fallback
@@ -326,19 +305,84 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         console.error('Error reading context length from settings:', error);
       }
       
-      const isExceeded = totalTokens > contextLength - 500; // Reserve 500 tokens for response
+      // Calculate tokens for CURRENT input (prompt + attachments)
+      const currentPromptTokens = tokenCountingService.countTokens(message) + 10; // +10 for overhead
+      
+      let currentAttachmentsTokens = 0;
+      for (const attachment of attachments) {
+        currentAttachmentsTokens += tokenCountingService.countAttachmentTokens(attachment);
+      }
+      
+      // Calculate how much conversation history can be included
+      const historyAllowance = tokenCountingService.calculateHistoryAllowance(
+        currentPromptTokens,
+        currentAttachmentsTokens,
+        contextLength
+      );
+      
+      // Get previous messages (excluding the one we're about to send)
+      const previousMessages = chat?.messages || [];
+      
+      // Calculate tokens from previous conversation that will be included
+      let historyTokensUsed = 0;
+      if (previousMessages.length > 0 && historyAllowance.historyTokens > 0) {
+        // Count tokens from most recent messages until we hit the limit
+        for (let i = previousMessages.length - 1; i >= 0 && historyTokensUsed < historyAllowance.historyTokens; i--) {
+          const msgTokens = tokenCountingService.countMessageTokens(previousMessages[i]);
+          if (historyTokensUsed + msgTokens <= historyAllowance.historyTokens) {
+            historyTokensUsed += msgTokens;
+          } else {
+            break; // Can't fit this message
+          }
+        }
+      }
+      
+      // Total tokens that will be sent = current + attachments + history
+      const totalTokens = currentPromptTokens + currentAttachmentsTokens + historyTokensUsed;
+      
+      setCurrentTokens(totalTokens);
+      
+      // Check if we've exceeded the available context (reserve 500 for response)
+      const reservedForResponse = 500;
+      const maxAllowedTokens = contextLength - reservedForResponse;
+      const isExceeded = totalTokens > maxAllowedTokens;
       
       setIsContextExceeded(isExceeded);
       
+      // Determine warning state based on token usage
+      const hasUserInput = message.trim().length > 0 || attachments.length > 0;
+      
+      // ALWAYS update or clear warning to show fresh token counts
       if (isExceeded) {
-        setContextWarning(`Context limit exceeded! ~${totalTokens}/${contextLength} tokens. Remove some text/attachments or increase context length from settings.`);
-      } else if (totalTokens > contextLength - 1000) {
-        setContextWarning(`Approaching context limit: ${totalTokens}/${contextLength} tokens. Consider keeping your message shorter or increase context length from settings.`);
+        // CRITICAL: ALWAYS show red warning when exceeded with updated values
+        setContextWarning(
+          `Context limit exceeded! ~${totalTokens}/${contextLength} tokens ` +
+          `(Current: ${currentPromptTokens + currentAttachmentsTokens}, Chat History Included: ${historyTokensUsed}, Safety Buffer: 500). ` +
+          `You must remove text/attachments or increase context length from settings before sending.`
+        );
+      } else if (hasUserInput && totalTokens > maxAllowedTokens - 500) {
+        // Show orange warning when approaching limit with updated values
+        // Check if history is limited
+        const totalHistoryTokens = previousMessages.length > 0 
+          ? tokenCountingService.countTotalTokens(previousMessages)
+          : 0;
+        const isHistoryLimited = totalHistoryTokens > historyTokensUsed;
+        
+        const historyNote = isHistoryLimited 
+          ? ` Previous chat history is being reduced to fit within limits.`
+          : ``;
+        
+        const safeArea = maxAllowedTokens - totalTokens;
+        
+        setContextWarning(
+          `Approaching context limit: ${totalTokens}/${contextLength} tokens ` +
+          `(Current: ${currentPromptTokens + currentAttachmentsTokens}, Chat History Included: ${historyTokensUsed}, Safety Buffer: 500). ` +
+          `${safeArea} tokens remaining. Consider keeping your message shorter or increase context length from settings.${historyNote}`
+        );
       } else {
+        // Clear warning in all other cases (safe zone or no input)
         setContextWarning(null);
       }
-      
-      //console.log(`📊 Real-time token calculation: ${totalTokens}/${contextLength} tokens`);
        
     } catch (error) {
       console.error('Error calculating real-time tokens:', error);
@@ -784,7 +828,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      // Don't allow sending if context is exceeded
+      if (!isContextExceeded) {
+        handleSendMessage();
+      }
     }
   };
 

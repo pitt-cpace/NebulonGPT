@@ -230,6 +230,31 @@ class TokenCountingService {
   }
 
   /**
+   * Calculate how many tokens of conversation history can be included
+   * Returns: { historyTokens: number, totalTokens: number }
+   */
+  calculateHistoryAllowance(
+    currentPromptTokens: number,
+    currentAttachmentsTokens: number,
+    contextLength: number
+  ): { historyTokens: number; totalTokens: number; availableTokens: number } {
+    // Reserve 500 tokens for response generation
+    const reservedForResponse = 500;
+    
+    // Calculate available tokens for history
+    const availableTokens = contextLength - currentPromptTokens - currentAttachmentsTokens - reservedForResponse;
+    
+    // Total tokens that will be sent (current + history)
+    const totalTokens = currentPromptTokens + currentAttachmentsTokens + Math.max(0, availableTokens);
+    
+    return {
+      historyTokens: Math.max(0, availableTokens),
+      totalTokens,
+      availableTokens: contextLength - reservedForResponse
+    };
+  }
+
+  /**
    * Truncate messages to fit within the specified context length
    * Priority: 1) Current prompt, 2) Attachments, 3) Previous chats and attachments
    */
