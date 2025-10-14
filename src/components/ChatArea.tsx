@@ -353,32 +353,46 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       const hasUserInput = message.trim().length > 0 || attachments.length > 0;
       
       // ALWAYS update or clear warning to show fresh token counts
+      // Calculate if history is fully reduced (cannot be reduced further)
+      const totalHistoryTokens = previousMessages.length > 0 
+        ? tokenCountingService.countTotalTokens(previousMessages)
+        : 0;
+      const hasNoHistory = totalHistoryTokens === 0;
+      const isHistoryFullyReduced = historyTokensUsed === 0 && totalHistoryTokens > 0;
+      
       if (isExceeded) {
-        // CRITICAL: ALWAYS show red warning when exceeded with updated values
-        setContextWarning(
-          `Context limit exceeded! ~${totalTokens}/${contextLength} tokens ` +
-          `(Current: ${currentPromptTokens + currentAttachmentsTokens}, Chat History Included: ${historyTokensUsed}, Safety Buffer: 500). ` +
-          `You must remove text/attachments or increase context length from settings before sending.`
-        );
+        // Show red warning if: history is fully reduced OR there's no history at all
+        if (isHistoryFullyReduced || hasNoHistory) {
+          const historyMessage = isHistoryFullyReduced 
+            ? `All previous chat history has been excluded. ` 
+            : ``;
+          
+          setContextWarning(
+            `Context limit exceeded! ~${totalTokens}/${contextLength} tokens ` +
+            `(Current: ${currentPromptTokens + currentAttachmentsTokens}, Chat History Included: ${historyTokensUsed}, Safety Buffer: 500). ` +
+            `${historyMessage}You must remove text/attachments or increase context length from settings before sending.`
+          );
+        } else {
+          // History can still be reduced, don't show warning yet
+          setContextWarning(null);
+        }
       } else if (hasUserInput && totalTokens > maxAllowedTokens - 500) {
-        // Show orange warning when approaching limit with updated values
-        // Check if history is limited
-        const totalHistoryTokens = previousMessages.length > 0 
-          ? tokenCountingService.countTotalTokens(previousMessages)
-          : 0;
-        const isHistoryLimited = totalHistoryTokens > historyTokensUsed;
-        
-        const historyNote = isHistoryLimited 
-          ? ` Previous chat history is being reduced to fit within limits.`
-          : ``;
-        
-        const safeArea = maxAllowedTokens - totalTokens;
-        
-        setContextWarning(
-          `Approaching context limit: ${totalTokens}/${contextLength} tokens ` +
-          `(Current: ${currentPromptTokens + currentAttachmentsTokens}, Chat History Included: ${historyTokensUsed}, Safety Buffer: 500). ` +
-          `${safeArea} tokens remaining. Consider keeping your message shorter or increase context length from settings.${historyNote}`
-        );
+        // Show orange warning if: history is fully reduced OR there's no history at all
+        if (isHistoryFullyReduced || hasNoHistory) {
+          const safeArea = maxAllowedTokens - totalTokens;
+          const historyMessage = isHistoryFullyReduced 
+            ? `All previous chat history has been excluded. ` 
+            : ``;
+          
+          setContextWarning(
+            `Approaching context limit: ${totalTokens}/${contextLength} tokens ` +
+            `(Current: ${currentPromptTokens + currentAttachmentsTokens}, Chat History Included: ${historyTokensUsed}, Safety Buffer: 500). ` +
+            `${safeArea} tokens remaining. ${historyMessage}Consider keeping your message shorter or increase context length from settings.`
+          );
+        } else {
+          // History can still be reduced, don't show warning
+          setContextWarning(null);
+        }
       } else {
         // Clear warning in all other cases (safe zone or no input)
         setContextWarning(null);
