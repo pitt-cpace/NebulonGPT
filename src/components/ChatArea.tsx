@@ -1510,11 +1510,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Convert to string if needed
     let textContent = String(content);
     
-    // Convert literal \n to actual newlines in code blocks
-    textContent = textContent.replace(/\\n/g, '\n');
+    // Don't process empty content
+    if (!textContent || textContent.trim() === '') {
+      return textContent;
+    }
     
-    // Always use ReactMarkdown which has plugins for both markdown AND LaTeX
-    // This ensures proper rendering of bold, italic, line breaks, AND formulas
+    // Handle content with <br> tags by converting them to actual line breaks first
+    textContent = textContent.replace(/<br\s*\/?>/gi, '\n');
+    
+    // Always use ReactMarkdown with all plugins enabled for comprehensive rendering
     return (
       <ReactMarkdown
         remarkPlugins={[remarkMath as any]}
@@ -1523,28 +1527,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           p: ({ children }) => <span>{children}</span>,
           strong: ({ children }) => <strong>{children}</strong>,
           em: ({ children }) => <em>{children}</em>,
-          code: ({ children }) => {
+          code: ({ children, inline, className }) => {
             let text = String(children);
             
-            // Convert literal \n to actual newlines
-            text = text.replace(/\\n/g, '\n');
-            
-            // Check if the inline code contains LaTeX formulas
-            if (/\\frac|\\int|\\sum|\\sqrt|\\pi|\\theta|\\alpha|\\beta|\^|_/.test(text)) {
-              // Remove wrapping backticks if present and render as LaTeX
-              try {
-                const html = katex.renderToString(text, {
-                  displayMode: false,
-                  throwOnError: false,
-                  output: 'html'
-                });
-                return <span dangerouslySetInnerHTML={{ __html: html }} />;
-              } catch (error) {
-                // Fall back to regular code
-              }
-            }
-            // If code contains newlines, render as a code block
-            if (text.includes('\n')) {
+            // For non-inline code (code blocks), handle specially
+            if (!inline) {
+              // Convert literal \n to actual newlines in code blocks
+              text = text.replace(/\\n/g, '\n');
+              
               return (
                 <Box
                   component="pre"
@@ -1555,19 +1545,40 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     fontSize: '0.85em',
                     overflowX: 'auto',
                     margin: '4px 0',
-                    whiteSpace: 'pre-wrap'
+                    whiteSpace: 'pre-wrap',
+                    maxWidth: '100%',
+                    fontFamily: 'monospace'
                   }}
                 >
                   <code>{text}</code>
                 </Box>
               );
             }
+            
+            // For inline code, check if it contains LaTeX formulas
+            if (/\\frac|\\int|\\sum|\\sqrt|\\pi|\\theta|\\alpha|\\beta|\\gamma|\\delta|\\epsilon|\\displaystyle|\^|_/.test(text)) {
+              try {
+                const html = katex.renderToString(text, {
+                  displayMode: false,
+                  throwOnError: false,
+                  output: 'html',
+                  strict: false
+                });
+                return <span dangerouslySetInnerHTML={{ __html: html }} />;
+              } catch (error) {
+                console.warn('KaTeX rendering failed for:', text, error);
+              }
+            }
+            
+            // Regular inline code
             return (
               <code style={{ 
                 backgroundColor: 'rgba(0, 0, 0, 0.08)',
                 padding: '2px 4px',
                 borderRadius: '3px',
-                fontSize: '0.9em'
+                fontSize: '0.85em',
+                fontFamily: 'monospace',
+                wordBreak: 'break-word'
               }}>
                 {text}
               </code>
