@@ -2145,7 +2145,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     // Detect if content contains a general markdown table
     // This pattern matches tables with any number of columns
-    const markdownTableRegex = /\|[^\n]*\|\n\|[\s-:]*\|[\s-:]*(\|[\s-:]*)*\n(\|[^\n]*\|\n)+/g;
+    const markdownTableRegex = /\|.+\|\n\|[-:\s|]+\|\n(?:\|.+\|\n)+/g;
     
     // Detect if content contains a MediaWiki table
     const mediaWikiTableRegex = /\{\|[^\n]*\n[\s\S]*?\|\}/g;
