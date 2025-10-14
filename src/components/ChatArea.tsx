@@ -1555,8 +1555,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               );
             }
             
-            // For inline code, check if it contains LaTeX formulas
-            if (/\\frac|\\int|\\sum|\\sqrt|\\pi|\\theta|\\alpha|\\beta|\\gamma|\\delta|\\epsilon|\\displaystyle|\^|_/.test(text)) {
+            // For inline code, ONLY render as LaTeX if it contains actual LaTeX commands (starting with \)
+            // Don't try to render regular text that just happens to have ^ or _ characters
+            const hasLatexCommand = /\\(?:frac|int|sum|sqrt|displaystyle|text|mathrm|pi|theta|alpha|beta|gamma|delta|epsilon|sigma|mu|lambda|infty|pm|times|div|cdot|leq|geq|neq)/.test(text);
+            
+            if (hasLatexCommand) {
               try {
                 const html = katex.renderToString(text, {
                   displayMode: false,
@@ -1566,7 +1569,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 });
                 return <span dangerouslySetInnerHTML={{ __html: html }} />;
               } catch (error) {
-                console.warn('KaTeX rendering failed for:', text, error);
+                // Silently fall back to regular code rendering
               }
             }
             
