@@ -1344,6 +1344,39 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return result;
   };
 
+  // Helper function to render a table with a permanent copy button below it
+  const renderTableWithCopyButton = (tableId: string, headers: string[], rows: string[][], tableElement: React.ReactNode) => {
+    const isCopied = copiedTableId === tableId;
+    
+    return (
+      <Box key={tableId} sx={{ mb: 2 }}>
+        {tableElement}
+        {/* Permanently visible copy button below the table */}
+        <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+          <IconButton
+            size="small"
+            onClick={() => handleCopyTable(tableId, headers, rows)}
+            sx={{
+              opacity: 0.6,
+              transition: 'opacity 0.2s, background-color 0.2s',
+              '&:hover': {
+                opacity: 1,
+                backgroundColor: 'rgba(0, 0, 0, 0.05)',
+              },
+            }}
+            title={isCopied ? 'Copied!' : 'Copy table'}
+          >
+            {isCopied ? (
+              <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />
+            ) : (
+              <ContentCopyIcon sx={{ fontSize: 18 }} />
+            )}
+          </IconButton>
+        </Box>
+      </Box>
+    );
+  };
+
   // Helper function to copy table to clipboard
   const handleCopyTable = useCallback(async (tableId: string, headers: string[], rows: string[][]) => {
     try {
@@ -1394,55 +1427,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       console.error('❌ Failed to copy table:', error);
     }
   }, []);
-
-  // Helper component to wrap tables with copy functionality
-  const TableWithCopy: React.FC<{
-    tableId: string;
-    headers: string[];
-    rows: string[][];
-    children: React.ReactNode;
-  }> = ({ tableId, headers, rows, children }) => {
-    const [isHovered, setIsHovered] = useState(false);
-    const isCopied = copiedTableId === tableId;
-    
-    return (
-      <Box
-        sx={{ position: 'relative', mb: 2 }}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
-        {children}
-        {(isHovered || isCopied) && (
-          <IconButton
-            size="small"
-            onClick={() => handleCopyTable(tableId, headers, rows)}
-            sx={{
-              position: 'absolute',
-              top: 8,
-              right: 8,
-              backgroundColor: 'rgba(255, 255, 255, 0.9)',
-              backdropFilter: 'blur(10px)',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-              opacity: isCopied ? 1 : 0.8,
-              transition: 'all 0.2s',
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 1)',
-                opacity: 1,
-                transform: 'scale(1.05)',
-              },
-            }}
-            title={isCopied ? 'Copied!' : 'Copy table'}
-          >
-            {isCopied ? (
-              <CheckCircleIcon sx={{ fontSize: 16, color: 'success.main' }} />
-            ) : (
-              <ContentCopyIcon sx={{ fontSize: 16 }} />
-            )}
-          </IconButton>
-        )}
-      </Box>
-    );
-  };
 
   // Helper function to render LaTeX formulas
   const renderLatex = (text: string): React.ReactNode[] => {
@@ -1709,51 +1693,54 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
               );
               
-              // Render as Material-UI table with copy button
-              const tableId = `latex-table-${Math.random().toString(36).substr(2, 9)}`;
-              return (
-                <TableWithCopy
-                  tableId={tableId}
-                  headers={headers}
-                  rows={rows}
+              // Render as Material-UI table with copy button - use stable ID based on content
+              const tableId = `latex-table-${headers.join('-').substring(0, 20)}-${rows.length}`;
+              return renderTableWithCopyButton(
+                tableId,
+                headers,
+                rows,
+                <TableContainer 
+                  component={Paper} 
+                  sx={styles.tableContainer}
                 >
-                  <TableContainer 
-                    component={Paper} 
-                    sx={styles.tableContainer}
-                  >
-                    <Table>
-                      <TableHead sx={styles.tableHead}>
-                        <TableRow>
-                          {headers.map((header, idx) => (
+                  <Table>
+                    <TableHead sx={styles.tableHead}>
+                      <TableRow>
+                        {headers.map((header, idx) => (
+                          <TableCell 
+                            key={idx}
+                            sx={styles.tableHeaderCell}
+                          >
+                            {renderCellContent(header)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {rows.map((row, rowIdx) => (
+                        <TableRow 
+                          key={rowIdx}
+                          sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                        >
+                          {row.map((cell, cellIdx) => (
                             <TableCell 
-                              key={idx}
-                              sx={styles.tableHeaderCell}
+                              key={cellIdx}
+                              sx={{
+                                ...styles.tableCell,
+                                userSelect: 'text',
+                                WebkitUserSelect: 'text',
+                                MozUserSelect: 'text',
+                                msUserSelect: 'text',
+                              }}
                             >
-                              {renderCellContent(header)}
+                              {renderCellContent(cell)}
                             </TableCell>
                           ))}
                         </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {rows.map((row, rowIdx) => (
-                          <TableRow 
-                            key={rowIdx}
-                            sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                          >
-                            {row.map((cell, cellIdx) => (
-                              <TableCell 
-                                key={cellIdx}
-                                sx={styles.tableCell}
-                              >
-                                {renderCellContent(cell)}
-                              </TableCell>
-                            ))}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </TableWithCopy>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               );
             }
           }
@@ -2226,13 +2213,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           // Render Material-UI table with markdown support in cells and copy button
           const tableId = `mediawiki-table-${key}`;
           result.push(
-            <TableWithCopy
-              key={`table-${key++}`}
-              tableId={tableId}
-              headers={tableData.headers}
-              rows={tableData.rows}
-            >
+            renderTableWithCopyButton(
+              tableId,
+              tableData.headers,
+              tableData.rows,
               <TableContainer 
+                key={`table-${key++}`}
                 component={Paper} 
                 sx={styles.tableContainer}
               >
@@ -2268,7 +2254,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   </TableBody>
                 </Table>
               </TableContainer>
-            </TableWithCopy>
+            )
           );
         }
         
@@ -2354,13 +2340,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Render Material-UI table with markdown support in cells and copy button
         const tableId = `llama3-table-${key}`;
         result.push(
-          <TableWithCopy
-            key={`table-${key++}`}
-            tableId={tableId}
-            headers={headers}
-            rows={rows}
-          >
+          renderTableWithCopyButton(
+            tableId,
+            headers,
+            rows,
             <TableContainer 
+              key={`table-${key++}`}
               component={Paper} 
               sx={styles.tableContainer}
             >
@@ -2396,7 +2381,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 </TableBody>
               </Table>
             </TableContainer>
-          </TableWithCopy>
+          )
         );
         
         // Update lastIndex to after this table
@@ -2449,13 +2434,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Render Material-UI table with markdown support in cells and copy button
         const tableId = `tab-table-${key}`;
         result.push(
-          <TableWithCopy
-            key={`table-${key++}`}
-            tableId={tableId}
-            headers={headers}
-            rows={rows}
-          >
+          renderTableWithCopyButton(
+            tableId,
+            headers,
+            rows,
             <TableContainer 
+              key={`table-${key++}`}
               component={Paper} 
               sx={styles.tableContainer}
             >
@@ -2491,7 +2475,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 </TableBody>
               </Table>
             </TableContainer>
-          </TableWithCopy>
+          )
         );
         
         // Update lastIndex to after this table
@@ -2581,13 +2565,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Render Material-UI table with markdown support in cells and copy button
         const tableId = `markdown-table-${key}`;
         result.push(
-          <TableWithCopy
-            key={`table-${key++}`}
-            tableId={tableId}
-            headers={headers}
-            rows={rows}
-          >
+          renderTableWithCopyButton(
+            tableId,
+            headers,
+            rows,
             <TableContainer 
+              key={`table-${key++}`}
               component={Paper} 
               sx={styles.tableContainer}
             >
@@ -2623,7 +2606,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 </TableBody>
               </Table>
             </TableContainer>
-          </TableWithCopy>
+          )
         );
         
         // Update lastIndex to after this table
@@ -2674,13 +2657,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           if (tableMatch.data) {
             const tableId = `special-table-${tableMatch.type}-${key}`;
             result.push(
-              <TableWithCopy
-                key={`table-${key++}`}
-                tableId={tableId}
-                headers={tableMatch.data.headers}
-                rows={tableMatch.data.rows}
-              >
+              renderTableWithCopyButton(
+                tableId,
+                tableMatch.data.headers,
+                tableMatch.data.rows,
                 <TableContainer 
+                  key={`table-${key++}`}
                   component={Paper} 
                   sx={styles.tableContainer}
                 >
@@ -2716,7 +2698,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     </TableBody>
                   </Table>
                 </TableContainer>
-              </TableWithCopy>
+              )
             );
           }
           
@@ -3159,7 +3141,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         </Box>
       </Box>
     );
-  }, [copiedMessageId, loading, chat, handleCopyMessage]);
+  }, [copiedMessageId, copiedTableId, loading, chat, handleCopyMessage]);
 
   return (
     <Box
