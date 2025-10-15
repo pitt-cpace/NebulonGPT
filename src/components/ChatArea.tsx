@@ -3826,16 +3826,25 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             >
               <IconButton
                 onClick={() => jumpToLatest('smooth')}
-                sx={{
-                  backgroundColor: 'primary.main',
+                sx={(theme) => ({
+                  backgroundColor: theme.palette.mode === 'dark' 
+                    ? 'rgba(66, 66, 66, 0.95)' 
+                    : 'primary.main',
                   color: 'white',
-                  boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
+                  boxShadow: theme.palette.mode === 'dark'
+                    ? '0 4px 8px rgba(0,0,0,0.6)'
+                    : '0 4px 8px rgba(0,0,0,0.3)',
+                  border: theme.palette.mode === 'dark' 
+                    ? '1px solid rgba(255,255,255,0.1)'
+                    : 'none',
                   '&:hover': {
-                    backgroundColor: 'primary.dark',
+                    backgroundColor: theme.palette.mode === 'dark'
+                      ? 'rgba(88, 88, 88, 0.95)'
+                      : 'primary.dark',
                     transform: 'scale(1.1)',
                   },
                   transition: 'all 0.2s',
-                }}
+                })}
                 size="large"
               >
                 <ArrowDownIcon />
