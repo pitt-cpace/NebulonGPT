@@ -87,16 +87,10 @@ export function useStickyAutoScroll({
         isPinnedRef.current = false;
         setIsPinned(false); // Update state so button appears
       } else if (d <= bottomThreshold && !isUserTyping.current) { // At bottom - enable auto-scroll ONLY if not typing
-        if (!isPinnedRef.current) {
-          if (generating) {
-            isPinnedRef.current = true;
-            setIsPinned(true); // Update state to hide button
-            setUnread(0);
-          } else {
-            // User scrolled to bottom manually - update state to hide button
-            setIsPinned(true);
-          }
-        }
+        // Always update state when at bottom, regardless of generating state
+        isPinnedRef.current = true;
+        setIsPinned(true); // Update state to hide button
+        setUnread(0);
       }
       
       lastTop = currentTop;
@@ -107,7 +101,7 @@ export function useStickyAutoScroll({
     return () => {
       el.removeEventListener("scroll", onScroll);
     };
-  }, [containerRef, endRef, distanceFromBottom, generating]);
+  }, [containerRef, endRef, distanceFromBottom, bottomThreshold]);
 
 
   // 3) Follow layout shifts (tables/images loading) only if pinned
