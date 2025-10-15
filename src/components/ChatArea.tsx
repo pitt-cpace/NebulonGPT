@@ -131,8 +131,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [isContextExceeded, setIsContextExceeded] = useState(false);
   const [contextWarning, setContextWarning] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
@@ -2864,6 +2864,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, []);
 
+
   const renderMessage = useCallback((message: MessageType) => {
     const isUser = message.role === 'user';
     const isCopied = copiedMessageId === message.id;
@@ -3458,6 +3459,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       ) : (
         <>
           <Box
+            key={chat.id}
             ref={messagesContainerRef}
             sx={styles.messagesContainer}
           >
@@ -3859,36 +3861,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             <div ref={messagesEndRef} />
           </Box>
 
-          {/* Jump to latest button when not pinned and there are messages */}
-          {!isPinned && chat && chat.messages && chat.messages.length > 0 && (
-            <IconButton
-              onClick={() => jumpToLatest('smooth')}
-              sx={{
-                position: 'absolute',
-                bottom: '80px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                zIndex: 1000,
-                backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                color: 'white',
-                backdropFilter: 'blur(10px)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
-                width: '48px',
-                height: '48px',
-                '&:hover': {
-                  backgroundColor: 'rgba(0, 0, 0, 0.9)',
-                  transform: 'translateX(-50%) scale(1.05)',
-                },
-                '&:active': {
-                  transform: 'translateX(-50%) scale(0.95)',
-                },
-                transition: 'all 0.2s ease-in-out',
-              }}
-            >
-              <ArrowDownIcon />
-            </IconButton>
-          )}
 
           <Box
             component={Paper}

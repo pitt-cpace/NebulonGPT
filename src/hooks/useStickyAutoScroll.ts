@@ -15,7 +15,8 @@ export function useStickyAutoScroll({
   smoothBehavior = "smooth",
   generating = false,
 }: Opts) {
-  const [isPinned, setIsPinned] = useState(true); // auto-scroll allowed?
+  const isPinnedRef = useRef(true); // auto-scroll allowed? - using ref to prevent re-renders
+  const [isPinned, setIsPinned] = useState(true); // keep state for external consumers
   const [unread, setUnread] = useState(0);        // new messages while detached
   const isProgrammatic = useRef(false);
   const smoothGuardUntil = useRef(0);
@@ -82,11 +83,12 @@ export function useStickyAutoScroll({
       // Easy release: any upward scroll immediately releases auto-scroll (ALWAYS)
       const scrollUpDistance = lastTop - currentTop;
       if (scrolledUp && scrollUpDistance > 1) {
-        setIsPinned(false);
+        isPinnedRef.current = false;
+        // Don't update state to avoid re-renders during scrolling
       } else if (d <= bottomThreshold) { // At bottom - enable auto-scroll
-        if (!isPinned) {
+        if (!isPinnedRef.current) {
           if (generating) {
-            setIsPinned(true);
+            isPinnedRef.current = true;
             setUnread(0);
           }
           // Note: When not generating, only jump button can re-enable auto-scroll
@@ -101,23 +103,8 @@ export function useStickyAutoScroll({
     return () => {
       el.removeEventListener("scroll", onScroll);
     };
-  }, [containerRef.current, endRef.current, distanceFromBottom, isPinned, generating]);
+  }, [containerRef, endRef, distanceFromBottom, generating]);
 
-  // Global wheel event listener for immediate pause on any scroll up
-  useEffect(() => {
-    const onWheel = (e: WheelEvent) => {
-      // Detect upward mouse wheel scroll (negative deltaY) - any amount
-      //if (e.deltaY < 0) {
-        setIsPinned(false);
-      //}
-    };
-
-    document.addEventListener("wheel", onWheel, { passive: true });
-    
-    return () => {
-      document.removeEventListener("wheel", onWheel);
-    };
-  }, [containerRef.current, endRef.current, distanceFromBottom, isPinned, generating]);
 
   // 3) Follow layout shifts (tables/images loading) only if pinned
   useEffect(() => {
@@ -125,11 +112,11 @@ export function useStickyAutoScroll({
     if (!el) return;
     const ro = new ResizeObserver(() => {
       if (performance.now() < smoothGuardUntil.current) return; // ⛔️ don't interrupt smooth scrolls
-      if (isPinned) scrollToBottom("auto"); // don't animate for small layout shifts
+      if (isPinnedRef.current) scrollToBottom("auto"); // don't animate for small layout shifts
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [containerRef, isPinned, scrollToBottom]);
+  }, [containerRef, scrollToBottom]);
 
   // Public API:
   return {
@@ -137,7 +124,7 @@ export function useStickyAutoScroll({
     unread,
     // Call when you append a new message
     onNewContent: () => {
-      if (isPinned) {
+      if (isPinnedRef.current) {
         scrollToBottom(); // Use smooth scrolling as originally intended
       } else {
         setUnread(u => u + 1);
@@ -145,6 +132,7 @@ export function useStickyAutoScroll({
     },
     jumpToLatest: (behavior: ScrollBehavior = "smooth") => {
       scrollToBottom(behavior); // allow customizable scroll behavior
+      isPinnedRef.current = true;
       setIsPinned(true);
       setUnread(0);
     },
