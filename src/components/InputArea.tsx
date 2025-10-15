@@ -96,6 +96,8 @@ const InputArea: React.FC<InputAreaProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textFieldRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const dragCounterRef = useRef(0);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Real-time token calculation function
   const calculateTokens = useCallback(async (currentMessage: string, currentAttachments: FileAttachment[]) => {
@@ -480,11 +482,58 @@ const InputArea: React.FC<InputAreaProps> = ({
     }
   };
 
+  // Drag and drop event handlers
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    dragCounterRef.current = 0;
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files);
+      e.dataTransfer.clearData();
+    }
+  }, [processFiles]);
+
   return (
     <Box
       component={Paper}
       elevation={0}
-      sx={styles.inputContainer}
+      sx={{
+        ...styles.inputContainer,
+        ...(isDragOver && {
+          backgroundColor: 'rgba(25, 118, 210, 0.08)',
+          border: '2px dashed rgba(25, 118, 210, 0.5)',
+          borderRadius: 2,
+        })
+      }}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       <Box sx={styles.inputBox}>
         <Box sx={{ position: 'relative' }}>
