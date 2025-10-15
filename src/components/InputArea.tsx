@@ -1,6 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import { TextItem } from 'pdfjs-dist/types/src/display/api';
 import {
   Box,
   TextField,
@@ -23,9 +21,6 @@ import {
 import { FileAttachment } from '../types';
 import { getTextDirectionStyles } from '../services/rtlDetection';
 import * as styles from '../styles/components/ChatArea.styles';
-
-// Set the worker source path
-GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
 
 interface InputAreaProps {
   loading: boolean;
@@ -312,93 +307,6 @@ const InputArea: React.FC<InputAreaProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Handle PDF file selection
-  const handlePdfSelect = useCallback(async (file: File) => {
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const loadingTask = getDocument(arrayBuffer);
-      const pdf = await loadingTask.promise;
-      
-      let fullText = '';
-      const numPages = pdf.numPages;
-      const extractedImages: string[] = [];
-      
-      for (let i = 1; i <= numPages; i++) {
-        const page = await pdf.getPage(i);
-        
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items
-          .filter(item => 'str' in item)
-          .map(item => (item as TextItem).str)
-          .join(' ');
-        
-        fullText += `[Page ${i}]\n${pageText}\n\n`;
-        
-        try {
-          const opList = await page.getOperatorList();
-          const imageIds = new Set<string>();
-          
-          for (let j = 0; j < opList.fnArray.length; j++) {
-            const fnId = opList.fnArray[j];
-            if (fnId === 83) {
-              const imageId = opList.argsArray[j][0];
-              if (typeof imageId === 'string') {
-                imageIds.add(imageId);
-              }
-            }
-          }
-          
-          for (const imageId of Array.from(imageIds)) {
-            try {
-              const img = await page.objs.get(imageId);
-              if (img && img.src) {
-                extractedImages.push(img.src);
-              } else if (img && img.data && img.width && img.height) {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                
-                if (ctx) {
-                  const imageData = ctx.createImageData(img.width, img.height);
-                  for (let i = 0; i < img.data.length; i++) {
-                    imageData.data[i] = img.data[i];
-                  }
-                  ctx.putImageData(imageData, 0, 0);
-                  const dataUrl = canvas.toDataURL('image/png');
-                  extractedImages.push(dataUrl);
-                }
-              }
-            } catch (imgError) {
-              console.warn(`Error extracting image ${imageId}:`, imgError);
-            }
-          }
-        } catch (pageError) {
-          console.warn(`Error extracting images from page ${i}:`, pageError);
-        }
-      }
-      
-      const newAttachment: FileAttachment = {
-        id: `pdf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        name: file.name,
-        type: 'pdf',
-        content: fullText,
-        images: extractedImages.length > 0 ? extractedImages : undefined,
-        size: file.size,
-        timestamp: new Date().toISOString(),
-      };
-      
-      setAttachments(prevAttachments => {
-        const updated = [...prevAttachments, newAttachment];
-        // Recalculate tokens with updated attachments
-        calculateTokens(message, updated);
-        return updated;
-      });
-    } catch (error) {
-      console.error('Error processing PDF:', error);
-      alert(`Error processing PDF: ${file.name}`);
-    }
-  }, [message, calculateTokens]);
 
   // Process files from either file input or drag and drop
   const processFiles = useCallback((files: FileList | File[]) => {
@@ -437,7 +345,7 @@ const InputArea: React.FC<InputAreaProps> = ({
         
         reader.readAsDataURL(file);
       } else if (file.name.endsWith('.pdf')) {
-        handlePdfSelect(file);
+        alert(`PDF files are not supported. Please use text (.txt), Word (.docx), or image files instead.`);
       } else if (file.name.endsWith('.txt')) {
         const reader = new FileReader();
         
@@ -506,14 +414,14 @@ const InputArea: React.FC<InputAreaProps> = ({
         
         reader.readAsArrayBuffer(file);
       } else {
-        alert(`Only .txt, .docx, .pdf and image files are supported. Skipping ${file.name}`);
+        alert(`Only .txt, .docx, and image files are supported. Skipping ${file.name}`);
       }
     });
     
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-  }, [handlePdfSelect]);
+  }, [calculateTokens, message]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -602,7 +510,7 @@ const InputArea: React.FC<InputAreaProps> = ({
           type="file"
           ref={fileInputRef}
           style={{ display: 'none' }}
-          accept=".txt,.docx,.pdf,image/*"
+          accept=".txt,.docx,image/*"
           multiple
           onChange={handleFileSelect}
         />
