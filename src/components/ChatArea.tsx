@@ -3813,6 +3813,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             onToggleListening={toggleListening}
             initialMessage={message}
             chat={chat}
+            voiceText={message}
           />
         </>
       )}

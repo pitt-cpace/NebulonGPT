@@ -39,6 +39,7 @@ interface InputAreaProps {
   onToggleListening: () => Promise<void>;
   initialMessage?: string;
   chat: any; // For accessing chat history for token calculation
+  voiceText?: string; // Voice-recognized text from ChatArea
 }
 
 const InputArea: React.FC<InputAreaProps> = ({
@@ -53,8 +54,33 @@ const InputArea: React.FC<InputAreaProps> = ({
   onToggleListening,
   initialMessage,
   chat,
+  voiceText,
 }) => {
   const [message, setMessage] = useState(initialMessage || '');
+  
+  // Update message when voice text comes in (including clearing)
+  useEffect(() => {
+    if (voiceText !== undefined) {
+      setMessage(voiceText);
+      
+      // Also update text direction
+      if (voiceText) {
+        const directionStyles = getTextDirectionStyles(voiceText);
+        setTextDirection({
+          direction: directionStyles.direction,
+          textAlign: directionStyles.textAlign,
+          unicodeBidi: directionStyles.unicodeBidi,
+        });
+      } else {
+        // Reset to LTR when empty
+        setTextDirection({
+          direction: 'ltr',
+          textAlign: 'left',
+          unicodeBidi: 'normal',
+        });
+      }
+    }
+  }, [voiceText]);
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [contextWarning, setContextWarning] = useState<string | null>(null);
   const [isContextExceeded, setIsContextExceeded] = useState(false);
