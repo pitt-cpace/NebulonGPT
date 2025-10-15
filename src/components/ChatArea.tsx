@@ -1341,7 +1341,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   }, []);
 
   // Helper function to render LaTeX formulas
-  const renderLatex = (text: string): React.ReactNode[] => {
+  const renderLatex = (text: string): React.ReactNode => {
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
     
@@ -1356,7 +1356,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     while ((match = latexPattern.exec(text)) !== null) {
       // Add text before formula
       if (match.index > lastIndex) {
-        parts.push(text.substring(lastIndex, match.index));
+        parts.push(<span key={`text-${lastIndex}`}>{text.substring(lastIndex, match.index)}</span>);
       }
       
       // Determine formula and type
@@ -1382,7 +1382,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         );
       } catch (error) {
         // If LaTeX parsing fails, show original text
-        parts.push(match[0]);
+        parts.push(<span key={`error-${match.index}`}>{match[0]}</span>);
       }
       
       lastIndex = match.index + match[0].length;
@@ -1390,10 +1390,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     // Add remaining text
     if (lastIndex < text.length) {
-      parts.push(text.substring(lastIndex));
+      parts.push(<span key={`text-${lastIndex}-end`}>{text.substring(lastIndex)}</span>);
     }
     
-    return parts.length > 0 ? parts : [text];
+    // Return as a single element instead of an array
+    return parts.length > 0 ? <>{parts}</> : <span>{text}</span>;
   };
 
   // Helper function to render markdown within table cells with LaTeX support
@@ -2126,14 +2127,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const beforeTable = processedContent.substring(lastIndex, match.index);
         if (beforeTable.trim()) {
           result.push(
-            <ReactMarkdown 
-              key={`text-${key++}`}
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
-              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-              components={customMarkdownComponents}
-            >
-              {beforeTable}
-            </ReactMarkdown>
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {beforeTable}
+              </ReactMarkdown>
+            </Box>
           );
         }
         
@@ -2204,14 +2206,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const beforeTable = processedContent.substring(lastIndex, match.index);
         if (beforeTable.trim()) {
           result.push(
-            <ReactMarkdown 
-              key={`text-${key++}`}
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
-              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-              components={customMarkdownComponents}
-            >
-              {beforeTable}
-            </ReactMarkdown>
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {beforeTable}
+              </ReactMarkdown>
+            </Box>
           );
         }
         
@@ -2335,14 +2338,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const beforeTable = processedContent.substring(lastIndex, match.index);
         if (beforeTable.trim()) {
           result.push(
-            <ReactMarkdown 
-              key={`text-${key++}`}
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
-              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-              components={customMarkdownComponents}
-            >
-              {beforeTable}
-            </ReactMarkdown>
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {beforeTable}
+              </ReactMarkdown>
+            </Box>
           );
         }
         
@@ -2429,14 +2433,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const beforeTable = processedContent.substring(lastIndex, match.index);
         if (beforeTable.trim()) {
           result.push(
-            <ReactMarkdown 
-              key={`text-${key++}`}
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
-              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-              components={customMarkdownComponents}
-            >
-              {beforeTable}
-            </ReactMarkdown>
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {beforeTable}
+              </ReactMarkdown>
+            </Box>
           );
         }
         
@@ -2576,14 +2581,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           const beforeTable = finalContent.substring(currentIndex, tableMatch.index);
           if (beforeTable.trim()) {
             result.push(
-              <ReactMarkdown 
-                key={`text-${key++}`}
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
-                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-                components={customMarkdownComponents}
-              >
-                {beforeTable}
-              </ReactMarkdown>
+              <Box key={`text-${key++}`}>
+                <ReactMarkdown 
+                  remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                  rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                  components={customMarkdownComponents}
+                >
+                  {beforeTable}
+                </ReactMarkdown>
+              </Box>
             );
           }
           
@@ -2644,31 +2650,33 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const remaining = finalContent.substring(currentIndex);
         if (remaining.trim() && !remaining.match(/__(?:HTML|CSV|JSON|TEXT)_TABLE_\d+__/)) {
           result.push(
-            <ReactMarkdown 
-              key={`text-${key++}`}
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
-              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-              components={customMarkdownComponents}
-            >
-              {remaining}
-            </ReactMarkdown>
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {remaining}
+              </ReactMarkdown>
+            </Box>
           );
         }
       } else {
         result.push(
-          <ReactMarkdown 
-            key={`text-${key++}`}
-            remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
-            rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-            components={customMarkdownComponents}
-          >
-            {afterLastTable}
-          </ReactMarkdown>
+          <Box key={`text-${key++}`}>
+            <ReactMarkdown 
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+              components={customMarkdownComponents}
+            >
+              {afterLastTable}
+            </ReactMarkdown>
+          </Box>
         );
       }
     }
     
-    return <>{result}</>;
+    return <div>{result}</div>;
   };
 
   // Direct table detection and rendering for Llama3-3 format
@@ -3090,7 +3098,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   
   // Memoize completed messages - these NEVER re-render during streaming
   const renderedCompletedMessages = React.useMemo(() =>
-    completedMessages.map(msg => renderMessage(msg, completedMessages, false)),
+    completedMessages.map(msg => (
+      <React.Fragment key={msg.id}>
+        {renderMessage(msg, completedMessages, false)}
+      </React.Fragment>
+    )),
     [completedMessages, renderMessage]
   );
 
