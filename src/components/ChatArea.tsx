@@ -2805,13 +2805,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   }, []);
 
 
-  const renderMessage = useCallback((message: MessageType, chatMessages?: MessageType[]) => {
+  // Memoized message component to prevent re-renders during streaming
+  const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean }>(({ message, chatMessages, isStreaming }) => {
     const isUser = message.role === 'user';
     
     // Auto-detect RTL/LTR for both user and assistant messages
     const textDirectionStyles = getTextDirectionStyles(message.content);
     const mixedContentAnalysis = analyzeMixedContent(message.content);
-    
     
     return (
       <Box
@@ -2843,7 +2843,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 <>
                   {/* Try direct Llama3-3 table detection first */}
                   {detectAndRenderLlama3Table(message.content) || renderMarkdownWithTables(message.content)}
-                  {loading && chatMessages && message.id === chatMessages[chatMessages.length - 1]?.id && (
+                  {isStreaming && (
                     <span className="streaming-cursor"></span>
                   )}
                 </>
@@ -3081,7 +3081,42 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         </Box>
       </Box>
     );
-  }, [loading, handleCopyMessage]);
+  }, (prevProps, nextProps) => {
+    // Only re-render if the message content changed or streaming status changed
+    return prevProps.message.content === nextProps.message.content && 
+           prevProps.isStreaming === nextProps.isStreaming;
+  });
+
+  // Create a stable renderMessage that doesn't depend on loading
+  const renderMessage = useCallback((message: MessageType, chatMessages?: MessageType[], currentlyLoading?: boolean) => {
+    const isLastMessage = !!(chatMessages && message.id === chatMessages[chatMessages.length - 1]?.id);
+    const isStreaming = currentlyLoading === true && isLastMessage;
+    
+    return <MessageComponent message={message} chatMessages={chatMessages} isStreaming={isStreaming} />;
+  }, []);
+
+  // Split messages into completed and streaming for better performance
+  const { completedMessages, streamingMessage } = React.useMemo(() => {
+    if (!chat?.messages || chat.messages.length === 0) {
+      return { completedMessages: [], streamingMessage: null };
+    }
+    
+    if (loading) {
+      // Last message is streaming
+      const completed = chat.messages.slice(0, -1);
+      const streaming = chat.messages[chat.messages.length - 1];
+      return { completedMessages: completed, streamingMessage: streaming };
+    } else {
+      // All messages are completed
+      return { completedMessages: chat.messages, streamingMessage: null };
+    }
+  }, [chat?.messages, loading]);
+  
+  // Memoize completed messages - these NEVER re-render during streaming
+  const renderedCompletedMessages = React.useMemo(() =>
+    completedMessages.map(msg => renderMessage(msg, completedMessages, false)),
+    [completedMessages, renderMessage]
+  );
 
   return (
     <Box
@@ -3707,7 +3742,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             })()}
             
             
-            {chat.messages.map(msg => renderMessage(msg, chat.messages))}
+            {renderedCompletedMessages}
+            {streamingMessage && renderMessage(streamingMessage, chat?.messages, loading)}
             
             {/* Loading Animation - appears after 3 seconds of loading */}
             {showLoadingAnimation && loading && (
