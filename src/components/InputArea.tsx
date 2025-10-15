@@ -242,9 +242,11 @@ const InputArea: React.FC<InputAreaProps> = ({
       
       onSendMessage(messageText, attachments.length > 0 ? attachments : undefined);
       
-      // Clear message and attachments
+      // Clear message, attachments, and warnings
       setMessage('');
       setAttachments([]);
+      setContextWarning(null);
+      setIsContextExceeded(false);
     }
   };
 
