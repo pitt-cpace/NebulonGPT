@@ -21,6 +21,7 @@ export function useStickyAutoScroll({
   const isProgrammatic = useRef(false);
   const smoothGuardUntil = useRef(0);
   const SMOOTH_GUARD_MS = 650; // prevent ResizeObserver from interrupting smooth scrolls
+  const isUserTyping = useRef(false); // Track if user is actively typing
 
   const distanceFromBottom = useCallback(() => {
     const el = containerRef.current;
@@ -85,7 +86,7 @@ export function useStickyAutoScroll({
       if (scrolledUp && scrollUpDistance > 1) {
         isPinnedRef.current = false;
         // Don't update state to avoid re-renders during scrolling
-      } else if (d <= bottomThreshold) { // At bottom - enable auto-scroll
+      } else if (d <= bottomThreshold && !isUserTyping.current) { // At bottom - enable auto-scroll ONLY if not typing
         if (!isPinnedRef.current) {
           if (generating) {
             isPinnedRef.current = true;
@@ -124,7 +125,7 @@ export function useStickyAutoScroll({
     unread,
     // Call when you append a new message
     onNewContent: () => {
-      if (isPinnedRef.current) {
+      if (isPinnedRef.current && !isUserTyping.current) {
         scrollToBottom(); // Use smooth scrolling as originally intended
       } else {
         setUnread(u => u + 1);
@@ -135,6 +136,13 @@ export function useStickyAutoScroll({
       isPinnedRef.current = true;
       setIsPinned(true);
       setUnread(0);
+    },
+    setUserTyping: (typing: boolean) => {
+      isUserTyping.current = typing;
+      if (typing) {
+        // When user starts typing, disable auto-scroll
+        isPinnedRef.current = false;
+      }
     },
   };
 }

@@ -65,6 +65,7 @@ import { getTextDirectionStyles, analyzeMixedContent } from '../services/rtlDete
 import { OllamaStatus } from '../services/ollamaStatus';
 import * as styles from '../styles/components/ChatArea.styles';
 import WaveformVisualization from './WaveformVisualization';
+import InputArea from './InputArea';
 
 // Set the worker source path
 GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
@@ -114,6 +115,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onCreateNewChat,
 }) => {
   const [message, setMessage] = useState('');
+  const messageRef = useRef('');
+  const attachmentsRef = useRef<FileAttachment[]>([]);
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
   const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
   const [contributorsOpen, setContributorsOpen] = useState(false);
@@ -161,16 +164,28 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return false;
   }, []);
 
+  // Use ref for typing state to avoid re-renders
+  const userTypingRef = useRef(false);
+  
   // Initialize the battle-tested auto-scroll system
-  const { isPinned, unread, onNewContent, jumpToLatest } = useStickyAutoScroll({
+  const { isPinned, unread, onNewContent, jumpToLatest, setUserTyping } = useStickyAutoScroll({
     containerRef: messagesContainerRef,
     endRef: messagesEndRef,
     bottomThreshold: 64,
     smoothBehavior: "smooth",
     generating: loading,
   });
+  
+  // Typing timeout ref
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Wrapper to update both ref and hook without causing re-renders
+  const handleUserTyping = useCallback((typing: boolean) => {
+    userTypingRef.current = typing;
+    setUserTyping(typing);
+  }, [setUserTyping]);
 
-  const handleSendMessage = useCallback(async () => {
+  const handleSendMessage = useCallback(async (messageText: string, messageAttachments?: FileAttachment[]) => {
     // Check Ollama status before sending message
     // Refresh status to get latest state
     const status = await onRefreshOllamaStatus();
@@ -185,49 +200,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       return;
     }
     
-    // Allow sending if there's a message OR attachments
-    if ((message.trim() || attachments.length > 0) && !loading) {
-      let messageText = message.trim();
-      
-      // Check if there are PDF attachments and add a special prompt
-      const hasPdfAttachments = attachments.some(attachment => attachment.type === 'pdf');
-      if (hasPdfAttachments) {
-        // Count PDF attachments with text and images
-        const pdfWithTextCount = attachments.filter(att => att.type === 'pdf' && att.content).length;
-        const pdfWithImagesCount = attachments.filter(att => att.type === 'pdf' && att.images && att.images.length > 0).length;
-        
-        // Create a descriptive prefix for the message
-        let pdfDescription = "I've attached PDF file(s)";
-        if (pdfWithTextCount > 0 && pdfWithImagesCount > 0) {
-          pdfDescription += " containing both text and images";
-        } else if (pdfWithTextCount > 0) {
-          pdfDescription += " containing text";
-        } else if (pdfWithImagesCount > 0) {
-          pdfDescription += " containing images";
-        }
-        
-        // Add the PDF description to the message if there's no existing message
-        if (!messageText) {
-          messageText = messageText + pdfDescription + ".";
-        } else {
-          messageText = messageText + pdfDescription + ".";
-        }
-      }
-      
-      // First scroll to bottom smoothly, then send message
-      jumpToLatest('smooth');
-      
-      // Wait for smooth scroll animation to complete
-      await new Promise(resolve => setTimeout(resolve, 700));
-      
-      // Send message with any attachments
-      onSendMessage(messageText, attachments.length > 0 ? attachments : undefined);
-      
-      // Clear message and attachments
-      setMessage('');
-      setAttachments([]);
-    }
-  }, [message, attachments, loading, onSendMessage, jumpToLatest]);
+    // First scroll to bottom smoothly, then send message
+    jumpToLatest('smooth');
+    
+    // Wait for smooth scroll animation to complete
+    await new Promise(resolve => setTimeout(resolve, 700));
+    
+    // Send message with any attachments
+    onSendMessage(messageText, messageAttachments);
+  }, [models.length, loading, onSendMessage, jumpToLatest, onRefreshOllamaStatus]);
 
   // Trigger auto-scroll when new assistant messages arrive (not user messages)
   useEffect(() => {
@@ -239,6 +220,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       onNewContent();
     }
   }, [chat?.messages, onNewContent]);
+
+  // Reset typing state when chat changes
+  useEffect(() => {
+    userTypingRef.current = false;
+    setUserTyping(false);
+  }, [chat?.id, setUserTyping]);
 
   // Load default model ID from localStorage on component mount
   useEffect(() => {
@@ -306,10 +293,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
       
       // Calculate tokens for CURRENT input (prompt + attachments)
-      const currentPromptTokens = tokenCountingService.countTokens(message) + 10; // +10 for overhead
+      // Use refs which are updated from InputArea without causing re-renders
+      const currentMessage = messageRef.current;
+      const currentAttachments = attachmentsRef.current;
+      
+      const currentPromptTokens = tokenCountingService.countTokens(currentMessage) + 10; // +10 for overhead
       
       let currentAttachmentsTokens = 0;
-      for (const attachment of attachments) {
+      for (const attachment of currentAttachments) {
         currentAttachmentsTokens += tokenCountingService.countAttachmentTokens(attachment);
       }
       
@@ -350,7 +341,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       setIsContextExceeded(isExceeded);
       
       // Determine warning state based on token usage
-      const hasUserInput = message.trim().length > 0 || attachments.length > 0;
+      const hasUserInput = currentMessage.trim().length > 0 || currentAttachments.length > 0;
       
       // ALWAYS update or clear warning to show fresh token counts
       // Calculate if history is fully reduced (cannot be reduced further)
@@ -401,14 +392,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     } catch (error) {
       console.error('Error calculating real-time tokens:', error);
     }
-  }, [message, attachments, chat]);
-
-  // Real-time token calculation - recalculate when message or attachments change
-  useEffect(() => {
-    if (chat) {
-      calculateCurrentTokens();
-    }
-  }, [message, attachments, chat, calculateCurrentTokens]);
+  }, [chat]);
 
   // Listen for localStorage changes to recalculate when settings are updated
   useEffect(() => {
@@ -545,7 +529,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       if (isFullVoiceMode) {
         // In full voice mode: auto-send message but keep microphone active
         if (message.trim()) {
-          handleSendMessage();
+          // Send the voice-recognized message
+          handleSendMessage(message.trim(), undefined);
           
           // Clear the message and reset transcript for next speech recognition
           setMessage('');
@@ -839,15 +824,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
 
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      // Don't allow sending if context is exceeded
-      if (!isContextExceeded) {
-        handleSendMessage();
-      }
-    }
-  };
 
   const handleOpenModelMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchor(event.currentTarget);
@@ -1331,8 +1307,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
-  // State for copied table tracking
-  const [copiedTableId, setCopiedTableId] = useState<string | null>(null);
 
   // Helper function to extract table data as plain text
   const tableToPlainText = (headers: string[], rows: string[][]): string => {
@@ -1346,8 +1320,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Helper function to render a table with a permanent copy button below it
   const renderTableWithCopyButton = (tableId: string, headers: string[], rows: string[][], tableElement: React.ReactNode) => {
-    const isCopied = copiedTableId === tableId;
-    
     return (
       <Box key={tableId} sx={{ mb: 2 }}>
         {tableElement}
@@ -1355,7 +1327,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
           <IconButton
             size="small"
-            onClick={() => handleCopyTable(tableId, headers, rows)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleCopyTable(tableId, headers, rows);
+            }}
             sx={{
               opacity: 0.6,
               transition: 'opacity 0.2s, background-color 0.2s',
@@ -1364,13 +1340,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 backgroundColor: 'rgba(0, 0, 0, 0.05)',
               },
             }}
-            title={isCopied ? 'Copied!' : 'Copy table'}
+            title="Copy table"
           >
-            {isCopied ? (
-              <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />
-            ) : (
-              <ContentCopyIcon sx={{ fontSize: 18 }} />
-            )}
+            <ContentCopyIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Box>
       </Box>
@@ -1386,7 +1358,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       if (window.electronAPI && window.electronAPI.copyToClipboard) {
         const result = await window.electronAPI.copyToClipboard(plainText);
         if (result.success) {
-          setCopiedTableId(tableId);
+          console.log('✅ Table copied successfully');
         } else {
           throw new Error(result.error || 'Electron clipboard copy failed');
         }
@@ -1394,35 +1366,21 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // Try modern clipboard API
       else if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(plainText);
-        setCopiedTableId(tableId);
+        console.log('✅ Table copied successfully');
       }
       // Fallback method
       else {
         const textArea = document.createElement('textarea');
         textArea.value = plainText;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-999999px';
-        textArea.style.top = '-999999px';
+        textArea.style.position = 'absolute';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '-9999px';
         document.body.appendChild(textArea);
-        textArea.focus();
         textArea.select();
-        
-        try {
-          const successful = document.execCommand('copy');
-          if (successful) {
-            setCopiedTableId(tableId);
-          } else {
-            throw new Error('Copy command failed');
-          }
-        } finally {
-          document.body.removeChild(textArea);
-        }
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        console.log('✅ Table copied successfully');
       }
-      
-      // Reset copied state after 2 seconds
-      setTimeout(() => {
-        setCopiedTableId(null);
-      }, 2000);
     } catch (error) {
       console.error('❌ Failed to copy table:', error);
     }
@@ -2818,8 +2776,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       if (window.electronAPI && window.electronAPI.copyToClipboard) {
         const result = await window.electronAPI.copyToClipboard(content);
         if (result.success) {
-          setCopiedMessageId(messageId);
-          console.log('✅ Message copied successfully using Electron clipboard API');
+          console.log('✅ Message copied successfully');
         } else {
           throw new Error(result.error || 'Electron clipboard copy failed');
         }
@@ -2827,47 +2784,29 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // Try modern clipboard API for browsers
       else if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(content);
-        setCopiedMessageId(messageId);
-        console.log('✅ Message copied successfully using browser clipboard API');
+        console.log('✅ Message copied successfully');
       }
       // Fallback for older browsers
       else {
         const textArea = document.createElement('textarea');
         textArea.value = content;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-999999px';
-        textArea.style.top = '-999999px';
+        textArea.style.position = 'absolute';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '-9999px';
         document.body.appendChild(textArea);
-        textArea.focus();
         textArea.select();
-        
-        try {
-          const successful = document.execCommand('copy');
-          if (successful) {
-            setCopiedMessageId(messageId);
-            console.log('✅ Message copied successfully using fallback method');
-          } else {
-            throw new Error('Copy command failed');
-          }
-        } finally {
-          document.body.removeChild(textArea);
-        }
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        console.log('✅ Message copied successfully');
       }
-      
-      // Reset copied state after 2 seconds
-      setTimeout(() => {
-        setCopiedMessageId(null);
-      }, 2000);
     } catch (error) {
       console.error('❌ Failed to copy message:', error);
-      // Silently fail - just log the error, don't show alert
     }
   }, []);
 
 
-  const renderMessage = useCallback((message: MessageType) => {
+  const renderMessage = useCallback((message: MessageType, chatMessages?: MessageType[]) => {
     const isUser = message.role === 'user';
-    const isCopied = copiedMessageId === message.id;
     
     // Auto-detect RTL/LTR for both user and assistant messages
     const textDirectionStyles = getTextDirectionStyles(message.content);
@@ -2904,7 +2843,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 <>
                   {/* Try direct Llama3-3 table detection first */}
                   {detectAndRenderLlama3Table(message.content) || renderMarkdownWithTables(message.content)}
-                  {loading && message.id === chat?.messages[chat.messages.length - 1]?.id && (
+                  {loading && chatMessages && message.id === chatMessages[chatMessages.length - 1]?.id && (
                     <span className="streaming-cursor"></span>
                   )}
                 </>
@@ -3122,7 +3061,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         >
           <IconButton
             size="small"
-            onClick={() => handleCopyMessage(message.id, message.content)}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleCopyMessage(message.id, message.content);
+            }}
             sx={{
               opacity: 0.6,
               transition: 'opacity 0.2s, background-color 0.2s',
@@ -3131,18 +3074,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 backgroundColor: 'rgba(0, 0, 0, 0.05)',
               },
             }}
-            title={isCopied ? 'Copied!' : 'Copy message'}
+            title="Copy message"
           >
-            {isCopied ? (
-              <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />
-            ) : (
-              <ContentCopyIcon sx={{ fontSize: 18 }} />
-            )}
+            <ContentCopyIcon sx={{ fontSize: 18 }} />
           </IconButton>
         </Box>
       </Box>
     );
-  }, [copiedMessageId, copiedTableId, loading, chat, handleCopyMessage]);
+  }, [loading, handleCopyMessage]);
 
   return (
     <Box
@@ -3768,7 +3707,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             })()}
             
             
-            {chat.messages.map(renderMessage)}
+            {chat.messages.map(msg => renderMessage(msg, chat.messages))}
             
             {/* Loading Animation - appears after 3 seconds of loading */}
             {showLoadingAnimation && loading && (
@@ -3862,216 +3801,19 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           </Box>
 
 
-          <Box
-            component={Paper}
-            elevation={0}
-            sx={styles.inputContainer}
-          >
-            <Box sx={styles.inputBox}>
-              <Box sx={{ position: 'relative' }}>
-                <IconButton 
-                  size="small" 
-                  sx={isListening ? styles.micButtonActive : (speechError ? styles.micButtonError : styles.micButton)}
-                  onClick={toggleListening}
-                  disabled={isProcessingMic || !voskRecognition || (loading && !ttsService.getSettings().fullVoiceMode)}
-                  title={speechError || (isListening ? 'Stop dictation' : 'Start dictation')}
-                >
-                  <MicIcon />
-                </IconButton>
-                {speechError && (
-                  <Typography 
-                    variant="caption" 
-                    color="warning.main" 
-                    sx={styles.micErrorText}
-                  >
-                    {speechError}
-                  </Typography>
-                )}
-              </Box>
-              {/* Hidden unified file input */}
-              <input
-                type="file"
-                ref={fileInputRef}
-                style={{ display: 'none' }}
-                accept=".txt,.docx,.pdf,image/*"
-                multiple
-                onChange={handleFileSelect}
-              />
-              
-              {/* Add attachment button - direct file browser */}
-              <Box sx={{ position: 'relative' }}>
-                <IconButton
-                  size="small"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={loading}
-                  title="Add attachment"
-                  sx={styles.fileUploadButton}
-                >
-                  <AddIcon fontSize="small" />
-                </IconButton>
-              </Box>
-              
-              <Box sx={{ width: '100%' }}>
-                {/* Context warning display */}
-                {contextWarning && (
-                  <Box 
-                    sx={{ 
-                      display: 'flex', 
-                      alignItems: 'center',
-                      gap: 1,
-                      p: 1, 
-                      mb: 1,
-                      borderRadius: 1,
-                      bgcolor: isContextExceeded ? 'rgba(244, 67, 54, 0.1)' : 'rgba(255, 152, 0, 0.1)',
-                      border: `1px solid ${isContextExceeded ? 'rgba(244, 67, 54, 0.3)' : 'rgba(255, 152, 0, 0.3)'}`,
-                      width: '100%'
-                    }}
-                  >
-                    {isContextExceeded ? (
-                      <ErrorIcon sx={{ fontSize: 16, color: 'error.main' }} />
-                    ) : (
-                      <WarningIcon sx={{ fontSize: 16, color: 'warning.main' }} />
-                    )}
-                    <Typography 
-                      variant="caption" 
-                      sx={{ 
-                        color: isContextExceeded ? 'error.main' : 'warning.main',
-                        fontWeight: 'bold'
-                      }}
-                    >
-                      {contextWarning}
-                    </Typography>
-                  </Box>
-                )}
-
-                {/* File attachment chips displayed above the text field */}
-                {attachments.length > 0 && (
-                  <Box 
-                    sx={{ 
-                      display: 'flex', 
-                      flexWrap: 'wrap', 
-                      gap: 0.5, 
-                      p: 1, 
-                      mb: 1,
-                      borderRadius: 1,
-                      bgcolor: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      width: '100%'
-                    }}
-                  >
-                    {attachments.map((attachment) => (
-                      <Box 
-                        key={attachment.id} 
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          bgcolor: 'action.hover',
-                          borderRadius: 1,
-                          p: 0.5,
-                          maxWidth: '100%',
-                          overflow: 'hidden'
-                        }}
-                      >
-                        {attachment.type === 'image' ? (
-                          <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
-                        ) : (
-                          <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
-                        )}
-                        <Typography 
-                          variant="caption" 
-                          sx={{ 
-                            maxWidth: '150px', 
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {attachment.name}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveAttachment(attachment.id);
-                          }}
-                          sx={{ 
-                            ml: 0.5, 
-                            p: 0.25,
-                            '&:hover': { bgcolor: 'action.selected' }
-                          }}
-                        >
-                          <CloseIcon sx={{ fontSize: 14 }} />
-                        </IconButton>
-                      </Box>
-                    ))}
-                  </Box>
-                )}
-                
-                <TextField
-                  fullWidth
-                  placeholder="How can I help you today?"
-                  multiline
-                  maxRows={4}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  disabled={loading}
-                  inputRef={textFieldRef}
-                  InputProps={{
-                    sx: {
-                      ...styles.textField,
-                      // Apply RTL detection to input field
-                      ...(message && (() => {
-                        const inputDirectionStyles = getTextDirectionStyles(message);
-                        return {
-                          direction: inputDirectionStyles.direction,
-                          textAlign: inputDirectionStyles.textAlign,
-                          unicodeBidi: inputDirectionStyles.unicodeBidi,
-                        };
-                      })()),
-                    },
-                    endAdornment: isListening && interimTranscript ? (
-                      <Box sx={styles.interimTranscript}>
-                        {interimTranscript}
-                      </Box>
-                    ) : null,
-                  }}
-                  variant="outlined"
-                />
-              </Box>
-              {loading ? (
-                <IconButton
-                  color="error"
-                  onClick={onStopResponse}
-                  sx={{ ml: 1 }}
-                >
-                  <StopIcon />
-                </IconButton>
-              ) : (
-                <IconButton
-                  color={isContextExceeded ? "error" : "primary"}
-                  onClick={handleSendMessage}
-                  disabled={(!message.trim() && attachments.length === 0) || isContextExceeded}
-                  title={isContextExceeded ? "Cannot send: Context limit exceeded" : "Send message"}
-                  sx={{ 
-                    ml: 1,
-                    ...(isContextExceeded && {
-                      backgroundColor: 'rgba(244, 67, 54, 0.1)',
-                      '&:hover': {
-                        backgroundColor: 'rgba(244, 67, 54, 0.2)',
-                      },
-                      '&.Mui-disabled': {
-                        color: 'error.main',
-                        opacity: 0.6,
-                      },
-                    })
-                  }}
-                >
-                  <SendIcon />
-                </IconButton>
-              )}
-            </Box>
-          </Box>
+          <InputArea
+            loading={loading}
+            onSendMessage={handleSendMessage}
+            onStopResponse={onStopResponse}
+            voskRecognition={voskRecognition}
+            isListening={isListening}
+            isProcessingMic={isProcessingMic}
+            speechError={speechError}
+            interimTranscript={interimTranscript}
+            onToggleListening={toggleListening}
+            initialMessage={message}
+            chat={chat}
+          />
         </>
       )}
       
