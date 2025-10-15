@@ -3791,6 +3791,35 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             <div ref={messagesEndRef} />
           </Box>
 
+          {/* Jump to bottom button - centered, shows when scrolled up */}
+          {!isPinned && (
+            <Box
+              sx={{
+                position: 'fixed',
+                bottom: '100px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 9999,
+              }}
+            >
+              <IconButton
+                onClick={() => jumpToLatest('smooth')}
+                sx={{
+                  backgroundColor: 'primary.main',
+                  color: 'white',
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
+                  '&:hover': {
+                    backgroundColor: 'primary.dark',
+                    transform: 'scale(1.1)',
+                  },
+                  transition: 'all 0.2s',
+                }}
+                size="large"
+              >
+                <ArrowDownIcon />
+              </IconButton>
+            </Box>
+          )}
 
           <InputArea
             loading={loading}

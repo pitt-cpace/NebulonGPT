@@ -85,14 +85,17 @@ export function useStickyAutoScroll({
       const scrollUpDistance = lastTop - currentTop;
       if (scrolledUp && scrollUpDistance > 1) {
         isPinnedRef.current = false;
-        // Don't update state to avoid re-renders during scrolling
+        setIsPinned(false); // Update state so button appears
       } else if (d <= bottomThreshold && !isUserTyping.current) { // At bottom - enable auto-scroll ONLY if not typing
         if (!isPinnedRef.current) {
           if (generating) {
             isPinnedRef.current = true;
+            setIsPinned(true); // Update state to hide button
             setUnread(0);
+          } else {
+            // User scrolled to bottom manually - update state to hide button
+            setIsPinned(true);
           }
-          // Note: When not generating, only jump button can re-enable auto-scroll
         }
       }
       
