@@ -1390,12 +1390,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
     
-    // Match multiple LaTeX notations (ordered by priority):
+    // Match multiple LaTeX notations (more conservative to avoid false positives with markdown):
     // 1. Double dollar: $$ block $$
-    // 2. Single dollar: $ inline $
+    // 2. Single dollar: $ inline $ (but must contain LaTeX commands or math symbols)
     // 3. Standard: \( \) for inline, \[ \] for block
-    // 4. Parentheses with LaTeX commands: ( ) for inline, [ ] for block
-    const latexPattern = /\$\$([\s\S]+?)\$\$|\$(.+?)\$|\\\((.+?)\\\)|\\\[([\s\S]+?)\\\]|\(([^()]*(?:\\frac|\\beta|\\alpha|\\gamma|\\delta|\\epsilon|\\theta|\\lambda|\\mu|\\sigma|\\mid|\\sum|\\int|\\sqrt|\\log|\\ln|\\exp|\\sin|\\cos|\\tan|\\lim|\\infty|\\pm|\\times|\\div|\\cdot|\\leq|\\geq|\\neq|\\approx|\\equiv|\\in|\\subset|\\cup|\\cap|\\dots|\\ldots|\\partial|\\nabla)[^()]*)\)|\[([^\[\]]*(?:\\frac|\\beta|\\alpha|\\gamma|\\delta|\\epsilon|\\theta|\\lambda|\\mu|\\sigma|\\mid|\\sum|\\int|\\sqrt|\\log|\\ln|\\exp|\\sin|\\cos|\\tan|\\lim|\\infty|\\pm|\\times|\\div|\\cdot|\\leq|\\geq|\\neq|\\approx|\\equiv|\\in|\\subset|\\cup|\\cap|\\dots|\\ldots|\\partial|\\nabla)[^\[\]]*)\]/g;
+    // Note: Removed overly aggressive ( ) and [ ] patterns that were catching markdown formatting
+    const latexPattern = /\$\$([\s\S]+?)\$\$|\$([^$]*(?:\\[a-zA-Z]+|[_^{}])[^$]*)\$|\\\((.+?)\\\)|\\\[([\s\S]+?)\\\]/g;
     let match;
     
     while ((match = latexPattern.exec(text)) !== null) {
@@ -1405,8 +1405,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
       
       // Determine formula and type
-      const formula = match[1] || match[2] || match[3] || match[4] || match[5] || match[6];
-      const isBlock = !!(match[1] || match[4] || match[6]); // $$ $$, \[ \], or [ ] with LaTeX commands
+      const formula = match[1] || match[2] || match[3] || match[4];
+      const isBlock = !!(match[1] || match[4]); // $$ $$ or \[ \]
       
       try {
         const html = katex.renderToString(formula, {
@@ -1864,6 +1864,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Convert \[ \] to $$ $$ for display math (remark-math standard)
     // Use non-greedy match to handle nested brackets correctly
     processed = processed.replace(/\\\[([\s\S]+?)\\\]/g, '$$$$$$1$$$$');
+    
     return processed;
   };
 
@@ -2127,7 +2128,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if (!hasLlama3Table && !hasTabTable && !hasMarkdownTable && !hasMediaWikiTable && !hasAnySpecialTable) {
       return (
         <ReactMarkdown 
-          remarkPlugins={[remarkMath as any]}
+          remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
           rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
           components={customMarkdownComponents}
         >
@@ -2151,7 +2152,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <ReactMarkdown 
               key={`text-${key++}`}
-              remarkPlugins={[remarkMath as any]}
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -2229,7 +2230,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <ReactMarkdown 
               key={`text-${key++}`}
-              remarkPlugins={[remarkMath as any]}
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -2360,7 +2361,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <ReactMarkdown 
               key={`text-${key++}`}
-              remarkPlugins={[remarkMath as any]}
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -2454,7 +2455,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <ReactMarkdown 
               key={`text-${key++}`}
-              remarkPlugins={[remarkMath as any]}
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -2601,7 +2602,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             result.push(
               <ReactMarkdown 
                 key={`text-${key++}`}
-                remarkPlugins={[remarkMath as any]}
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -2669,7 +2670,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <ReactMarkdown 
               key={`text-${key++}`}
-              remarkPlugins={[remarkMath as any]}
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -2681,7 +2682,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         result.push(
           <ReactMarkdown 
             key={`text-${key++}`}
-            remarkPlugins={[remarkMath as any]}
+            remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
             rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
             components={customMarkdownComponents}
           >
