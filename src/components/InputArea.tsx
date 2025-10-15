@@ -38,8 +38,9 @@ interface InputAreaProps {
   interimTranscript: string;
   onToggleListening: () => Promise<void>;
   initialMessage?: string;
-  chat: any; // For accessing chat history for token calculation
-  voiceText?: string; // Voice-recognized text from ChatArea
+  chat: any;
+  voiceText?: string;
+  onClearInput?: React.MutableRefObject<(() => void) | null>; // Ref callback to clear input
 }
 
 const InputArea: React.FC<InputAreaProps> = ({
@@ -55,6 +56,7 @@ const InputArea: React.FC<InputAreaProps> = ({
   initialMessage,
   chat,
   voiceText,
+  onClearInput,
 }) => {
   const [message, setMessage] = useState(initialMessage || '');
   
@@ -194,6 +196,28 @@ const InputArea: React.FC<InputAreaProps> = ({
       console.error('Error calculating tokens:', error);
     }
   }, [chat]);
+
+  // Function to clear input and recalculate
+  const clearInput = useCallback(() => {
+    setMessage('');
+    setAttachments([]);
+    setContextWarning(null);
+    setIsContextExceeded(false);
+    setTextDirection({
+      direction: 'ltr',
+      textAlign: 'left',
+      unicodeBidi: 'normal',
+    });
+    // Recalculate with empty values
+    calculateTokens('', []);
+  }, [calculateTokens]);
+
+  // Expose clearInput function to parent
+  useEffect(() => {
+    if (onClearInput) {
+      onClearInput.current = clearInput;
+    }
+  }, [onClearInput, clearInput]);
 
   // Clear typing timeout and recalculate tokens when chat changes (keep input text)
   const prevChatIdRef = useRef(chat?.id);

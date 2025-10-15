@@ -133,6 +133,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [isContextExceeded, setIsContextExceeded] = useState(false);
   const [contextWarning, setContextWarning] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const onClearInputAreaRef = useRef<(() => void) | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -729,6 +730,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     setAttachments([]);
     setInterimTranscript('');
     finalTranscriptRef.current = '';
+    // Also call InputArea's clear function
+    if (onClearInputAreaRef.current) {
+      onClearInputAreaRef.current();
+    }
   }, []);
 
   // Function to hide loading animation
@@ -3778,6 +3783,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             initialMessage={message}
             chat={chat}
             voiceText={message}
+            onClearInput={onClearInputAreaRef}
           />
         </>
       )}
