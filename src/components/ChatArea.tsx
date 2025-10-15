@@ -166,12 +166,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const userTypingRef = useRef(false);
   
   // Initialize the battle-tested auto-scroll system
-  const { isPinned, unread, onNewContent, jumpToLatest, setUserTyping } = useStickyAutoScroll({
+  const { isPinned, unread, showJumpButton, onNewContent, jumpToLatest, setUserTyping } = useStickyAutoScroll({
     containerRef: messagesContainerRef,
     endRef: messagesEndRef,
     bottomThreshold: 64,
     smoothBehavior: "smooth",
     generating: loading,
+    chatId: chat?.id, // Add chatId to trigger re-initialization when chat changes
   });
   
   // Typing timeout ref
@@ -229,10 +230,19 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     prevMessagesLengthRef.current = chat.messages.length;
   }, [chat?.messages, onNewContent]);
 
-  // Reset typing state when chat changes (only update ref, no state change)
+  // Reset typing state when chat changes and scroll to bottom
   useEffect(() => {
     userTypingRef.current = false;
-    // Don't call setUserTyping to avoid re-render
+    
+    // Scroll to bottom when switching chats
+    if (chat?.id && messagesContainerRef.current) {
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          const container = messagesContainerRef.current;
+          container.scrollTop = container.scrollHeight;
+        }
+      }, 10);
+    }
   }, [chat?.id]);
 
   // Load default model ID from localStorage on component mount
@@ -3792,32 +3802,34 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           </Box>
 
           {/* Jump to bottom button - shows when scrolled up, hides when at bottom */}
-          <Box
-            sx={{
-              position: 'fixed',
-              bottom: '100px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 9999,
-            }}
-          >
-            <IconButton
-              onClick={() => jumpToLatest('smooth')}
+          {showJumpButton && (
+            <Box
               sx={{
-                backgroundColor: 'primary.main',
-                color: 'white',
-                boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
-                '&:hover': {
-                  backgroundColor: 'primary.dark',
-                  transform: 'scale(1.1)',
-                },
-                transition: 'all 0.2s',
+                position: 'fixed',
+                bottom: '100px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 9999,
               }}
-              size="large"
             >
-              <ArrowDownIcon />
-            </IconButton>
-          </Box>
+              <IconButton
+                onClick={() => jumpToLatest('smooth')}
+                sx={{
+                  backgroundColor: 'primary.main',
+                  color: 'white',
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
+                  '&:hover': {
+                    backgroundColor: 'primary.dark',
+                    transform: 'scale(1.1)',
+                  },
+                  transition: 'all 0.2s',
+                }}
+                size="large"
+              >
+                <ArrowDownIcon />
+              </IconButton>
+            </Box>
+          )}
 
           <InputArea
             loading={loading}
