@@ -139,7 +139,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const finalTranscriptRef = useRef<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
-  const textFieldRef = useRef<HTMLInputElement>(null);
   const interimTranscriptRef = useRef<string>('');
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const suggestedPrompts = getSuggestedPrompts();
@@ -211,21 +210,31 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   }, [models.length, loading, onSendMessage, jumpToLatest, onRefreshOllamaStatus]);
 
   // Trigger auto-scroll when new assistant messages arrive (not user messages)
+  const prevMessagesLengthRef = useRef(0);
   useEffect(() => {
-    if (!chat?.messages || chat.messages.length === 0) return;
-    
-    const lastMessage = chat.messages[chat.messages.length - 1];
-    // Only trigger auto-scroll for assistant messages (LLM responses)
-    if (lastMessage.role === 'assistant') {
-      onNewContent();
+    if (!chat?.messages || chat.messages.length === 0) {
+      prevMessagesLengthRef.current = 0;
+      return;
     }
+    
+    // Only trigger if message count increased (new message added)
+    // Don't trigger on chat switch (different message array with same or different length)
+    if (chat.messages.length > prevMessagesLengthRef.current) {
+      const lastMessage = chat.messages[chat.messages.length - 1];
+      // Only trigger auto-scroll for assistant messages (LLM responses)
+      if (lastMessage.role === 'assistant') {
+        onNewContent();
+      }
+    }
+    
+    prevMessagesLengthRef.current = chat.messages.length;
   }, [chat?.messages, onNewContent]);
 
-  // Reset typing state when chat changes
+  // Reset typing state when chat changes (only update ref, no state change)
   useEffect(() => {
     userTypingRef.current = false;
-    setUserTyping(false);
-  }, [chat?.id, setUserTyping]);
+    // Don't call setUserTyping to avoid re-render
+  }, [chat?.id]);
 
   // Load default model ID from localStorage on component mount
   useEffect(() => {
@@ -768,16 +777,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [isListening, isTurningOff]);
 
-  // Focus input field when LLM response finishes
-  useEffect(() => {
-    // When loading changes from true to false (LLM response finished)
-    if (!loading && textFieldRef.current) {
-      // Add a small delay to ensure the UI has updated
-      setTimeout(() => {
-        textFieldRef.current?.focus();
-      }, 100);
-    }
-  }, [loading]);
 
   // Handle 3-second loading animation timeout
   useEffect(() => {

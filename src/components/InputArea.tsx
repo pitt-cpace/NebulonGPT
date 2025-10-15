@@ -235,15 +235,6 @@ const InputArea: React.FC<InputAreaProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Focus input field when LLM response finishes
-  useEffect(() => {
-    if (!loading && textFieldRef.current) {
-      setTimeout(() => {
-        textFieldRef.current?.focus();
-      }, 100);
-    }
-  }, [loading]);
-
   // Handle PDF file selection
   const handlePdfSelect = useCallback(async (file: File) => {
     try {
