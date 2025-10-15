@@ -195,24 +195,38 @@ const InputArea: React.FC<InputAreaProps> = ({
     }
   }, [chat]);
 
-  // Clear typing timeout and warnings when chat changes (keep input text)
+  // Clear typing timeout and recalculate tokens when chat changes (keep input text)
   const prevChatIdRef = useRef(chat?.id);
+  const messageRef = useRef(message);
+  const attachmentsRef = useRef(attachments);
+  
+  // Keep refs in sync
+  useEffect(() => {
+    messageRef.current = message;
+    attachmentsRef.current = attachments;
+  }, [message, attachments]);
+  
   useEffect(() => {
     // Only run when chat ID actually changes
     if (prevChatIdRef.current !== chat?.id) {
       prevChatIdRef.current = chat?.id;
       
-      // Clear any pending typing timeout (don't call onUserTyping to avoid re-render)
+      // Clear any pending typing timeout
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
         typingTimeoutRef.current = null;
       }
       
-      // Clear warning states for new chat (only InputArea state, no parent updates)
+      // Clear warning states temporarily
       setContextWarning(null);
       setIsContextExceeded(false);
+      
+      // Recalculate tokens for new chat if there's input (use refs to get current values)
+      if (messageRef.current.trim() || attachmentsRef.current.length > 0) {
+        calculateTokens(messageRef.current, attachmentsRef.current);
+      }
     }
-  }, [chat?.id]);
+  }, [chat?.id, calculateTokens]);
 
   const handleSendMessage = async () => {
     if ((message.trim() || attachments.length > 0) && !loading && !isContextExceeded) {
