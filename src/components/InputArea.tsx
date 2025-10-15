@@ -58,6 +58,15 @@ const InputArea: React.FC<InputAreaProps> = ({
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [contextWarning, setContextWarning] = useState<string | null>(null);
   const [isContextExceeded, setIsContextExceeded] = useState(false);
+  const [textDirection, setTextDirection] = useState<{
+    direction: 'ltr' | 'rtl';
+    textAlign: 'left' | 'right';
+    unicodeBidi: string;
+  }>({
+    direction: 'ltr',
+    textAlign: 'left',
+    unicodeBidi: 'normal',
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textFieldRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -608,8 +617,19 @@ const InputArea: React.FC<InputAreaProps> = ({
               }
               
               typingTimeoutRef.current = setTimeout(() => {
+                // Update text direction detection
+                if (newValue) {
+                  const directionStyles = getTextDirectionStyles(newValue);
+                  setTextDirection({
+                    direction: directionStyles.direction,
+                    textAlign: directionStyles.textAlign,
+                    unicodeBidi: directionStyles.unicodeBidi,
+                  });
+                }
+                
+                // Calculate tokens
                 calculateTokens(newValue, attachments);
-              }, 1000);
+              }, 50);
             }}
             onKeyPress={handleKeyPress}
             disabled={loading}
@@ -617,16 +637,11 @@ const InputArea: React.FC<InputAreaProps> = ({
             InputProps={{
               sx: {
                 ...styles.textField,
-                // Apply RTL detection to input field
-                ...(message && (() => {
-                  const inputDirectionStyles = getTextDirectionStyles(message);
-                  return {
-                    direction: inputDirectionStyles.direction,
-                    textAlign: inputDirectionStyles.textAlign,
-                    unicodeBidi: inputDirectionStyles.unicodeBidi,
-                  };
-                })()),
-              },
+                // Apply debounced RTL/LTR detection to input field
+                direction: textDirection.direction,
+                textAlign: textDirection.textAlign,
+                unicodeBidi: textDirection.unicodeBidi,
+              } as any,
               endAdornment: isListening && interimTranscript ? (
                 <Box sx={styles.interimTranscript}>
                   {interimTranscript}
