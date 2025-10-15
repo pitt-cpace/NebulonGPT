@@ -60,6 +60,7 @@ import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
 import { getSuggestedPrompts } from '../services/api';
 import { VoskRecognitionService } from '../services/vosk';
 import { ttsService } from '../services/ttsService';
+import { electronApi } from '../services/electronApi';
 import { useStickyAutoScroll } from '../hooks/useStickyAutoScroll';
 import { getTextDirectionStyles, analyzeMixedContent } from '../services/rtlDetection';
 import { OllamaStatus } from '../services/ollamaStatus';
@@ -1497,6 +1498,27 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Custom renderers for ReactMarkdown
   const markdownComponents = {
+    // Override the default link renderer
+    a: ({ node, children, href, ...props }: any) => (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => {
+          e.preventDefault();
+          // Use electronApi to open in external browser
+          electronApi.openExternal(href);
+        }}
+        style={{
+          color: '#2196f3',
+          textDecoration: 'underline',
+          cursor: 'pointer',
+        }}
+        {...props}
+      >
+        {children}
+      </a>
+    ),
     // Override the default table renderer
     table: ({ node, children, ...props }: any) => (
       <TableContainer 

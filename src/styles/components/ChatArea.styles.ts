@@ -261,3 +261,17 @@ export const inlineCode: SxProps<Theme> = {
   py: 0.25,
   fontFamily: 'monospace',
 };
+
+// Link styles for better visibility
+export const linkStyle: SxProps<Theme> = {
+  color: '#2196f3', // Bright blue
+  textDecoration: 'underline',
+  cursor: 'pointer',
+  '&:hover': {
+    color: '#1976d2', // Darker blue on hover
+    textDecoration: 'underline',
+  },
+  '&:visited': {
+    color: '#9c27b0', // Purple for visited links
+  },
+};

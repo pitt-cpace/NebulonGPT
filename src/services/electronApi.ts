@@ -14,6 +14,7 @@ declare global {
       showOpenDialog: () => Promise<any>;
       getAppVersion: () => Promise<string>;
       copyToClipboard: (text: string) => Promise<{ success: boolean; error?: string }>;
+      openExternal: (url: string) => Promise<void>;
       platform: string;
       isElectron: boolean;
     };
@@ -181,6 +182,16 @@ export const electronApi = {
     }
     // For web version, use navigator
     return navigator.platform;
+  },
+
+  // Open URL in external browser
+  async openExternal(url: string): Promise<void> {
+    if (isElectron() && window.electronAPI && window.electronAPI.openExternal) {
+      await window.electronAPI.openExternal(url);
+    } else {
+      // For web version, open in new tab
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   }
 };
 
