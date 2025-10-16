@@ -120,22 +120,73 @@ export const attachmentRemove: SxProps<Theme> = {
 
 export const micButton: SxProps<Theme> = {
   mr: 1,
+  backgroundColor: 'rgba(0, 0, 0, 0.03)',
+  border: '1px solid rgba(0, 0, 0, 0.08)',
+  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+  '&:hover': {
+    backgroundColor: 'rgba(33, 150, 243, 0.12)',
+    borderColor: 'primary.main',
+    color: 'primary.main',
+    transform: 'scale(1.15) rotate(5deg)',
+    boxShadow: '0 4px 12px rgba(33, 150, 243, 0.3), 0 0 0 4px rgba(33, 150, 243, 0.1)',
+  },
+  '&:active': {
+    transform: 'scale(0.95)',
+  },
 };
 
 export const micButtonActive: SxProps<Theme> = {
-  ...micButton,
+  mr: 1,
+  backgroundColor: 'rgba(244, 67, 54, 0.15)',
+  border: '2px solid rgba(244, 67, 54, 0.5)',
   color: 'error.main',
-  animation: 'pulse 1.5s infinite',
-  '@keyframes pulse': {
-    '0%': { opacity: 1 },
-    '50%': { opacity: 0.5 },
-    '100%': { opacity: 1 },
+  animation: 'pulseGlow 1.5s infinite, breathe 2s infinite',
+  '@keyframes pulseGlow': {
+    '0%': { 
+      opacity: 1,
+      boxShadow: '0 0 0 0 rgba(244, 67, 54, 0.7)',
+    },
+    '50%': { 
+      opacity: 0.8,
+    },
+    '70%': {
+      boxShadow: '0 0 0 10px rgba(244, 67, 54, 0)',
+    },
+    '100%': { 
+      opacity: 1,
+      boxShadow: '0 0 0 0 rgba(244, 67, 54, 0)',
+    },
+  },
+  '@keyframes breathe': {
+    '0%': { transform: 'scale(1)' },
+    '50%': { transform: 'scale(1.05)' },
+    '100%': { transform: 'scale(1)' },
+  },
+  '&:hover': {
+    backgroundColor: 'rgba(244, 67, 54, 0.25)',
+    borderColor: 'error.dark',
+    transform: 'scale(1.15)',
+    boxShadow: '0 6px 16px rgba(244, 67, 54, 0.4)',
+  },
+  '&:active': {
+    transform: 'scale(0.95)',
   },
 };
 
 export const micButtonError: SxProps<Theme> = {
-  ...micButton,
+  mr: 1,
+  backgroundColor: 'rgba(255, 152, 0, 0.12)',
+  border: '1px solid rgba(255, 152, 0, 0.3)',
   color: 'warning.main',
+  '&:hover': {
+    backgroundColor: 'rgba(255, 152, 0, 0.2)',
+    borderColor: 'warning.dark',
+    transform: 'scale(1.1)',
+    boxShadow: '0 4px 12px rgba(255, 152, 0, 0.3)',
+  },
+  '&:active': {
+    transform: 'scale(0.95)',
+  },
 };
 
 export const micErrorText: SxProps<Theme> = {
