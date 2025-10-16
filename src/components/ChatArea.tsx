@@ -2029,8 +2029,48 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Function to detect and render tables from markdown
   const renderMarkdownWithTables = (content: string) => {
-    // First, strip LaTeX table environment metadata (table, centering, caption, label)
-    let processedContent = content
+    // FIRST: Extract and protect LaTeX tabular environments BEFORE any other processing
+    // This prevents markdown from breaking up the table syntax
+    const tabularRegexEarly = /\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/g;
+    const earlyTabularMatches: Array<{match: string, headers: string[], rows: string[][], placeholder: string}> = [];
+    let tabularMatchEarly;
+    let earlyMatchIndex = 0;
+    
+    let processedContent = content;
+    
+    while ((tabularMatchEarly = tabularRegexEarly.exec(content)) !== null) {
+      const tableContent = tabularMatchEarly[1];
+      const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+      const lines = cleanedContent
+        .split('\\\\')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+      
+      if (lines.length >= 1) {
+        const placeholder = `__EARLY_LATEX_TABLE_${earlyMatchIndex}__`;
+        
+        // Parse headers and rows
+        const headers = lines[0].split('&').map(h => h.trim()).filter(h => h.length > 0);
+        const dataRows = lines.slice(1);
+        const rows = dataRows.map(row => 
+          row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
+        );
+        
+        earlyTabularMatches.push({
+          match: tabularMatchEarly[0],
+          headers,
+          rows,
+          placeholder
+        });
+        
+        // Replace the entire tabular block with placeholder
+        processedContent = processedContent.replace(tabularMatchEarly[0], placeholder);
+        earlyMatchIndex++;
+      }
+    }
+    
+    // Now strip LaTeX table environment metadata (table, centering, caption, label)
+    processedContent = processedContent
       // Remove \begin{table}[...] and \end{table}
       .replace(/\\begin\{table\}(?:\[[^\]]*\])?\s*/g, '')
       .replace(/\\end\{table\}\s*/g, '')
@@ -2041,7 +2081,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // Remove \label{...}
       .replace(/\\label\{[^}]*\}\s*/g, '')
       // Remove \hline commands
-      .replace(/\\hline\s*/g, '');
+      .replace(/\\hline\s*/g, '')
+      // Clean up orphaned LaTeX table fragments
+      // Remove & followed by text and ending with \ (incomplete table row)
+      .replace(/&\s*([^&\n]+?)\s*\\/g, '$1')
+      // Remove orphaned \end{tabular} 
+      .replace(/\\end\{tabular\}/g, '');
     
     // Extract and render \[...\] display math before markdown processing
     // This avoids markdown stripping backslashes which breaks remark-math
@@ -2208,7 +2253,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     const hasTabTable = tabTableRegex.test(processedContent);
     const hasMarkdownTable = markdownTableRegex.test(processedContent);
     const hasMediaWikiTable = mediaWikiTableRegex.test(processedContent);
-    const hasAnySpecialTable = htmlTableData.length > 0 || csvTableData.length > 0 || jsonTableData.length > 0 || textTableData.length > 0 || tabularMatches.length > 0;
+    const hasAnySpecialTable = htmlTableData.length > 0 || csvTableData.length > 0 || jsonTableData.length > 0 || textTableData.length > 0 || tabularMatches.length > 0 || earlyTabularMatches.length > 0;
     
     // Reset regex states
     llama3TableRegex.lastIndex = 0;
@@ -2830,22 +2875,27 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       const specialTableMatches: Array<{ type: string, index: number, data: any }> = [];
       
       // Find ALL table placeholders by searching the entire content
-      // Use a global regex to find all placeholders
-      const placeholderRegex = /__(?:HTML|CSV|JSON|TEXT|LATEX)_TABLE_(\d+)__/g;
+      // Use a global regex to find all placeholders (including early extracted ones)
+      const placeholderRegex = /__(?:EARLY_LATEX|HTML|CSV|JSON|TEXT|LATEX)_TABLE_(\d+)__/g;
       let placeholderMatch;
       
       while ((placeholderMatch = placeholderRegex.exec(finalContent)) !== null) {
         const fullPlaceholder = placeholderMatch[0];
-        const typeMatch = fullPlaceholder.match(/__([A-Z]+)_TABLE_(\d+)__/);
+        const typeMatch = fullPlaceholder.match(/__([A-Z_]+)_TABLE_(\d+)__/);
         
         if (typeMatch) {
-          const type = typeMatch[1]; // HTML, CSV, JSON, TEXT, or LATEX
+          const type = typeMatch[1]; // EARLY_LATEX, HTML, CSV, JSON, TEXT, or LATEX
           const tableIndex = parseInt(typeMatch[2], 10);
           
           let tableData = null;
           
           // Get the table data based on type
-          if (type === 'HTML' && htmlTableData[tableIndex]) {
+          if (type === 'EARLY_LATEX' && earlyTabularMatches[tableIndex]) {
+            tableData = {
+              headers: earlyTabularMatches[tableIndex].headers,
+              rows: earlyTabularMatches[tableIndex].rows
+            };
+          } else if (type === 'HTML' && htmlTableData[tableIndex]) {
             tableData = htmlTableData[tableIndex].data;
           } else if (type === 'CSV' && csvTableData[tableIndex]) {
             tableData = csvTableData[tableIndex].data;
@@ -2949,7 +2999,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         // Add any remaining content
         const remaining = finalContent.substring(currentIndex);
-        if (remaining.trim() && !remaining.match(/__(?:HTML|CSV|JSON|TEXT|LATEX)_TABLE_\d+__/)) {
+        if (remaining.trim() && !remaining.match(/__(?:EARLY_LATEX|HTML|CSV|JSON|TEXT|LATEX)_TABLE_\d+__/)) {
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
