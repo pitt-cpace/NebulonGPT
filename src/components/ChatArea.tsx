@@ -1809,10 +1809,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     // Convert \( \) to $ $ for inline math (remark-math standard)
     // Use non-greedy match to handle nested parentheses correctly
-    processed = processed.replace(/\\\(([\s\S]+?)\\\)/g, '$$$1$$');
+    processed = processed.replace(/\\\(([\s\S]+?)\\\)/g, (match, p1) => `$${p1}$`);
     // Convert \[ \] to $$ $$ for display math (remark-math standard)
     // Use non-greedy match to handle nested brackets correctly
-    processed = processed.replace(/\\\[([\s\S]+?)\\\]/g, '$$$$$$1$$$$');
+    processed = processed.replace(/\\\[([\s\S]+?)\\\]/g, (match, p1) => `$$${p1}$$`);
     
     return processed;
   };
@@ -1889,8 +1889,42 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Function to detect and render tables from markdown
   const renderMarkdownWithTables = (content: string) => {
-    // First, preprocess ALL LaTeX delimiters in the content
-    let processedContent = preprocessLatexDelimiters(content);
+    // First, strip LaTeX table environment metadata (table, centering, caption, label)
+    let processedContent = content
+      // Remove \begin{table}[...] and \end{table}
+      .replace(/\\begin\{table\}(?:\[[^\]]*\])?\s*/g, '')
+      .replace(/\\end\{table\}\s*/g, '')
+      // Remove \centering
+      .replace(/\\centering\s*/g, '')
+      // Remove \caption{...}
+      .replace(/\\caption\{[^}]*\}\s*/g, '')
+      // Remove \label{...}
+      .replace(/\\label\{[^}]*\}\s*/g, '');
+    
+    // Extract and render \[...\] display math before markdown processing
+    // This avoids markdown stripping backslashes which breaks remark-math
+    const displayMathBlocks: Array<{ placeholder: string, html: string }> = [];
+    
+    // Extract \[...\] blocks and render them with KaTeX directly
+    const displayMathRegex = /\\\[([\s\S]*?)\\\]/g;
+    let matchIndex = 0;
+    processedContent = processedContent.replace(displayMathRegex, (match, formula) => {
+      try {
+        const html = katex.renderToString(formula.trim(), {
+          displayMode: true,
+          throwOnError: false,
+          output: 'html'
+        });
+        // Use {{...}} format which markdown won't process
+        const placeholder = `{{KATEX_DISPLAY_${matchIndex}}}`;
+        displayMathBlocks.push({ placeholder, html });
+        matchIndex++;
+        return placeholder;
+      } catch (error) {
+        // If rendering fails, leave the original text
+        return match;
+      }
+    });
     
     // Check for LaTeX tabular environments in plain text and store them for rendering
     const tabularRegex = /\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/g;
@@ -1943,89 +1977,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Add all matches to tabularMatches in the correct order (same as tempMatches)
     tabularMatches.push(...tempMatches);
     
-    // Then, check if this is a full LaTeX document in plain text (not in code block)
-    const hasDocumentCommands = /\\documentclass|\\begin\{document\}|\\usepackage/.test(processedContent);
-    
-    if (hasDocumentCommands) {
-      // Extract and render formulas from the LaTeX document
-      const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
-      
-      // Extract \[ \] display formulas
-      const displayMatches = processedContent.match(/\\\[([\s\S]*?)\\\]/g);
-      if (displayMatches) {
-        displayMatches.forEach(match => {
-          const formula = match.replace(/^\\\[/, '').replace(/\\\]$/, '').trim();
-          if (formula) formulas.push({ formula, isDisplay: true });
-        });
-      }
-      
-      // Extract \( \) inline formulas
-      const inlineMatches = processedContent.match(/\\\(([\s\S]*?)\\\)/g);
-      if (inlineMatches) {
-        inlineMatches.forEach(match => {
-          const formula = match.replace(/^\\\(/, '').replace(/\\\)$/, '').trim();
-          if (formula) formulas.push({ formula, isDisplay: false });
-        });
-      }
-      
-      // Extract $ $ inline formulas
-      const dollarMatches = processedContent.match(/\$([^\$]+)\$/g);
-      if (dollarMatches) {
-        dollarMatches.forEach(match => {
-          const formula = match.replace(/^\$/, '').replace(/\$$/, '').trim();
-          if (formula) formulas.push({ formula, isDisplay: false });
-        });
-      }
-      
-      // Extract \begin{align*} environments and split into individual equations
-      const alignMatches = processedContent.match(/\\begin\{align\*\}([\s\S]*?)\\end\{align\*\}/g);
-      if (alignMatches) {
-        alignMatches.forEach(match => {
-          const innerContent = match.replace(/\\begin\{align\*\}/, '').replace(/\\end\{align\*\}/, '').trim();
-          // Split by \\ to get individual equations
-          const equations = innerContent.split('\\\\').filter(eq => eq.trim());
-          equations.forEach(equation => {
-            // Remove alignment markers (&) and clean up
-            const cleanedEquation = equation.replace(/&/g, '').trim();
-            if (cleanedEquation) {
-              formulas.push({ formula: cleanedEquation, isDisplay: true });
-            }
-          });
-        });
-      }
-      
-      // If we found formulas, render them
-      if (formulas.length > 0) {
-        return (
-          <Box>
-            {formulas.map((item, idx) => {
-              try {
-                const html = katex.renderToString(item.formula, {
-                  displayMode: item.isDisplay,
-                  throwOnError: false,
-                  output: 'html'
-                });
-                
-                return (
-                  <Box
-                    key={idx}
-                    sx={{ 
-                      my: item.isDisplay ? 2 : 0.5,
-                      p: item.isDisplay ? 2 : 0.5,
-                      bgcolor: item.isDisplay ? 'action.hover' : 'transparent',
-                      borderRadius: 1
-                    }}
-                    dangerouslySetInnerHTML={{ __html: html }}
-                  />
-                );
-              } catch (error) {
-                return null; // Skip formulas that fail to render
-              }
-            })}
-          </Box>
-        );
-      }
-    }
+    // Note: We've already converted \[...\] to $$...$$ in preprocessing, 
+    // so remark-math and rehype-katex will handle all math rendering
     
     // Convert HTML sub/sup tags to LaTeX notation wrapped in $ delimiters
     processedContent = processedContent
@@ -2121,16 +2074,146 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     markdownTableRegex.lastIndex = 0;
     mediaWikiTableRegex.lastIndex = 0;
     
-    // Custom markdown components - just use standard components
-    const customMarkdownComponents = markdownComponents;
+    // Helper function to replace KaTeX placeholders in any text content
+    const replaceKatexPlaceholders = (text: string): React.ReactNode => {
+      const hasKatexPlaceholder = /\{\{KATEX_DISPLAY_\d+\}\}/.test(text);
+      
+      if (!hasKatexPlaceholder) {
+        return text;
+      }
+      
+      // Replace placeholders with rendered HTML
+      const parts: React.ReactNode[] = [];
+      let remaining = text;
+      let partKey = 0;
+      
+      displayMathBlocks.forEach((block) => {
+        const index = remaining.indexOf(block.placeholder);
+        if (index !== -1) {
+          // Add text before placeholder
+          if (index > 0) {
+            parts.push(<span key={`text-${partKey++}`}>{remaining.substring(0, index)}</span>);
+          }
+          // Add rendered math
+          parts.push(
+            <Box
+              key={`math-${partKey++}`}
+              sx={{ my: 2, display: 'block' }}
+              dangerouslySetInnerHTML={{ __html: block.html }}
+            />
+          );
+          remaining = remaining.substring(index + block.placeholder.length);
+        }
+      });
+      
+      // Add any remaining text
+      if (remaining) {
+        parts.push(<span key={`text-${partKey++}`}>{remaining}</span>);
+      }
+      
+      return parts.length > 0 ? <>{parts}</> : text;
+    };
     
-    // If no tables detected, just render with ReactMarkdown with math plugins
+    // Create enhanced markdown components that restore KaTeX display math
+    const customMarkdownComponents = {
+      ...markdownComponents,
+      // Override paragraph renderer to check for KaTeX placeholders
+      p: ({ node, children, ...props }: any) => {
+        const childText = String(children);
+        const replaced = replaceKatexPlaceholders(childText);
+        
+        if (replaced !== childText) {
+          return <div>{replaced}</div>;
+        }
+        
+        // Default paragraph rendering
+        return <p {...props}>{children}</p>;
+      },
+      // Override list item renderer to check for KaTeX placeholders
+      li: ({ node, children, ...props }: any) => {
+        // Extract text from children recursively
+        const extractText = (node: any): string => {
+          if (typeof node === 'string') return node;
+          if (Array.isArray(node)) return node.map(extractText).join('');
+          if (node?.props?.children) return extractText(node.props.children);
+          return '';
+        };
+        
+        const childText = extractText(children);
+        const hasPlaceholder = /\{\{KATEX_DISPLAY_\d+\}\}/.test(childText);
+        
+        if (hasPlaceholder) {
+          const replaced = replaceKatexPlaceholders(childText);
+          return <li style={{ margin: '2px 0' }}>{replaced}</li>;
+        }
+        
+        // Default list item rendering from markdownComponents
+        return <li style={{ margin: '2px 0' }}>{children}</li>;
+      },
+    };
+    
+    // If no tables detected, render content with KaTeX display math restoration
     if (!hasLlama3Table && !hasTabTable && !hasMarkdownTable && !hasMediaWikiTable && !hasAnySpecialTable) {
+      // Check if there are KaTeX display math blocks to restore
+      if (displayMathBlocks.length > 0) {
+        const parts: React.ReactNode[] = [];
+        let remaining = processedContent;
+        let key = 0;
+        
+        displayMathBlocks.forEach((block) => {
+          const index = remaining.indexOf(block.placeholder);
+          if (index !== -1) {
+            // Add text before placeholder through ReactMarkdown
+            const beforeText = remaining.substring(0, index);
+            if (beforeText.trim()) {
+              parts.push(
+                <Box key={`text-${key++}`}>
+                  <ReactMarkdown 
+                    remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                    rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                    components={customMarkdownComponents}
+                  >
+                    {beforeText}
+                  </ReactMarkdown>
+                </Box>
+              );
+            }
+            // Add rendered math
+            parts.push(
+              <Box
+                key={`math-${key++}`}
+                sx={{ my: 2, display: 'block' }}
+                dangerouslySetInnerHTML={{ __html: block.html }}
+              />
+            );
+            remaining = remaining.substring(index + block.placeholder.length);
+          }
+        });
+        
+        // Add any remaining text
+        if (remaining.trim()) {
+          parts.push(
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {remaining}
+              </ReactMarkdown>
+            </Box>
+          );
+        }
+        
+        return <div>{parts}</div>;
+      }
+      
+      // No display math blocks, just render normally
       return (
         <ReactMarkdown 
           remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
           rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-          components={customMarkdownComponents}
+          components={markdownComponents}
         >
           {processedContent}
         </ReactMarkdown>
