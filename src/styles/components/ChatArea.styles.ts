@@ -76,8 +76,22 @@ export const inputBox: SxProps<Theme> = {
 export const fileUploadButton: SxProps<Theme> = {
   mr: 1,
   color: 'text.secondary',
+  backgroundColor: 'rgba(0, 0, 0, 0.03)',
+  border: '1px solid rgba(0, 0, 0, 0.08)',
+  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
   '&:hover': {
-    color: 'primary.main',
+    color: 'success.main',
+    backgroundColor: 'rgba(76, 175, 80, 0.12)',
+    borderColor: 'success.main',
+    transform: 'scale(1.15) rotate(-90deg)',
+    boxShadow: '0 4px 12px rgba(76, 175, 80, 0.3), 0 0 0 4px rgba(76, 175, 80, 0.1)',
+  },
+  '&:active': {
+    transform: 'scale(0.95) rotate(-90deg)',
+  },
+  '&.Mui-disabled': {
+    backgroundColor: 'rgba(0, 0, 0, 0.02)',
+    borderColor: 'rgba(0, 0, 0, 0.05)',
   },
 };
 
