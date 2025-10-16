@@ -1341,8 +1341,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       return content;
     }
     
-    // Convert to string if needed
-    let textContent = String(content);
+    // Extract text from children if it's an array
+    const extractText = (node: any): string => {
+      if (typeof node === 'string') return node;
+      if (typeof node === 'number') return String(node);
+      if (Array.isArray(node)) return node.map(extractText).join('');
+      if (node?.props?.children) return extractText(node.props.children);
+      return String(node);
+    };
+    
+    // Convert to string - handle arrays and nested structures
+    let textContent = extractText(content);
     
     // Don't process empty content
     if (!textContent || textContent.trim() === '') {
@@ -1364,6 +1373,46 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Also remove if it appears at the very beginning, with or without whitespace after it (including newlines)
     // This handles cases like "\begin{tabular}{...}\n\nArea of Rectangle"
     textContent = textContent.replace(/^\\begin\{tabular\}\{(?:[^{}]|\{(?:[^{}]|\{[^}]*\})*\})*\}\s*/, '');
+    
+    // Check if this looks like raw LaTeX code (without $ delimiters and with LaTeX commands missing backslashes)
+    // This helps restore backslashes in "LaTeX Code" columns
+    // IMPORTANT: Only apply if content has NO $ delimiters (to avoid corrupting rendered formulas)
+    const hasNoDollarSigns = !/\$/.test(textContent);
+    // Match LaTeX commands - use looser matching without strict word boundaries
+    const hasLatexCommandsWithoutBackslash = /(frac|sqrt|int|sum|prod|lim|mathbf|mathrm|mathit|mathcal|mathbb|text|left|right)\{|(alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|times|cdot|pm|partial|nabla|infty)\b/.test(textContent);
+    
+    if (hasNoDollarSigns && hasLatexCommandsWithoutBackslash) {
+      // Restore backslashes before common LaTeX commands
+      textContent = textContent
+        // Mathematical operators and functions (with braces) - no word boundary at start
+        .replace(/(frac|sqrt|int|sum|prod|lim|sin|cos|tan|log|ln|exp)\{/g, '\\$1{')
+        // Greek letters (standalone) - word boundary at end only
+        .replace(/(alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|omicron|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega)\b/g, '\\$1')
+        // Mathematical symbols and operators (standalone) - word boundary at end only
+        .replace(/(times|cdot|pm|mp|div|ast|star|circ|bullet|cap|cup|vee|wedge|oplus|otimes|odot)\b/g, '\\$1')
+        // Relations (standalone) - word boundary at end only
+        .replace(/(leq|geq|ll|gg|neq|approx|equiv|sim|simeq|cong|propto)\b/g, '\\$1')
+        // Calculus and advanced operators (standalone) - word boundary at end only
+        .replace(/(partial|nabla|infty|forall|exists|emptyset|in|notin|subset|supset|subseteq|supseteq)\b/g, '\\$1')
+        // Text formatting (with braces) - no word boundary at start
+        .replace(/(mathbf|mathrm|mathit|mathcal|mathbb|mathfrak|text)\{/g, '\\$1{')
+        // Delimiters (standalone) - word boundary at end only
+        .replace(/(left|right)\b/g, '\\$1');
+      
+      // Return as inline code to show the LaTeX syntax
+      return (
+        <code style={{ 
+          backgroundColor: 'rgba(0, 0, 0, 0.08)',
+          padding: '2px 4px',
+          borderRadius: '3px',
+          fontSize: '0.85em',
+          fontFamily: 'monospace',
+          wordBreak: 'break-word'
+        }}>
+          {textContent}
+        </code>
+      );
+    }
     
     // Check for complete LaTeX tabular environment in cell content (nested tables)
     const hasTabularTable = /\\begin\{tabular\}\{[^}]*\}[\s\S]*(?:\\\\|&)/.test(textContent);
