@@ -1168,7 +1168,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return (
       <Box key={tableId} sx={{ mb: 2 }}>
         {tableElement}
-        {/* Permanently visible copy button below the table */}
+        {/* Enhanced copy button below the table */}
         <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
           <IconButton
             size="small"
@@ -1178,16 +1178,27 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               handleCopyTable(tableId, headers, rows);
             }}
             sx={{
-              opacity: 0.6,
-              transition: 'opacity 0.2s, background-color 0.2s',
+              opacity: 0.75,
+              backgroundColor: 'rgba(0, 0, 0, 0.03)',
+              borderRadius: '8px',
+              padding: '6px',
+              border: '1px solid rgba(0, 0, 0, 0.08)',
+              transition: 'all 0.2s ease-in-out',
               '&:hover': {
                 opacity: 1,
-                backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                borderColor: 'success.main',
+                color: 'success.main',
+                transform: 'scale(1.1)',
+                boxShadow: '0 2px 6px rgba(76, 175, 80, 0.2)',
+              },
+              '&:active': {
+                transform: 'scale(0.95)',
               },
             }}
-            title="Copy table"
+            title="Copy table data"
           >
-            <ContentCopyIcon sx={{ fontSize: 18 }} />
+            <ContentCopyIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Box>
       </Box>
@@ -1741,7 +1752,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               {children}
             </code>
           </Box>
-          {/* Copy button for code blocks */}
+          {/* Enhanced copy button for code blocks */}
           <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
             <IconButton
               size="small"
@@ -1751,16 +1762,27 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 handleCopyCode(content);
               }}
               sx={{
-                opacity: 0.6,
-                transition: 'opacity 0.2s, background-color 0.2s',
+                opacity: 0.75,
+                backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                borderRadius: '8px',
+                padding: '6px',
+                border: '1px solid rgba(0, 0, 0, 0.08)',
+                transition: 'all 0.2s ease-in-out',
                 '&:hover': {
                   opacity: 1,
-                  backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                  backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                  borderColor: 'secondary.main',
+                  color: 'secondary.main',
+                  transform: 'scale(1.1)',
+                  boxShadow: '0 2px 6px rgba(156, 39, 176, 0.2)',
+                },
+                '&:active': {
+                  transform: 'scale(0.95)',
                 },
               }}
               title="Copy code"
             >
-              <ContentCopyIcon sx={{ fontSize: 18 }} />
+              <ContentCopyIcon sx={{ fontSize: 16 }} />
             </IconButton>
           </Box>
         </Box>
@@ -2984,34 +3006,48 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           </Box>
         </Box>
         
-        {/* Copy button below the message */}
+        {/* Copy message button - visually distinct from table/code copy buttons */}
         <Box
           sx={{
             display: 'flex',
             justifyContent: 'flex-start',
-            mt: 0.5,
+            mt: 1,
             ml: 1,
           }}
         >
-          <IconButton
+          <Button
             size="small"
+            startIcon={<ContentCopyIcon sx={{ fontSize: 16 }} />}
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               handleCopyMessage(message.id, message.content);
             }}
             sx={{
-              opacity: 0.6,
-              transition: 'opacity 0.2s, background-color 0.2s',
+              opacity: 0.7,
+              fontSize: '0.75rem',
+              textTransform: 'none',
+              color: 'text.secondary',
+              borderRadius: '12px',
+              px: 1.5,
+              py: 0.5,
+              minWidth: 'auto',
+              transition: 'all 0.2s',
+              border: '1px solid',
+              borderColor: 'divider',
+              backgroundColor: 'transparent',
               '&:hover': {
                 opacity: 1,
-                backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                borderColor: 'primary.main',
+                color: 'primary.main',
+                transform: 'translateY(-1px)',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
               },
             }}
-            title="Copy message"
           >
-            <ContentCopyIcon sx={{ fontSize: 18 }} />
-          </IconButton>
+            Copy Message
+          </Button>
         </Box>
       </Box>
     );
