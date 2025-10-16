@@ -1,6 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import { TextItem } from 'pdfjs-dist/types/src/display/api';
 import katex from 'katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -67,9 +65,6 @@ import { OllamaStatus } from '../services/ollamaStatus';
 import * as styles from '../styles/components/ChatArea.styles';
 import WaveformVisualization from './WaveformVisualization';
 import InputArea from './InputArea';
-
-// Set the worker source path
-GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
 
 interface ChatAreaProps {
   chat: ChatType | null;
@@ -894,110 +889,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
-  // Handle PDF file selection
-  const handlePdfSelect = async (file: File) => {
-    try {
-      // Read the file as ArrayBuffer
-      const arrayBuffer = await file.arrayBuffer();
-      
-      // Load the PDF document
-      const loadingTask = getDocument(arrayBuffer);
-      const pdf = await loadingTask.promise;
-      
-      // Extract text from all pages
-      let fullText = '';
-      const numPages = pdf.numPages;
-      const extractedImages: string[] = [];
-      
-      for (let i = 1; i <= numPages; i++) {
-        const page = await pdf.getPage(i);
-        
-        // Extract text content
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items
-          .filter(item => 'str' in item)
-          .map(item => (item as TextItem).str)
-          .join(' ');
-        
-        fullText += `[Page ${i}]\n${pageText}\n\n`;
-        
-        // Extract images from the page
-        try {
-          // Get the operator list which contains all drawing operations
-          const opList = await page.getOperatorList();
-          
-          // Get all image IDs from the operator list
-          const imageIds = new Set<string>();
-          for (let j = 0; j < opList.fnArray.length; j++) {
-            const fnId = opList.fnArray[j];
-            if (fnId === 83) { // 83 is the ID for the "paintImageXObject" operation
-              const imageId = opList.argsArray[j][0];
-              if (typeof imageId === 'string') {
-                imageIds.add(imageId);
-              }
-            }
-          }
-          
-          // Extract each image
-          for (const imageId of Array.from(imageIds)) {
-            try {
-              // Get the image data
-              const img = await page.objs.get(imageId);
-              if (img && img.src) {
-                // If the image has a src property, it's likely a data URL or URL
-                extractedImages.push(img.src);
-              } else if (img && img.data && img.width && img.height) {
-                // Create a canvas to draw the image
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                
-                if (ctx) {
-                  // Create an ImageData object
-                  const imageData = ctx.createImageData(img.width, img.height);
-                  
-                  // Copy the image data to the ImageData object
-                  for (let i = 0; i < img.data.length; i++) {
-                    imageData.data[i] = img.data[i];
-                  }
-                  
-                  // Put the ImageData on the canvas
-                  ctx.putImageData(imageData, 0, 0);
-                  
-                  // Convert the canvas to a data URL
-                  const dataUrl = canvas.toDataURL('image/png');
-                  extractedImages.push(dataUrl);
-                }
-              }
-            } catch (imgError) {
-              console.warn(`Error extracting image ${imageId}:`, imgError);
-            }
-          }
-        } catch (pageError) {
-          console.warn(`Error extracting images from page ${i}:`, pageError);
-        }
-      }
-      
-      // Create a new file attachment
-      const newAttachment: FileAttachment = {
-        id: `pdf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        name: file.name,
-        type: 'pdf',
-        content: fullText, // Store the extracted text
-        images: extractedImages.length > 0 ? extractedImages : undefined, // Store extracted images
-        size: file.size,
-        timestamp: new Date().toISOString(),
-      };
-      
-      // Add the attachment to the state
-      setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
-    } catch (error) {
-      console.error('Error processing PDF:', error);
-      alert(`Error processing PDF: ${file.name}`);
-    }
-  };
-
   // Process files from either file input or drag and drop
   const processFiles = (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
@@ -1037,9 +928,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Read the image as a data URL
         reader.readAsDataURL(file);
       }
-      // Process PDF files
+      // Skip PDF files (PDF support removed)
       else if (file.name.endsWith('.pdf')) {
-        handlePdfSelect(file);
+        alert(`PDF files are not supported. Skipping ${file.name}`);
       }
       // Process text files
       else if (file.name.endsWith('.txt')) {
@@ -1116,7 +1007,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
       // Skip unsupported files
       else {
-        alert(`Only .txt, .docx, and image files are supported. Skipping ${file.name}`);
+        alert(`Only .txt, .docx, and image files are supported. PDF files are not supported. Skipping ${file.name}`);
       }
     });
   };
