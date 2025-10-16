@@ -1352,8 +1352,21 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Handle content with <br> tags by converting them to actual line breaks first
     textContent = textContent.replace(/<br\s*\/?>/gi, '\n');
     
-    // Check for LaTeX tabular environment in cell content (nested tables)
-    const hasTabularTable = /\\begin\{tabular\}/.test(textContent);
+    // Clean up incomplete LaTeX tabular syntax that appears as text
+    // Only remove \begin{tabular}{...} if it appears at the start and is followed by nothing or just whitespace
+    // Use nested pattern to handle up to 2 levels of braces like {|p{0.4\textwidth}|}
+    const incompleteTabularPattern = /^\\begin\{tabular\}\{(?:[^{}]|\{(?:[^{}]|\{[^}]*\})*\})*\}\s*$/;
+    if (incompleteTabularPattern.test(textContent.trim())) {
+      // This is ONLY the tabular declaration without any other content - remove it completely
+      return '';
+    }
+    
+    // Also remove if it appears at the very beginning, with or without whitespace after it (including newlines)
+    // This handles cases like "\begin{tabular}{...}\n\nArea of Rectangle"
+    textContent = textContent.replace(/^\\begin\{tabular\}\{(?:[^{}]|\{(?:[^{}]|\{[^}]*\})*\})*\}\s*/, '');
+    
+    // Check for complete LaTeX tabular environment in cell content (nested tables)
+    const hasTabularTable = /\\begin\{tabular\}\{[^}]*\}[\s\S]*(?:\\\\|&)/.test(textContent);
     if (hasTabularTable) {
       // Try to extract and render the tabular environment
       // Make \end{tabular} optional in case it's cut off
@@ -1410,37 +1423,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
     
     // Check if this looks like raw LaTeX code (has LaTeX commands without $ delimiters)
-    // OR if it has patterns suggesting stripped backslashes (e.g., "frac{" instead of "\frac{")
-    // This is typically in "LaTeX Code" columns for reference
-    const looksLikeRawLatex = /(?:frac|int|sum|sqrt|mathbf|mathcal|partial|infty|alpha|beta|gamma|delta|theta|omega|nabla|times|cdot|left|right)\{/.test(textContent) && !/\$/.test(textContent);
-    
-    if (looksLikeRawLatex) {
-      // The backslashes have been stripped by markdown, so we need to add them back
-      // Add backslashes before common LaTeX commands
-      const withBackslashes = textContent
-        .replace(/\b(frac|sqrt|int|sum|partial|infty|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Phi|Omega)\{/g, '\\$1{')
-        .replace(/\b(mathbf|mathcal|mathrm|mathbb|mathit|text)\{/g, '\\$1{')
-        .replace(/\b(nabla|times|cdot|pm|mp|div|neq|leq|geq|approx)\b/g, '\\$1')
-        .replace(/\b(left|right)\(/g, '\\$1(')
-        .replace(/\b(left|right)\[/g, '\\$1[')
-        .replace(/\b(left|right)\{/g, '\\$1\\{')
-        .replace(/\b(left|right)\|/g, '\\$1|');
-      
-      // Render as inline code to preserve backslashes and braces
-      return (
-        <code style={{ 
-          backgroundColor: 'rgba(0, 0, 0, 0.05)',
-          padding: '4px 6px',
-          borderRadius: '3px',
-          fontSize: '0.9em',
-          fontFamily: 'monospace',
-          wordBreak: 'break-word',
-          whiteSpace: 'pre-wrap'
-        }}>
-          {withBackslashes}
-        </code>
-      );
-    }
+    // Skip this check - let LaTeX reference code display as-is without backslash restoration
+    // This allows "LaTeX Code" columns to show simplified syntax as intended by the LLM
     
     // Check if cell contains LaTeX formulas with $ delimiters
     // Render them directly with KaTeX for better reliability
