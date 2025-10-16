@@ -1355,7 +1355,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Always use ReactMarkdown with all plugins enabled for comprehensive rendering
     return (
       <ReactMarkdown
-        remarkPlugins={[remarkMath as any]}
+        remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
         rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
         components={{
           p: ({ children }) => <span>{children}</span>,
@@ -1389,11 +1389,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               );
             }
             
-            // For inline code, ONLY render as LaTeX if it contains actual LaTeX commands (starting with \)
-            // Don't try to render regular text that just happens to have ^ or _ characters
-            const hasLatexCommand = /\\(?:frac|int|sum|sqrt|displaystyle|text|mathrm|pi|theta|alpha|beta|gamma|delta|epsilon|sigma|mu|lambda|infty|pm|times|div|cdot|leq|geq|neq)/.test(text);
+            // For inline code, try to render as LaTeX if it contains LaTeX-like patterns
+            // This includes: backslash commands, or $ delimiters, or math operators like ^, _
+            const hasLatexPattern = /\\[a-zA-Z]+|^\$.*\$$|[\^_{}]/.test(text);
             
-            if (hasLatexCommand) {
+            if (hasLatexPattern) {
               try {
                 const html = katex.renderToString(text, {
                   displayMode: false,
@@ -1892,6 +1892,57 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // First, preprocess ALL LaTeX delimiters in the content
     let processedContent = preprocessLatexDelimiters(content);
     
+    // Check for LaTeX tabular environments in plain text and store them for rendering
+    const tabularRegex = /\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/g;
+    const tabularMatches: Array<{match: string, headers: string[], rows: string[][], index: number}> = [];
+    let tabularMatch;
+    
+    // Store all matches first, then replace from end to beginning to preserve indices
+    const tempMatches: Array<{match: string, headers: string[], rows: string[][], index: number}> = [];
+    
+    while ((tabularMatch = tabularRegex.exec(processedContent)) !== null) {
+      const tableContent = tabularMatch[1];
+      // Remove all \hline commands and trim
+      const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+      
+      // Split by \\ and filter out empty lines
+      const lines = cleanedContent
+        .split('\\\\')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+      
+      if (lines.length >= 2) {
+        // First line is headers
+        const headerLine = lines[0];
+        const headers = headerLine.split('&').map(h => h.trim()).filter(h => h.length > 0);
+        
+        // Rest are data rows
+        const dataRows = lines.slice(1);
+        const rows = dataRows.map(row => 
+          row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
+        );
+        
+        tempMatches.push({
+          match: tabularMatch[0],
+          headers,
+          rows,
+          index: tabularMatch.index
+        });
+      }
+    }
+    
+    // Replace from end to beginning to preserve indices
+    for (let i = tempMatches.length - 1; i >= 0; i--) {
+      const tableInfo = tempMatches[i];
+      const placeholder = `__LATEX_TABLE_${i}__`;
+      const before = processedContent.substring(0, tableInfo.index);
+      const after = processedContent.substring(tableInfo.index + tableInfo.match.length);
+      processedContent = before + placeholder + after;
+    }
+    
+    // Add all matches to tabularMatches in the correct order (same as tempMatches)
+    tabularMatches.push(...tempMatches);
+    
     // Then, check if this is a full LaTeX document in plain text (not in code block)
     const hasDocumentCommands = /\\documentclass|\\begin\{document\}|\\usepackage/.test(processedContent);
     
@@ -2062,7 +2113,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     const hasTabTable = tabTableRegex.test(processedContent);
     const hasMarkdownTable = markdownTableRegex.test(processedContent);
     const hasMediaWikiTable = mediaWikiTableRegex.test(processedContent);
-    const hasAnySpecialTable = htmlTableData.length > 0 || csvTableData.length > 0 || jsonTableData.length > 0 || textTableData.length > 0;
+    const hasAnySpecialTable = htmlTableData.length > 0 || csvTableData.length > 0 || jsonTableData.length > 0 || textTableData.length > 0 || tabularMatches.length > 0;
     
     // Reset regex states
     llama3TableRegex.lastIndex = 0;
@@ -2532,17 +2583,49 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       let finalContent = afterLastTable;
       const specialTableMatches: Array<{ type: string, index: number, data: any }> = [];
       
-      // Find all special table placeholders
-      [...htmlTableData, ...csvTableData, ...jsonTableData, ...textTableData].forEach((tableInfo) => {
-        const match = finalContent.match(/__(?:HTML|CSV|JSON|TEXT)_TABLE_\d+__/);
-        if (match) {
-          specialTableMatches.push({
-            type: match[0],
-            index: finalContent.indexOf(match[0]),
-            data: tableInfo.data
-          });
+      // Find ALL table placeholders by searching the entire content
+      // Use a global regex to find all placeholders
+      const placeholderRegex = /__(?:HTML|CSV|JSON|TEXT|LATEX)_TABLE_(\d+)__/g;
+      let placeholderMatch;
+      
+      while ((placeholderMatch = placeholderRegex.exec(finalContent)) !== null) {
+        const fullPlaceholder = placeholderMatch[0];
+        const typeMatch = fullPlaceholder.match(/__([A-Z]+)_TABLE_(\d+)__/);
+        
+        if (typeMatch) {
+          const type = typeMatch[1]; // HTML, CSV, JSON, TEXT, or LATEX
+          const tableIndex = parseInt(typeMatch[2], 10);
+          
+          let tableData = null;
+          
+          // Get the table data based on type
+          if (type === 'HTML' && htmlTableData[tableIndex]) {
+            tableData = htmlTableData[tableIndex].data;
+          } else if (type === 'CSV' && csvTableData[tableIndex]) {
+            tableData = csvTableData[tableIndex].data;
+          } else if (type === 'JSON' && jsonTableData[tableIndex]) {
+            tableData = jsonTableData[tableIndex].data;
+          } else if (type === 'TEXT' && textTableData[tableIndex]) {
+            tableData = textTableData[tableIndex].data;
+          } else if (type === 'LATEX' && tabularMatches[tableIndex]) {
+            tableData = {
+              headers: tabularMatches[tableIndex].headers,
+              rows: tabularMatches[tableIndex].rows
+            };
+          }
+          
+          if (tableData) {
+            specialTableMatches.push({
+              type: fullPlaceholder,
+              index: placeholderMatch.index,
+              data: tableData
+            });
+          }
         }
-      });
+      }
+      
+      // Sort by index to process in order
+      specialTableMatches.sort((a, b) => a.index - b.index);
       
       // If there are special tables, process them
       if (specialTableMatches.length > 0) {
@@ -2620,7 +2703,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         // Add any remaining content
         const remaining = finalContent.substring(currentIndex);
-        if (remaining.trim() && !remaining.match(/__(?:HTML|CSV|JSON|TEXT)_TABLE_\d+__/)) {
+        if (remaining.trim() && !remaining.match(/__(?:HTML|CSV|JSON|TEXT|LATEX)_TABLE_\d+__/)) {
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
