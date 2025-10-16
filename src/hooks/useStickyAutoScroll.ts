@@ -138,12 +138,9 @@ export function useStickyAutoScroll({
     if (!el) return;
     
     const mo = new MutationObserver(() => {
-      // During generation, ALWAYS auto-scroll
-      if (generatingRef.current) {
-        if (endRef.current) {
-          endRef.current.scrollIntoView({ behavior: 'auto' });
-        }
-      } else if (isPinnedRef.current) {
+      // Auto-scroll ONLY if pinned (respects user scroll position)
+      // This works during generation AND normal mode
+      if (isPinnedRef.current) {
         if (endRef.current) {
           endRef.current.scrollIntoView({ behavior: 'auto' });
         }
