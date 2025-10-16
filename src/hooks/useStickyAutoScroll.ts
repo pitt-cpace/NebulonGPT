@@ -26,6 +26,12 @@ export function useStickyAutoScroll({
   const SMOOTH_GUARD_MS = 650; // prevent ResizeObserver from interrupting smooth scrolls
   const BUTTON_HIDE_EPSILON = 4; // very small tolerance for "at bottom" for button visibility
   const isUserTyping = useRef(false); // Track if user is actively typing
+  const generatingRef = useRef(generating); // Track generating state without triggering re-renders
+  
+  // Keep generatingRef in sync with generating prop
+  useEffect(() => {
+    generatingRef.current = generating;
+  }, [generating]);
 
   const distanceFromBottom = useCallback(() => {
     const el = containerRef.current;
@@ -37,9 +43,9 @@ export function useStickyAutoScroll({
     (behavior: ScrollBehavior = smoothBehavior) => {
       if (!endRef.current || !containerRef.current) return;
       
-      isProgrammatic.current = true;
-      
       if (behavior === 'smooth') {
+        isProgrammatic.current = true;
+        
         // Set smooth guard to prevent ResizeObserver interruption
         smoothGuardUntil.current = performance.now() + SMOOTH_GUARD_MS;
         
@@ -54,9 +60,9 @@ export function useStickyAutoScroll({
         // Wait for animation to complete before allowing other operations
         setTimeout(() => { isProgrammatic.current = false; }, SMOOTH_GUARD_MS + 50);
       } else {
-        // Use scrollIntoView for instant scrolling
+        // For instant scrolling (auto), don't block subsequent scrolls
+        // This allows rapid-fire auto-scrolling during streaming
         endRef.current.scrollIntoView({ behavior });
-        requestAnimationFrame(() => { isProgrammatic.current = false; });
       }
     },
     [endRef, containerRef, smoothBehavior, SMOOTH_GUARD_MS]
@@ -97,7 +103,7 @@ export function useStickyAutoScroll({
       const isAtBottomForAutoScroll = d <= bottomThreshold; // 64px for auto-scroll
       const isAtBottomForButton = d <= BUTTON_HIDE_EPSILON; // 4px for button visibility
       
-      // Easy release: any upward scroll immediately releases auto-scroll (ALWAYS)
+      // Easy release: any upward scroll immediately releases auto-scroll (ALWAYS, even during generation)
       const scrollUpDistance = lastTop - currentTop;
       if (scrolledUp && scrollUpDistance > 1) {
         isPinnedRef.current = false;
@@ -126,13 +132,50 @@ export function useStickyAutoScroll({
   }, [containerRef, endRef, distanceFromBottom, bottomThreshold, BUTTON_HIDE_EPSILON, chatId]);
 
 
-  // 3) Follow layout shifts (tables/images loading) only if pinned
+  // 3) MutationObserver for content changes during streaming
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    
+    const mo = new MutationObserver(() => {
+      // During generation, ALWAYS auto-scroll
+      if (generatingRef.current) {
+        if (endRef.current) {
+          endRef.current.scrollIntoView({ behavior: 'auto' });
+        }
+      } else if (isPinnedRef.current) {
+        if (endRef.current) {
+          endRef.current.scrollIntoView({ behavior: 'auto' });
+        }
+      }
+    });
+    
+    // Observe all changes in the container
+    mo.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    
+    return () => mo.disconnect();
+  }, [containerRef, endRef, chatId]);
+
+  // 4) Follow layout shifts (tables/images loading) - for non-streaming changes
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      if (performance.now() < smoothGuardUntil.current) return; // ⛔️ don't interrupt smooth scrolls
-      if (isPinnedRef.current) scrollToBottom("auto"); // don't animate for small layout shifts
+      // During generation, auto-scroll is handled by MutationObserver
+      if (generatingRef.current) return;
+      
+      // Normal mode: check smooth guard and pinned state
+      if (performance.now() < smoothGuardUntil.current) {
+        return; // ⛔️ don't interrupt smooth scrolls
+      }
+      
+      if (isPinnedRef.current) {
+        scrollToBottom("auto");
+      }
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -151,7 +194,8 @@ export function useStickyAutoScroll({
       const d = el.scrollHeight - el.scrollTop - el.clientHeight;
       const isAtBottomForButton = d <= BUTTON_HIDE_EPSILON;
       
-      if (isPinnedRef.current && !isUserTyping.current) {
+      // Auto-scroll if: (pinned OR generating) AND not typing
+      if ((isPinnedRef.current || generatingRef.current) && !isUserTyping.current) {
         scrollToBottom(); // Use smooth scrolling as originally intended
         setShowJumpButton(false);
         setUnread(0);
