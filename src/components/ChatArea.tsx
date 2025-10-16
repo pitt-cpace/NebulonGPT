@@ -1352,7 +1352,90 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Handle content with <br> tags by converting them to actual line breaks first
     textContent = textContent.replace(/<br\s*\/?>/gi, '\n');
     
-    // Always use ReactMarkdown with all plugins enabled for comprehensive rendering
+    // Check if this looks like raw LaTeX code (has LaTeX commands without $ delimiters)
+    // OR if it has patterns suggesting stripped backslashes (e.g., "frac{" instead of "\frac{")
+    // This is typically in "LaTeX Code" columns for reference
+    const looksLikeRawLatex = /(?:frac|int|sum|sqrt|mathbf|mathcal|partial|infty|alpha|beta|gamma|delta|theta|omega|nabla|times|cdot|left|right)\{/.test(textContent) && !/\$/.test(textContent);
+    
+    if (looksLikeRawLatex) {
+      // The backslashes have been stripped by markdown, so we need to add them back
+      // Add backslashes before common LaTeX commands
+      const withBackslashes = textContent
+        .replace(/\b(frac|sqrt|int|sum|partial|infty|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Phi|Omega)\{/g, '\\$1{')
+        .replace(/\b(mathbf|mathcal|mathrm|mathbb|mathit|text)\{/g, '\\$1{')
+        .replace(/\b(nabla|times|cdot|pm|mp|div|neq|leq|geq|approx)\b/g, '\\$1')
+        .replace(/\b(left|right)\(/g, '\\$1(')
+        .replace(/\b(left|right)\[/g, '\\$1[')
+        .replace(/\b(left|right)\{/g, '\\$1\\{')
+        .replace(/\b(left|right)\|/g, '\\$1|');
+      
+      // Render as inline code to preserve backslashes and braces
+      return (
+        <code style={{ 
+          backgroundColor: 'rgba(0, 0, 0, 0.05)',
+          padding: '4px 6px',
+          borderRadius: '3px',
+          fontSize: '0.9em',
+          fontFamily: 'monospace',
+          wordBreak: 'break-word',
+          whiteSpace: 'pre-wrap'
+        }}>
+          {withBackslashes}
+        </code>
+      );
+    }
+    
+    // Check if cell contains LaTeX formulas with $ delimiters
+    // Render them directly with KaTeX for better reliability
+    const hasInlineMath = /\$[^$]+\$/.test(textContent);
+    
+    if (hasInlineMath) {
+      // Split content by $ delimiters and render math parts with KaTeX
+      const parts: React.ReactNode[] = [];
+      const mathPattern = /\$([^$]+)\$/g;
+      let lastIndex = 0;
+      let match;
+      let partKey = 0;
+      
+      while ((match = mathPattern.exec(textContent)) !== null) {
+        // Add text before this math expression
+        if (match.index > lastIndex) {
+          const beforeText = textContent.substring(lastIndex, match.index);
+          parts.push(<span key={`text-${partKey++}`}>{beforeText}</span>);
+        }
+        
+        // Render the math expression with KaTeX
+        const formula = match[1];
+        try {
+          const html = katex.renderToString(formula, {
+            displayMode: false,
+            throwOnError: false,
+            output: 'html',
+            strict: false
+          });
+          parts.push(
+            <span 
+              key={`math-${partKey++}`}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          );
+        } catch (error) {
+          // If KaTeX fails, show the original text
+          parts.push(<span key={`error-${partKey++}`}>${formula}$</span>);
+        }
+        
+        lastIndex = match.index + match[0].length;
+      }
+      
+      // Add any remaining text
+      if (lastIndex < textContent.length) {
+        parts.push(<span key={`text-${partKey++}`}>{textContent.substring(lastIndex)}</span>);
+      }
+      
+      return <>{parts}</>;
+    }
+    
+    // For content without math, use ReactMarkdown for other markdown features
     return (
       <ReactMarkdown
         remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
@@ -1390,7 +1473,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             }
             
             // For inline code, try to render as LaTeX if it contains LaTeX-like patterns
-            // This includes: backslash commands, or $ delimiters, or math operators like ^, _
             const hasLatexPattern = /\\[a-zA-Z]+|^\$.*\$$|[\^_{}]/.test(text);
             
             if (hasLatexPattern) {
@@ -2533,7 +2615,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       while ((match = markdownTableRegex.exec(processedContent)) !== null) {
         // Skip if this section was already processed as part of another table
-        if (match.index < lastIndex) continue;
+        if (match.index < lastIndex) {
+          continue;
+        }
         
         // Add text before the table
         const beforeTable = processedContent.substring(lastIndex, match.index);
@@ -2657,9 +2741,28 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Update lastIndex to after this table
         lastIndex = match.index + match[0].length;
       }
+      
+      // Add any remaining content after markdown tables
+      const afterMarkdownTables = processedContent.substring(lastIndex);
+      if (afterMarkdownTables.trim()) {
+        result.push(
+          <Box key={`text-${key++}`}>
+            <ReactMarkdown 
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+              components={customMarkdownComponents}
+            >
+              {afterMarkdownTables}
+            </ReactMarkdown>
+          </Box>
+        );
+      }
+      
+      // Return early - we've processed all content
+      return <div>{result}</div>;
     }
     
-    // Add any remaining content after the last table
+    // Add any remaining content after all table processing
     const afterLastTable = processedContent.substring(lastIndex);
     if (afterLastTable.trim()) {
       // Check for special table placeholders and render them
