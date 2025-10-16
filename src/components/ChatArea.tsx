@@ -1231,6 +1231,41 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, []);
 
+  // Helper function to copy code block to clipboard
+  const handleCopyCode = useCallback(async (code: string) => {
+    try {
+      // Try Electron clipboard API first
+      if (window.electronAPI && window.electronAPI.copyToClipboard) {
+        const result = await window.electronAPI.copyToClipboard(code);
+        if (result.success) {
+          console.log('✅ Code copied successfully');
+        } else {
+          throw new Error(result.error || 'Electron clipboard copy failed');
+        }
+      }
+      // Try modern clipboard API
+      else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(code);
+        console.log('✅ Code copied successfully');
+      }
+      // Fallback method
+      else {
+        const textArea = document.createElement('textarea');
+        textArea.value = code;
+        textArea.style.position = 'absolute';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        console.log('✅ Code copied successfully');
+      }
+    } catch (error) {
+      console.error('❌ Failed to copy code:', error);
+    }
+  }, []);
+
   // Helper function to render LaTeX formulas
   const renderLatex = (text: string): React.ReactNode => {
     const parts: React.ReactNode[] = [];
@@ -1481,7 +1516,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         {renderCellContent(children)}
       </TableCell>
     ),
-    // Improve code blocks - extract and render formulas and tables from code blocks
+    // Improve code blocks - extract and render formulas and tables from code blocks with copy button
     code: ({ node, inline, className, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(className || '');
       const content = String(children).replace(/\n$/, '');
@@ -1695,15 +1730,39 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
       
       return !inline ? (
-        <Box
-          component="pre"
-          sx={styles.codeBlock}
-          className={className}
-          {...props}
-        >
-          <code className={className} {...props}>
-            {children}
-          </code>
+        <Box sx={{ position: 'relative', mb: 2 }}>
+          <Box
+            component="pre"
+            sx={styles.codeBlock}
+            className={className}
+            {...props}
+          >
+            <code className={className} {...props}>
+              {children}
+            </code>
+          </Box>
+          {/* Copy button for code blocks */}
+          <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleCopyCode(content);
+              }}
+              sx={{
+                opacity: 0.6,
+                transition: 'opacity 0.2s, background-color 0.2s',
+                '&:hover': {
+                  opacity: 1,
+                  backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                },
+              }}
+              title="Copy code"
+            >
+              <ContentCopyIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Box>
         </Box>
       ) : (
         <code
