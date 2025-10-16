@@ -1053,7 +1053,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      spellcheck: true // Enable spell checking
       // Let Electron/Chromium handle security context normally
       // (no webSecurity:false; no allowRunningInsecureContent)
       // No need to force experimental flags for MediaDevices
@@ -1068,23 +1069,76 @@ function createWindow() {
     ? 'http://localhost:3000' 
     : `file://${path.join(PATHS.buildDir, 'index.html')}`;
   
-  // Enable context menu (use Menu from existing require at top)
+  // Enable context menu with spell checking support
   const { Menu } = require('electron');
 
   mainWindow.webContents.on('context-menu', (event, params) => {
-    console.log('context-menu fired'); // Sanity check log
+    console.log('context-menu fired:', {
+      misspelledWord: params.misspelledWord,
+      dictionarySuggestions: params.dictionarySuggestions,
+      isEditable: params.isEditable
+    });
     
-    // Clean minimal template that adapts to what's under the cursor
-    const template = [
-      ...(params.isEditable ? [{ role: 'cut' }, { role: 'copy' }, { role: 'paste' }] : []),
-      ...(!params.isEditable && params.selectionText ? [{ role: 'copy' }] : []),
-      ...(params.isEditable || params.selectionText ? [{ type: 'separator' }] : []),
-      { role: 'selectAll' },
-      ...(params.linkURL ? [{ type: 'separator' }, { label: 'Open Link', click: () => shell.openExternal(params.linkURL) }] : [])
-    ];
+    const template = [];
+    
+    // Add spelling suggestions if there's a misspelled word
+    if (params.misspelledWord) {
+      // Add suggestions
+      if (params.dictionarySuggestions && params.dictionarySuggestions.length > 0) {
+        params.dictionarySuggestions.forEach(suggestion => {
+          template.push({
+            label: suggestion,
+            click: () => mainWindow.webContents.replaceMisspelling(suggestion)
+          });
+        });
+      } else {
+        template.push({
+          label: 'No suggestions',
+          enabled: false
+        });
+      }
+      
+      template.push({ type: 'separator' });
+      
+      // Add to dictionary option
+      template.push({
+        label: 'Add to Dictionary',
+        click: () => mainWindow.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
+      });
+      
+      template.push({ type: 'separator' });
+    }
+    
+    // Standard editing options
+    if (params.isEditable) {
+      template.push(
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' }
+      );
+    } else if (params.selectionText) {
+      template.push({ role: 'copy' });
+    }
+    
+    // Add separator if we have editing options
+    if ((params.isEditable || params.selectionText) && template.length > 0) {
+      template.push({ type: 'separator' });
+    }
+    
+    template.push({ role: 'selectAll' });
+    
+    // Add link option if applicable
+    if (params.linkURL) {
+      template.push(
+        { type: 'separator' },
+        {
+          label: 'Open Link',
+          click: () => shell.openExternal(params.linkURL)
+        }
+      );
+    }
 
     const menu = Menu.buildFromTemplate(template);
-    // Use mainWindow directly instead of trying to get from event.sender
     menu.popup({ window: mainWindow });
   });
 
@@ -1150,9 +1204,44 @@ app.whenReady().then(async () => {
     console.log('index.html exists:', fs.existsSync(indexPath));
   }
   
+  // Configure spell checker languages
+  const session = require('electron').session;
+  const defaultSession = session.defaultSession;
+  
+  // Get available spell checker languages
+  const availableLanguages = defaultSession.availableSpellCheckerLanguages;
+  console.log('📝 Available spell checker languages:', availableLanguages);
+  
+  // Set spell checker languages (English by default, add more as needed)
+  const languagesToUse = ['en-US'];
+  
+  // Add more languages if they're available
+  if (availableLanguages.includes('en-GB')) {
+    languagesToUse.push('en-GB');
+  }
+  
+  defaultSession.setSpellCheckerLanguages(languagesToUse);
+  console.log('📝 Spell checker configured with languages:', languagesToUse);
+  
+  // Enable spell checker
+  defaultSession.setSpellCheckerEnabled(true);
+  console.log('📝 Spell checker enabled');
+  
   // Set up comprehensive media permissions for microphone access
   app.on('web-contents-created', (event, contents) => {
     const ses = contents.session;
+
+    // Enable spell checker for this web contents
+    ses.setSpellCheckerEnabled(true);
+    
+    // Configure spell checker languages for this session
+    const languagesToUse = ['en-US'];
+    if (ses.availableSpellCheckerLanguages.includes('en-GB')) {
+      languagesToUse.push('en-GB');
+    }
+    ses.setSpellCheckerLanguages(languagesToUse);
+    
+    console.log('📝 Spell checker enabled for web contents with languages:', languagesToUse);
 
     // Grant microphone permissions immediately for all origins
     ses.setPermissionRequestHandler((wc, permission, callback, details) => {
