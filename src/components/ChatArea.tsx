@@ -1352,6 +1352,63 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Handle content with <br> tags by converting them to actual line breaks first
     textContent = textContent.replace(/<br\s*\/?>/gi, '\n');
     
+    // Check for LaTeX tabular environment in cell content (nested tables)
+    const hasTabularTable = /\\begin\{tabular\}/.test(textContent);
+    if (hasTabularTable) {
+      // Try to extract and render the tabular environment
+      // Make \end{tabular} optional in case it's cut off
+      const tableMatch = textContent.match(/\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)(?:\\end\{tabular\}|$)/);
+      
+      if (tableMatch) {
+        const tableContent = tableMatch[1];
+        // Remove all \hline commands and trim
+        const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+        
+        // Split by \\ or newlines and filter out empty lines
+        const lines = cleanedContent
+          .split(/\\\\|\n/)
+          .map(line => line.trim())
+          .filter(line => line.length > 0);
+        
+        if (lines.length >= 1) {
+          // If we have at least one line, try to parse it as a simple table
+          // Split cells by & or tabs
+          const rows = lines.map(line => 
+            line.split(/[&\t]/).map(cell => cell.trim()).filter(cell => cell.length > 0)
+          );
+          
+          if (rows.length > 0 && rows[0].length > 0) {
+            // Render as a simple nested table
+            return (
+              <Box sx={{ my: 1 }}>
+                <Table size="small" sx={{ border: '1px solid rgba(0,0,0,0.12)' }}>
+                  <TableBody>
+                    {rows.map((row, rowIdx) => (
+                      <TableRow key={rowIdx}>
+                        {row.map((cell, cellIdx) => (
+                          <TableCell 
+                            key={cellIdx}
+                            sx={{ 
+                              fontSize: '0.85em',
+                              p: 0.5,
+                              border: '1px solid rgba(0,0,0,0.12)'
+                            }}
+                          >
+                            {/* Recursively render cell content to handle formulas */}
+                            {/\$[^$]+\$/.test(cell) ? renderCellContent(cell) : cell}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            );
+          }
+        }
+      }
+    }
+    
     // Check if this looks like raw LaTeX code (has LaTeX commands without $ delimiters)
     // OR if it has patterns suggesting stripped backslashes (e.g., "frac{" instead of "\frac{")
     // This is typically in "LaTeX Code" columns for reference
@@ -1619,7 +1676,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Check for LaTeX table (tabular environment)
         const hasTabularTable = /\\begin\{tabular\}[\s\S]*?\\end\{tabular\}/.test(content);
         
-        if (hasTabularTable && (className === 'language-latex' || className === 'language-tex')) {
+        // Parse LaTeX tables from any code block, not just those marked as latex/tex
+        if (hasTabularTable) {
           // Parse the LaTeX table - extract the tabular environment with better regex
           // Handle nested braces in column spec like {|c|l|l|p{8cm}|}
           const tableMatch = content.match(/\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/);
@@ -1981,7 +2039,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // Remove \caption{...}
       .replace(/\\caption\{[^}]*\}\s*/g, '')
       // Remove \label{...}
-      .replace(/\\label\{[^}]*\}\s*/g, '');
+      .replace(/\\label\{[^}]*\}\s*/g, '')
+      // Remove \hline commands
+      .replace(/\\hline\s*/g, '');
     
     // Extract and render \[...\] display math before markdown processing
     // This avoids markdown stripping backslashes which breaks remark-math
