@@ -101,6 +101,32 @@ export const cancelStream = async (): Promise<void> => {
   }
 };
 
+// Helper function to filter out chain-of-thought reasoning (text starting with asterisk)
+const filterThinkingText = (text: string): string => {
+  // Remove text starting with asterisk at the beginning of responses
+  // Pattern 1: *...* (both asterisks) followed by actual response
+  // Pattern 2: *...punctuation...CapitalLetter (thinking ends with punctuation/ellipsis before actual response)
+  
+  // First try to remove text wrapped in asterisks followed by whitespace
+  let filtered = text.replace(/^\*[^*]+\*\s+/g, '');
+  
+  // If that didn't work, try to remove thinking text that starts with * but doesn't end with *
+  if (filtered === text && text.startsWith('*')) {
+    // Look for patterns like:
+    // "*thinking text about...Hello!" -> keep "Hello!"
+    // "*thinking text.Hello!" -> keep "Hello!"
+    // Match from * until we find punctuation followed by capital letter starting a sentence
+    filtered = text.replace(/^\*.*?[.!?…]+(?=[A-Z][a-z])/, '');
+    
+    // If still no match, try the original pattern (lowercase followed by capital)
+    if (filtered === text) {
+      filtered = text.replace(/^\*.*?[a-z](?=[A-Z][a-z])/, '');
+    }
+  }
+  
+  return filtered.trim();
+};
+
 // Send a message to the model and get a response
 export const sendMessage = async (
   modelId: string,
@@ -318,9 +344,34 @@ const endpoint = '/chat';
               
               if (data.message && data.message.content) {
                 // For streaming, we get partial content
-                const content = data.message.content;
-                onStreamUpdate(content, data);
-                fullResponse += content;
+                let content = data.message.content;
+                
+                // Filter out thinking text if it appears at the start
+                // Only filter on the first chunks when fullResponse is still short
+                if (fullResponse.length < 500) {
+                  const beforeFilter = fullResponse + content;
+                  const afterFilter = filterThinkingText(beforeFilter);
+                  
+                  // If filtering removed text, adjust the content
+                  if (afterFilter.length < beforeFilter.length) {
+                    const removedLength = beforeFilter.length - afterFilter.length;
+                    const alreadyProcessed = fullResponse.length;
+                    
+                    if (removedLength > alreadyProcessed) {
+                      // Some or all of the thinking text is in this chunk
+                      const toRemoveFromChunk = removedLength - alreadyProcessed;
+                      content = content.substring(toRemoveFromChunk);
+                      // Reset fullResponse to the filtered version
+                      fullResponse = afterFilter.substring(0, alreadyProcessed);
+                    }
+                  }
+                }
+                
+                // Only stream if there's content left after filtering
+                if (content) {
+                  onStreamUpdate(content, data);
+                  fullResponse += content;
+                }
               }
             } catch (e) {
               console.error('Error parsing JSON from stream:', e, line);
@@ -371,9 +422,11 @@ const endpoint = '/chat';
       
       
       if (response.data && response.data.message) {
-        const tokensReceived = tokenCountingService.countTokens(response.data.message.content);
+        // Filter out thinking text from non-streaming responses too
+        const filteredContent = filterThinkingText(response.data.message.content);
+        const tokensReceived = tokenCountingService.countTokens(filteredContent);
         console.log(`📥 Tokens received from LLM: ${tokensReceived} (non-streaming)`);
-        return { response: response.data.message.content, tokensSent, tokensReceived };
+        return { response: filteredContent, tokensSent, tokensReceived: 0 };
       }
     }
     

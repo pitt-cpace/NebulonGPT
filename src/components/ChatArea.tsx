@@ -2761,13 +2761,33 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   }, []);
 
 
+  // Helper function to filter chain-of-thought thinking text from assistant messages
+  const filterThinkingText = (content: string): string => {
+    if (!content) return content;
+    
+    // Pattern 1: Remove text wrapped in asterisks at the start (with or without newlines after)
+    // Example: "*thinking text*\n\nActual response" -> "Actual response"
+    let filtered = content.replace(/^\*[^*]+\*\s*/g, '');
+    
+    // Pattern 2: Remove thinking text with asterisk at start, ending with ellipsis before actual response
+    // Example: "*thinking...Hello!" -> "Hello!"
+    if (filtered === content && content.startsWith('*')) {
+      filtered = content.replace(/^\*.*?\.\.\.(?=[A-Z])/, '');
+    }
+    
+    return filtered;
+  };
+
   // Memoized message component to prevent re-renders during streaming
   const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean }>(({ message, chatMessages, isStreaming }) => {
     const isUser = message.role === 'user';
     
+    // Filter thinking text from assistant messages before rendering
+    const displayContent = isUser ? message.content : filterThinkingText(message.content);
+    
     // Auto-detect RTL/LTR for both user and assistant messages
-    const textDirectionStyles = getTextDirectionStyles(message.content);
-    const mixedContentAnalysis = analyzeMixedContent(message.content);
+    const textDirectionStyles = getTextDirectionStyles(displayContent);
+    const mixedContentAnalysis = analyzeMixedContent(displayContent);
     
     return (
       <Box
@@ -2794,11 +2814,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               }}
             >
               {isUser ? (
-                message.content
+                displayContent
               ) : (
                 <>
                   {/* Try direct Llama3-3 table detection first */}
-                  {detectAndRenderLlama3Table(message.content) || renderMarkdownWithTables(message.content)}
+                  {detectAndRenderLlama3Table(displayContent) || renderMarkdownWithTables(displayContent)}
                   {isStreaming && (
                     <span className="streaming-cursor"></span>
                   )}
@@ -3021,7 +3041,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleCopyMessage(message.id, message.content);
+              handleCopyMessage(message.id, displayContent);
             }}
             sx={{
               opacity: 0.7,
