@@ -21,7 +21,7 @@ cleanup() {
 trap cleanup SIGINT SIGTERM EXIT
 
 # Use bundled Python
-PYTHON_EXE="$(pwd)/python-bundle/python-env/python3"
+PYTHON_EXE="$(pwd)/python-bundle/python-env/python-dist/bin/python3.9"
 
 if [ ! -f "$PYTHON_EXE" ]; then
     echo "❌ Bundled Python not found at: $PYTHON_EXE"
@@ -45,15 +45,15 @@ sleep 2
 # Start TTS Server (Text-to-Speech) on port 2701
 echo "🔊 Starting TTS server on port 2701..."
 cd python-bundle/python-env/kokoro-tts
-$PYTHON_EXE browser_tts_server.py --host 127.0.0.1 --port 2701 &
+$PYTHON_EXE browser_tts_server.py --host 0.0.0.0 --port 2701 &
 TTS_PID=$!
 echo "🔊 TTS server started with PID: $TTS_PID"
 cd ../../..
 
 echo ""
 echo "✅ Python services started successfully!"
-echo "📊 Vosk Speech Recognition: ws://localhost:2700 (PID: $VOSK_PID)"
-echo "📊 Kokoro TTS: ws://localhost:2701 (PID: $TTS_PID)"
+echo "📊 Vosk Speech Recognition: ws://0.0.0.0:2700 (PID: $VOSK_PID)"
+echo "📊 Kokoro TTS: ws://0.0.0.0:2701 (PID: $TTS_PID)"
 echo ""
 
 # Keep script running and wait for services

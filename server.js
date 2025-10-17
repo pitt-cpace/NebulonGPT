@@ -385,7 +385,7 @@ app.delete('/api/vosk/models/:name', (req, res) => {
   }
 });
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`Chat data server running on port ${PORT}`);
+// Start the server on all network interfaces (0.0.0.0)
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Chat data server running on port ${PORT} and accessible from all network interfaces`);
 });

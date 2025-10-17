@@ -30,8 +30,10 @@ export class VoskService {
   public onConnectionChange: ((connected: boolean) => void) | null = null;
 
   constructor(config: VoskServiceConfig = {}) {
+    // Use current hostname to support IP address access (localhost, 127.0.0.1, 10.211.33.32, etc.)
+    const defaultServerUrl = config.serverUrl || `ws://${window.location.hostname}:3000/vosk`;
     this.config = {
-      serverUrl: config.serverUrl || 'ws://localhost:3000/vosk',
+      serverUrl: defaultServerUrl,
       sampleRate: config.sampleRate || 16000,
       showWords: config.showWords !== undefined ? config.showWords : true,
       maxAlternatives: config.maxAlternatives || 0,

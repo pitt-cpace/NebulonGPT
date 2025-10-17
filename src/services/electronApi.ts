@@ -199,10 +199,12 @@ export const electronApi = {
 export const getWebSocketUrls = () => {
   // Scenario 1 & 2: Electron (production or dev) - always use direct connections
   if (isElectron()) {
-    console.log('⚡ Electron detected - using direct WebSocket connections');
+    // Use current hostname to support IP address access (127.0.0.1, 10.211.33.32, etc.)
+    const hostname = window.location.hostname;
+    console.log(`⚡ Electron detected - using direct WebSocket connections on ${hostname}`);
     return {
-      vosk: 'ws://localhost:2700',  // Direct connection to Vosk server
-      tts: 'ws://localhost:2701'    // Direct connection to TTS server
+      vosk: `ws://${hostname}:2700`,  // Direct connection to Vosk server
+      tts: `ws://${hostname}:2701`    // Direct connection to TTS server
     };
   }
   
@@ -240,11 +242,13 @@ export const getWebSocketUrls = () => {
   
   // Scenario 3: Development mode (React dev server) - use direct connections to Python services
   if (isDevelopmentMode) {
-    console.log('🔧 Development environment detected (React dev server) - using direct WebSocket connections');
+    // Use current hostname to support IP address access (127.0.0.1, 10.211.33.32, etc.)
+    const hostname = window.location.hostname;
+    console.log(`🔧 Development environment detected (React dev server) on ${hostname} - using direct WebSocket connections`);
     console.log(`🔧 Development indicators: webpack=${hasWebpackDevServer}, reactDev=${isReactDevServer}, devAssets=${hasDevAssets}`);
     return {
-      vosk: 'ws://localhost:2700',
-      tts: 'ws://localhost:2701'
+      vosk: `ws://${hostname}:2700`,
+      tts: `ws://${hostname}:2701`
     };
   }
   
