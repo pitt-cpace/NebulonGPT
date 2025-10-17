@@ -3174,21 +3174,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   }, []);
 
 
-  // Helper function to filter chain-of-thought thinking text from assistant messages
-  const filterThinkingText = (content: string): string => {
-    if (!content) return content;
-    
-    // Use the robust thinking extractor utility
-    const { body } = takeThinkingThenBody(content);
-    return body;
-  };
-
   // Memoized message component to prevent re-renders during streaming
   const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean }>(({ message, chatMessages, isStreaming }) => {
     const isUser = message.role === 'user';
     
-    // Filter thinking text from assistant messages before rendering
-    const displayContent = isUser ? message.content : filterThinkingText(message.content);
+    // Extract thinking and body from assistant messages
+    const { thinking, body } = isUser ? { thinking: null, body: message.content } : takeThinkingThenBody(message.content);
+    const displayContent = body;
     
     // Auto-detect RTL/LTR for both user and assistant messages
     const textDirectionStyles = getTextDirectionStyles(displayContent);
@@ -3230,6 +3222,45 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 </>
               )}
             </Typography>
+
+            {/* Thinking chunk display - streaming tape animation */}
+            {!isUser && thinking && (
+              <Box
+                sx={{
+                  mt: 1,
+                  p: 1.5,
+                  backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                  borderRadius: '8px',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  overflow: 'hidden',
+                  position: 'relative',
+                }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: 'text.secondary',
+                    fontStyle: 'italic',
+                    fontSize: '0.85rem',
+                    opacity: 0.7,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    animation: 'streamingTape 8s linear infinite',
+                    '@keyframes streamingTape': {
+                      '0%': {
+                        transform: 'translateX(0%)',
+                      },
+                      '100%': {
+                        transform: 'translateX(-50%)',
+                      },
+                    },
+                  }}
+                >
+                  {thinking} {thinking}
+                </Typography>
+              </Box>
+            )}
 
             {/* Token count display - always on right side for both user and AI messages */}
             {(() => {
