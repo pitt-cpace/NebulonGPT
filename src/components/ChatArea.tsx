@@ -1814,26 +1814,61 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               
               if (formulas.length > 0) {
                 return (
-                  <Box sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
-                    {formulas.map((item, idx) => {
-                      try {
-                        const html = katex.renderToString(item.formula, {
-                          displayMode: false,
-                          throwOnError: false,
-                          output: 'html'
-                        });
-                        
-                        return (
-                          <Box
-                            key={idx}
-                            sx={{ my: 1 }}
-                            dangerouslySetInnerHTML={{ __html: html }}
-                          />
-                        );
-                      } catch (error) {
-                        return null;
-                      }
-                    })}
+                  <Box sx={{ position: 'relative' }}>
+                    <Box sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+                      {formulas.map((item, idx) => {
+                        try {
+                          const html = katex.renderToString(item.formula, {
+                            displayMode: false,
+                            throwOnError: false,
+                            output: 'html'
+                          });
+                          
+                          return (
+                            <Box
+                              key={idx}
+                              sx={{ my: 1 }}
+                              dangerouslySetInnerHTML={{ __html: html }}
+                            />
+                          );
+                        } catch (error) {
+                          return null;
+                        }
+                      })}
+                    </Box>
+                    {/* Copy button for rendered LaTeX */}
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleCopyCode(content);
+                        }}
+                        sx={{
+                          opacity: 0.75,
+                          backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                          borderRadius: '8px',
+                          padding: '6px',
+                          border: '1px solid rgba(0, 0, 0, 0.08)',
+                          transition: 'all 0.2s ease-in-out',
+                          '&:hover': {
+                            opacity: 1,
+                            backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                            borderColor: 'secondary.main',
+                            color: 'secondary.main',
+                            transform: 'scale(1.1)',
+                            boxShadow: '0 2px 6px rgba(156, 39, 176, 0.2)',
+                          },
+                          '&:active': {
+                            transform: 'scale(0.95)',
+                          },
+                        }}
+                        title="Copy LaTeX code"
+                      >
+                        <ContentCopyIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Box>
                   </Box>
                 );
               }
@@ -1847,10 +1882,45 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 });
                 
                 return (
-                  <Box
-                    sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}
-                    dangerouslySetInnerHTML={{ __html: html }}
-                  />
+                  <Box sx={{ position: 'relative' }}>
+                    <Box
+                      sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}
+                      dangerouslySetInnerHTML={{ __html: html }}
+                    />
+                    {/* Copy button for rendered LaTeX */}
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleCopyCode(content);
+                        }}
+                        sx={{
+                          opacity: 0.75,
+                          backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                          borderRadius: '8px',
+                          padding: '6px',
+                          border: '1px solid rgba(0, 0, 0, 0.08)',
+                          transition: 'all 0.2s ease-in-out',
+                          '&:hover': {
+                            opacity: 1,
+                            backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                            borderColor: 'secondary.main',
+                            color: 'secondary.main',
+                            transform: 'scale(1.1)',
+                            boxShadow: '0 2px 6px rgba(156, 39, 176, 0.2)',
+                          },
+                          '&:active': {
+                            transform: 'scale(0.95)',
+                          },
+                        }}
+                        title="Copy LaTeX code"
+                      >
+                        <ContentCopyIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Box>
+                  </Box>
                 );
               } catch (error) {
                 // Fall through to normal code block rendering
