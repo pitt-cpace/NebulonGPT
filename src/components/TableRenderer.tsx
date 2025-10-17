@@ -204,75 +204,34 @@ export const parseMediaWikiTable = (content: string): TableData | null => {
   }
   
   // Extract table lines (excluding the opening and closing braces)
-  const tableLines = lines.slice(startIndex, endIndex + 1);
+  const tableLines = lines.slice(startIndex + 1, endIndex);
   
-  // Parse the header from the first line
-  const firstLine = tableLines[0].trim();
   let headers: string[] = [];
-  
-  // Extract headers from the opening line: {| Header1 | Header2 | Header3 |}
-  const headerMatch = firstLine.match(/\{\|\s*(.+?)\s*\|/);
-  if (headerMatch) {
-    headers = headerMatch[1]
-      .split('|')
-      .map(header => header.trim())
-      .filter(header => header !== '');
-  }
-  
-  // If no headers found in the first line, look for them in subsequent lines
-  if (headers.length === 0) {
-    for (let i = 1; i < tableLines.length - 1; i++) {
-      const line = tableLines[i].trim();
-      if (line.startsWith('|') && !line.includes('---')) {
-        headers = line
-          .split('|')
-          .filter(cell => cell.trim() !== '')
-          .map(cell => cell.trim());
-        break;
-      }
-    }
-  }
-  
-  // Extract data rows
   const rows: string[][] = [];
-  let currentRow: string[] = [];
   
-  for (let i = 1; i < tableLines.length - 1; i++) {
+  for (let i = 0; i < tableLines.length; i++) {
     const line = tableLines[i].trim();
     
-    // Skip separator lines (lines with dashes)
-    if (line.includes('---')) {
+    // Skip empty lines and row separators
+    if (!line || line === '|-') {
       continue;
     }
     
-    // Skip empty lines
-    if (!line) {
+    // Parse header row (starts with !)
+    if (line.startsWith('!')) {
+      // Split by !! for multiple headers
+      headers = line.substring(1).split('!!').map(h => h.trim());
       continue;
     }
     
-    // Process lines that start with |
+    // Parse data row (starts with |)
     if (line.startsWith('|')) {
-      // If we have a current row being built, save it
-      if (currentRow.length > 0) {
-        rows.push([...currentRow]);
-        currentRow = [];
-      }
-      
-      // Parse the current line
-      const cells = line
-        .split('|')
-        .filter(cell => cell.trim() !== '')
-        .map(cell => cell.trim());
-      
+      // Split by || for multiple cells
+      const cells = line.substring(1).split('||').map(c => c.trim());
       if (cells.length > 0) {
-        currentRow = cells;
+        rows.push(cells);
       }
     }
-  }
-  
-  // Add the last row if it exists
-  if (currentRow.length > 0) {
-    rows.push(currentRow);
   }
   
   // Validate that we have headers and rows
@@ -280,14 +239,7 @@ export const parseMediaWikiTable = (content: string): TableData | null => {
     return null;
   }
   
-  // Ensure all rows have the same number of columns as headers
-  const validRows = rows.filter(row => row.length === headers.length);
-  
-  if (validRows.length === 0) {
-    return null;
-  }
-  
-  return { headers, rows: validRows };
+  return { headers, rows };
 };
 
 export default TableRenderer;
