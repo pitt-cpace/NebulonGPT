@@ -2390,7 +2390,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               parts.push(
                 <Box key={`text-${key++}`}>
                   <ReactMarkdown 
-                    remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                    remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
                     rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                     components={customMarkdownComponents}
                   >
@@ -2416,7 +2416,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           parts.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -2432,7 +2432,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // No display math blocks, just render normally
       return (
         <ReactMarkdown 
-          remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+          remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
           rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
           components={markdownComponents}
         >
@@ -2456,7 +2456,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -2535,7 +2535,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -2667,7 +2667,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -2764,7 +2764,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -2887,7 +2887,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         result.push(
           <Box key={`text-${key++}`}>
             <ReactMarkdown 
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -2968,7 +2968,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             result.push(
               <Box key={`text-${key++}`}>
                 <ReactMarkdown 
-                  remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                  remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
                   rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                   components={customMarkdownComponents}
                 >
@@ -3037,7 +3037,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3050,7 +3050,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         result.push(
           <Box key={`text-${key++}`}>
             <ReactMarkdown 
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: false }] as any]}
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
