@@ -1368,6 +1368,24 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     textContent = decodeHtmlEntities(textContent);
     
+    // Check if content is wrapped in backticks (inline code)
+    const inlineCodeMatch = textContent.match(/^`([^`]+)`$/);
+    if (inlineCodeMatch) {
+      // Render as inline code
+      return (
+        <code style={{ 
+          backgroundColor: 'rgba(0, 0, 0, 0.08)',
+          padding: '2px 4px',
+          borderRadius: '3px',
+          fontSize: '0.85em',
+          fontFamily: 'monospace',
+          wordBreak: 'break-word'
+        }}>
+          {inlineCodeMatch[1]}
+        </code>
+      );
+    }
+    
     // CRITICAL FIX: Check for LaTeX patterns BEFORE other processing
     // This ensures LaTeX in tables is rendered properly
     const hasLatexDelimiters = /\\\[|\\\(|\$\$|\$/.test(textContent);
@@ -1999,25 +2017,47 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   };
 
   const detectMarkdownTable = (content: string, startIndex: number = 0): ContentBlock | null => {
-    const markdownTableRegex = /\|.+\|\n\|[-:\s|]+\|\n(?:\|.+\|\n)+/;
-    const match = content.substring(startIndex).match(markdownTableRegex);
+    // Flexible regex that matches markdown tables with or without leading/trailing pipes
+    // Removed ^ anchor to allow tables anywhere in the content, not just at line start
+    const markdownTableRegex = /[^\n]*\|[^\n]+\n[^\n]*[-:]+\|[-:\s|]+[^\n]*\n(?:[^\n]*\|[^\n]+\n?)+/;
+    const searchContent = content.substring(startIndex);
+    const match = searchContent.match(markdownTableRegex);
     
     if (match && match.index !== undefined) {
-      const tableContent = match[0];
-      const lines = tableContent.trim().split('\n');
+      let tableContent = match[0];
+      
+      // Remove trailing newline if present for cleaner processing
+      tableContent = tableContent.replace(/\n$/, '');
+      
+      const lines = tableContent.split('\n').filter(line => line.trim());
       
       if (lines.length >= 3) {
         const smartSplit = (line: string): string[] => {
           const cells: string[] = [];
           let current = '';
           let inBackticks = false;
+          let inDollarSigns = false;
           
-          for (let i = 0; i < line.length; i++) {
-            const char = line[i];
-            if (char === '`') {
+          // Remove leading/trailing pipes if present
+          let processLine = line.trim();
+          if (processLine.startsWith('|')) processLine = processLine.substring(1);
+          if (processLine.endsWith('|')) processLine = processLine.substring(0, processLine.length - 1);
+          
+          for (let i = 0; i < processLine.length; i++) {
+            const char = processLine[i];
+            
+            // Track backticks
+            if (char === '`' && !inDollarSigns) {
               inBackticks = !inBackticks;
               current += char;
-            } else if (char === '|' && !inBackticks) {
+            }
+            // Track dollar signs
+            else if (char === '$' && !inBackticks) {
+              inDollarSigns = !inDollarSigns;
+              current += char;
+            }
+            // Split on pipe only when not inside backticks or dollar signs
+            else if (char === '|' && !inBackticks && !inDollarSigns) {
               cells.push(current);
               current = '';
             } else {
@@ -2031,13 +2071,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const headers = smartSplit(lines[0]);
         const rows = lines.slice(2).map(row => smartSplit(row));
         
-        return {
-          type: ContentType.MARKDOWN_TABLE,
-          content: tableContent,
-          startIndex: startIndex + match.index,
-          endIndex: startIndex + match.index + tableContent.length,
-          data: { headers, rows }
-        };
+        // Validate we have valid headers and rows
+        if (headers.length > 0 && rows.length > 0) {
+          return {
+            type: ContentType.MARKDOWN_TABLE,
+            content: tableContent,
+            startIndex: startIndex + match.index,
+            endIndex: startIndex + match.index + tableContent.length,
+            data: { headers, rows }
+          };
+        }
       }
     }
     return null;
