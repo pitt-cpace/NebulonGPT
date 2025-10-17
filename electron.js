@@ -5,6 +5,12 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const extractZip = require('extract-zip');
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const multer = require('multer');
+const AdmZip = require('adm-zip');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const isDev = require('electron-is-dev');
 
@@ -13,14 +19,39 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.nebulon.gpt.dev'); // matches your build appId family
 }
 
-// Treat the CRA dev server as secure to unblock getUserMedia in dev
+// Treat the server as secure to unblock getUserMedia
+// In dev: CRA dev server, In production: Our Express server
+// We need to allow all IP addresses on port 3000
 if (isDev) {
   app.commandLine.appendSwitch(
     'unsafely-treat-insecure-origin-as-secure',
     'http://localhost:3000'
   );
-  // Optional: let audio start without click, if you auto-start streams
   app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+} else {
+  // Production mode: Allow all origins on port 3000
+  // Get all network IP addresses
+  const networkInterfaces = os.networkInterfaces();
+  const addresses = ['localhost', '127.0.0.1'];
+  
+  for (const interfaceName in networkInterfaces) {
+    const interfaces = networkInterfaces[interfaceName];
+    for (const iface of interfaces) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        addresses.push(iface.address);
+      }
+    }
+  }
+  
+  // Treat all these addresses on port 3000 as secure
+  const secureOrigins = addresses.map(addr => `http://${addr}:3000`).join(',');
+  app.commandLine.appendSwitch(
+    'unsafely-treat-insecure-origin-as-secure',
+    secureOrigins
+  );
+  app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+  
+  console.log(`🔒 Treating as secure: ${secureOrigins}`);
 }
 
 // Keep a global reference of the window object
@@ -28,6 +59,7 @@ let mainWindow;
 let voskProcess = null;
 let ttsProcess = null;
 let isQuitting = false;
+let httpServer = null;
 
 // Store for chat data (replaces the Node.js server functionality)
 let chatsData = [];
@@ -1042,6 +1074,364 @@ function startTTSServer() {
   });
 }
 
+// Start Express server in production mode
+function startExpressServer() {
+  return new Promise((resolve, reject) => {
+    if (isDev) {
+      // In development, React dev server is already running
+      console.log('Development mode: Using React dev server on port 3000');
+      resolve();
+      return;
+    }
+
+    console.log('Starting Express server for production mode...');
+    
+    const expressApp = express();
+    const PORT = 3000;
+
+    // Configure multer for file uploads
+    const upload = multer({
+      dest: path.join(os.tmpdir(), 'nebulon-uploads'),
+      limits: {
+        fileSize: 5 * 1024 * 1024 * 1024, // 5GB limit
+      },
+    });
+
+    // Middleware
+    expressApp.use(cors());
+    expressApp.use(bodyParser.json({ limit: '50mb' }));
+    expressApp.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+
+    // Create WebSocket proxy middleware instances
+    const voskProxy = createProxyMiddleware({
+      target: 'ws://127.0.0.1:2700',
+      ws: true,
+      changeOrigin: true,
+      pathRewrite: {
+        '^/vosk': '', // Remove /vosk prefix when forwarding
+      },
+      logLevel: 'debug',
+      onError: (err, req, res) => {
+        console.error('❌ Vosk proxy error:', err.message);
+      },
+      onProxyReq: (proxyReq, req, res) => {
+        console.log('📡 Proxying Vosk HTTP request');
+      },
+      onProxyReqWs: (proxyReq, req, socket, options, head) => {
+        console.log('📡 Proxying Vosk WebSocket request');
+      },
+    });
+
+    const ttsProxy = createProxyMiddleware({
+      target: 'ws://127.0.0.1:2701',
+      ws: true,
+      changeOrigin: true,
+      pathRewrite: {
+        '^/tts': '', // Remove /tts prefix when forwarding
+      },
+      logLevel: 'debug',
+      onError: (err, req, res) => {
+        console.error('❌ TTS proxy error:', err.message);
+      },
+      onProxyReq: (proxyReq, req, res) => {
+        console.log('📡 Proxying TTS HTTP request');
+      },
+      onProxyReqWs: (proxyReq, req, socket, options, head) => {
+        console.log('📡 Proxying TTS WebSocket request');
+      },
+    });
+
+    // Apply middleware to routes
+    expressApp.use('/vosk', voskProxy);
+    expressApp.use('/tts', ttsProxy);
+
+    // API endpoints for chat data
+    expressApp.get('/api/chats', (req, res) => {
+      res.json(chatsData);
+    });
+
+    expressApp.post('/api/chats/:chatId', (req, res) => {
+      try {
+        const chatId = req.params.chatId;
+        const chatData = req.body;
+        
+        if (!chatId || !chatData) {
+          return res.status(400).json({ error: 'Chat ID and chat data are required' });
+        }
+        
+        const existingChatIndex = chatsData.findIndex(chat => chat.id === chatId);
+        
+        if (existingChatIndex >= 0) {
+          chatsData[existingChatIndex] = { ...chatsData[existingChatIndex], ...chatData, id: chatId };
+        } else {
+          chatsData.unshift({ ...chatData, id: chatId });
+        }
+        
+        saveChatsData();
+        res.json({ success: true });
+      } catch (error) {
+        console.error('Error saving chat:', error);
+        res.status(500).json({ error: 'Failed to save chat' });
+      }
+    });
+
+    expressApp.post('/api/chats', (req, res) => {
+      try {
+        const chats = Array.isArray(req.body) ? req.body : req.body.chats || req.body;
+        
+        if (!chats) {
+          return res.status(400).json({ error: 'No chats data provided' });
+        }
+        
+        chatsData = chats;
+        saveChatsData();
+        res.json({ success: true });
+      } catch (error) {
+        console.error('Error writing chats:', error);
+        res.status(500).json({ error: 'Failed to save chats' });
+      }
+    });
+
+    // Helper function to calculate directory size
+    const getDirectorySize = (dirPath) => {
+      let totalSize = 0;
+      
+      try {
+        const items = fs.readdirSync(dirPath);
+        
+        for (const item of items) {
+          const itemPath = path.join(dirPath, item);
+          const stats = fs.statSync(itemPath);
+          
+          if (stats.isDirectory()) {
+            totalSize += getDirectorySize(itemPath);
+          } else {
+            totalSize += stats.size;
+          }
+        }
+      } catch (error) {
+        console.error(`Error calculating directory size for ${dirPath}:`, error);
+      }
+      
+      return totalSize;
+    };
+
+    // Vosk Models API endpoints
+    expressApp.get('/api/vosk/models/all', async (req, res) => {
+      try {
+        const models = [];
+        
+        if (fs.existsSync(PATHS.voskModelsDir)) {
+          const items = fs.readdirSync(PATHS.voskModelsDir);
+          
+          for (const item of items) {
+            const itemPath = path.join(PATHS.voskModelsDir, item);
+            const stats = fs.statSync(itemPath);
+            
+            let type = 'file';
+            let status = 'other';
+            let size = stats.size;
+            
+            if (stats.isDirectory()) {
+              type = 'directory';
+              size = await calculateDirectorySize(itemPath);
+              
+              const requiredFiles = ['conf/model.conf', 'am/final.mdl', 'graph/HCLG.fst'];
+              let hasRequiredFiles = 0;
+              
+              for (const file of requiredFiles) {
+                if (fs.existsSync(path.join(itemPath, file))) {
+                  hasRequiredFiles++;
+                }
+              }
+              
+              status = hasRequiredFiles >= 2 ? 'ready' : 'other';
+            } else if (item.endsWith('.zip')) {
+              type = 'zip';
+              status = 'archived';
+            }
+            
+            models.push({
+              name: item,
+              type,
+              size,
+              modified: stats.mtime.toISOString(),
+              status
+            });
+          }
+          
+          models.sort((a, b) => {
+            const priority = { ready: 0, archived: 1, other: 2 };
+            const aPriority = priority[a.status] || 3;
+            const bPriority = priority[b.status] || 3;
+            
+            if (aPriority !== bPriority) {
+              return aPriority - bPriority;
+            }
+            
+            return a.name.localeCompare(b.name);
+          });
+        }
+        
+        res.json({ models });
+      } catch (error) {
+        console.error('Error listing models:', error);
+        res.status(500).json({ error: 'Failed to list models' });
+      }
+    });
+
+    expressApp.post('/api/vosk/models/upload', upload.single('model'), (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: 'No file uploaded' });
+        }
+        
+        const uploadedFile = req.file;
+        const originalName = uploadedFile.originalname;
+        
+        if (!originalName.endsWith('.zip')) {
+          fs.unlinkSync(uploadedFile.path);
+          return res.status(400).json({ error: 'Only ZIP files are supported' });
+        }
+        
+        const targetPath = path.join(PATHS.voskModelsDir, originalName);
+        fs.copyFileSync(uploadedFile.path, targetPath);
+        fs.unlinkSync(uploadedFile.path);
+        
+        try {
+          const zip = new AdmZip(targetPath);
+          zip.extractAllTo(PATHS.voskModelsDir, true);
+          res.json({ 
+            message: 'Model uploaded and extracted successfully', 
+            filename: originalName,
+            extracted: true
+          });
+        } catch (extractError) {
+          res.json({ 
+            message: 'Model uploaded successfully, but auto-extraction failed', 
+            filename: originalName,
+            extracted: false,
+            extractError: extractError.message
+          });
+        }
+      } catch (error) {
+        console.error('Error uploading model:', error);
+        if (req.file && fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+        res.status(500).json({ error: 'Failed to upload model' });
+      }
+    });
+
+    expressApp.post('/api/vosk/models/:name/extract', (req, res) => {
+      try {
+        const modelName = decodeURIComponent(req.params.name);
+        const zipPath = path.join(PATHS.voskModelsDir, modelName);
+        
+        if (!fs.existsSync(zipPath)) {
+          return res.status(404).json({ error: 'Model file not found' });
+        }
+        
+        if (!modelName.endsWith('.zip')) {
+          return res.status(400).json({ error: 'File is not a ZIP archive' });
+        }
+        
+        const zip = new AdmZip(zipPath);
+        zip.extractAllTo(PATHS.voskModelsDir, true);
+        
+        res.json({ message: 'Model extracted successfully' });
+      } catch (error) {
+        console.error('Error extracting model:', error);
+        res.status(500).json({ error: 'Failed to extract model' });
+      }
+    });
+
+    expressApp.delete('/api/vosk/models/:name', (req, res) => {
+      try {
+        const modelName = decodeURIComponent(req.params.name);
+        const modelPath = path.join(PATHS.voskModelsDir, modelName);
+        
+        if (!fs.existsSync(modelPath)) {
+          return res.status(404).json({ error: 'Model not found' });
+        }
+        
+        const stats = fs.statSync(modelPath);
+        
+        if (stats.isDirectory()) {
+          fs.rmSync(modelPath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(modelPath);
+        }
+        
+        res.json({ message: 'Model deleted successfully' });
+      } catch (error) {
+        console.error('Error deleting model:', error);
+        res.status(500).json({ error: 'Failed to delete model' });
+      }
+    });
+
+    // Serve static files from build directory
+    expressApp.use(express.static(PATHS.buildDir));
+
+    // Handle client-side routing - send index.html for all non-API routes
+    expressApp.get('*', (req, res) => {
+      res.sendFile(path.join(PATHS.buildDir, 'index.html'));
+    });
+
+    // Start the server on all network interfaces (0.0.0.0)
+    httpServer = expressApp.listen(PORT, '0.0.0.0', () => {
+      console.log(`✅ Express server running on port ${PORT}`);
+      console.log(`   - Local: http://localhost:${PORT}`);
+      console.log(`   - Local: http://127.0.0.1:${PORT}`);
+      
+      // Get and display network IP addresses
+      const os = require('os');
+      const networkInterfaces = os.networkInterfaces();
+      const addresses = [];
+      
+      for (const interfaceName in networkInterfaces) {
+        const interfaces = networkInterfaces[interfaceName];
+        for (const iface of interfaces) {
+          // Skip internal and non-IPv4 addresses
+          if (iface.family === 'IPv4' && !iface.internal) {
+            addresses.push(iface.address);
+          }
+        }
+      }
+      
+      if (addresses.length > 0) {
+        addresses.forEach(addr => {
+          console.log(`   - Network: http://${addr}:${PORT}`);
+        });
+      }
+      
+      console.log(`   - Serving static files from: ${PATHS.buildDir}`);
+      console.log(`   - WebSocket proxies: /vosk → ws://127.0.0.1:2700, /tts → ws://127.0.0.1:2701`);
+      resolve();
+    }).on('error', (error) => {
+      console.error('Failed to start Express server:', error);
+      reject(error);
+    });
+
+    // CRITICAL: Handle WebSocket upgrades for the proxy middleware
+    // Without this, WebSocket connections won't be properly proxied
+    httpServer.on('upgrade', (req, socket, head) => {
+      console.log(`🔄 WebSocket upgrade request for: ${req.url}`);
+      
+      if (req.url.startsWith('/vosk')) {
+        console.log('🎤 Upgrading Vosk WebSocket connection');
+        voskProxy.upgrade(req, socket, head);
+      } else if (req.url.startsWith('/tts')) {
+        console.log('🔊 Upgrading TTS WebSocket connection');
+        ttsProxy.upgrade(req, socket, head);
+      } else {
+        console.log(`⚠️ Unknown WebSocket upgrade request: ${req.url}`);
+        socket.destroy();
+      }
+    });
+  });
+}
+
 // Create the main window
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -1064,10 +1454,8 @@ function createWindow() {
     show: true // Show immediately
   });
 
-  // Load the app
-  const startUrl = isDev 
-    ? 'http://localhost:3000' 
-    : `file://${path.join(PATHS.buildDir, 'index.html')}`;
+  // Load the app - always use http://localhost:3000
+  const startUrl = 'http://localhost:3000';
   
   // Enable context menu with spell checking support
   const { Menu } = require('electron');
@@ -1247,9 +1635,12 @@ app.whenReady().then(async () => {
     ses.setPermissionRequestHandler((wc, permission, callback, details) => {
       console.log(`🎤 Permission request: ${permission} from ${details.requestingUrl}`);
       
-      const origin = new URL(details.requestingUrl || 'file://').origin;
+      const requestingUrl = details.requestingUrl || 'file://';
+      const origin = new URL(requestingUrl).origin;
+      
+      // Allow any HTTP request on port 3000, plus file protocol
       const isAllowedOrigin =
-        origin === 'http://localhost:3000' || 
+        requestingUrl.startsWith('http://') && requestingUrl.includes(':3000') ||
         origin.startsWith('file://') || 
         origin === 'null'; // Handle null origin for file:// protocol
 
@@ -1284,8 +1675,10 @@ app.whenReady().then(async () => {
 
     ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
       const origin = new URL(requestingOrigin || 'file://').origin;
+      
+      // Allow any HTTP request on port 3000, plus file protocol
       const isAllowedOrigin =
-        origin === 'http://localhost:3000' || 
+        requestingOrigin.startsWith('http://') && requestingOrigin.includes(':3000') ||
         origin.startsWith('file://') || 
         origin === 'null'; // Handle null origin for file:// protocol
 
@@ -1351,6 +1744,11 @@ app.whenReady().then(async () => {
   // Load chats data
   loadChatsData();
   
+  // Start Express server in production mode
+  if (!isDev) {
+    await startExpressServer();
+  }
+  
   // Create window FIRST for faster startup
   console.log('Creating window immediately...');
   createWindow();
@@ -1395,6 +1793,11 @@ app.on('before-quit', () => {
   
   // Save chats data before quitting
   saveChatsData();
+  
+  // Close HTTP server
+  if (httpServer) {
+    httpServer.close();
+  }
   
   // Terminate all processes
   if (voskProcess) {
