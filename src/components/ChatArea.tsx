@@ -608,43 +608,55 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         throw new Error(modelCheck.errorMessage || 'Speech recognition not available');
       }
       
+      // Check user's saved model preference first
+      const availableModels = await voskRecognition.getAvailableModels();
+      
+      if (availableModels.length === 0) {
+        throw new Error('No speech recognition models available');
+      }
+      
+      const savedModel = localStorage.getItem('nebulongpt_vosk_selected_model');
+      
       // Check if a model is currently loaded on the server
       const currentModel = await voskRecognition.getServerCurrentModel();
       
-      if (!currentModel || currentModel === 'none') {
-        // No model loaded, auto-load default model when user clicks microphone
-        
-        const availableModels = await voskRecognition.getAvailableModels();
-        if (availableModels.length === 0) {
-          throw new Error('No speech recognition models available');
+      // Determine which model to load
+      let modelToLoad = '';
+      
+      if (savedModel && availableModels.includes(savedModel)) {
+        // User has a saved preference
+        if (currentModel !== savedModel) {
+          // Saved model is different from server's current model - load the saved preference
+          modelToLoad = savedModel;
         }
-        
-        // Priority order for default model selection
-        const preferredModels = [
-          'vosk-model-small-en-us-0.15',
-          'vosk-model-en-us-0.22',
-          'vosk-model-small-en-us',
-          'vosk-model-en-us'
-        ];
-        
-        let defaultModel = '';
-        
-        // Try to find a preferred model
-        for (const preferred of preferredModels) {
-          if (availableModels.includes(preferred)) {
-            defaultModel = preferred;
-            break;
+      } else if (!savedModel) {
+        // No saved preference - check if server has a model or use defaults
+        if (!currentModel || currentModel === 'none') {
+          // No model on server either, use English defaults
+          const preferredModels = [
+            'vosk-model-small-en-us-0.15',
+            'vosk-model-en-us-0.22',
+            'vosk-model-small-en-us',
+            'vosk-model-en-us'
+          ];
+          
+          for (const preferred of preferredModels) {
+            if (availableModels.includes(preferred)) {
+              modelToLoad = preferred;
+              break;
+            }
+          }
+          
+          if (!modelToLoad) {
+            modelToLoad = availableModels[0];
           }
         }
-        
-        // If no preferred model found, use the first available model
-        if (!defaultModel) {
-          defaultModel = availableModels[0];
-        }
-        
-        await voskRecognition.selectModel(defaultModel);
-        // console.log(`✅ Default model loaded successfully: ${defaultModel}`);
-      } 
+      }
+      
+      // Load the model if we determined one needs to be loaded
+      if (modelToLoad) {
+        await voskRecognition.selectModel(modelToLoad);
+      }
     } catch (error) {
       console.error('❌ Failed to check/load model for speech recognition:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to prepare speech recognition';
