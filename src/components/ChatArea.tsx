@@ -62,6 +62,7 @@ import { electronApi } from '../services/electronApi';
 import { useStickyAutoScroll } from '../hooks/useStickyAutoScroll';
 import { getTextDirectionStyles, analyzeMixedContent } from '../services/rtlDetection';
 import { OllamaStatus } from '../services/ollamaStatus';
+import { takeThinkingThenBody } from '../services/thinkingExtractor';
 import * as styles from '../styles/components/ChatArea.styles';
 import WaveformVisualization from './WaveformVisualization';
 import InputArea from './InputArea';
@@ -3177,17 +3178,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const filterThinkingText = (content: string): string => {
     if (!content) return content;
     
-    // Pattern 1: Remove text wrapped in asterisks at the start (with or without newlines after)
-    // Example: "*thinking text*\n\nActual response" -> "Actual response"
-    let filtered = content.replace(/^\*[^*]+\*\s*/g, '');
-    
-    // Pattern 2: Remove thinking text with asterisk at start, ending with ellipsis before actual response
-    // Example: "*thinking...Hello!" -> "Hello!"
-    if (filtered === content && content.startsWith('*')) {
-      filtered = content.replace(/^\*.*?\.\.\.(?=[A-Z])/, '');
-    }
-    
-    return filtered;
+    // Use the robust thinking extractor utility
+    const { body } = takeThinkingThenBody(content);
+    return body;
   };
 
   // Memoized message component to prevent re-renders during streaming
