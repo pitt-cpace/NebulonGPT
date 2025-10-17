@@ -489,7 +489,7 @@ const InputArea: React.FC<InputAreaProps> = ({
             size="small" 
             sx={isListening ? styles.micButtonActive : (speechError ? styles.micButtonError : styles.micButton)}
             onClick={onToggleListening}
-            disabled={isProcessingMic || !voskRecognition || loading}
+            disabled={isProcessingMic || !voskRecognition}
             title={speechError || (isListening ? 'Stop dictation' : 'Start dictation')}
           >
             <MicIcon />
@@ -520,7 +520,6 @@ const InputArea: React.FC<InputAreaProps> = ({
           <IconButton
             size="small"
             onClick={() => fileInputRef.current?.click()}
-            disabled={loading}
             title="Add attachment"
             sx={styles.fileUploadButton}
           >
@@ -655,7 +654,6 @@ const InputArea: React.FC<InputAreaProps> = ({
               }, 50);
             }}
             onKeyPress={handleKeyPress}
-            disabled={loading}
             inputRef={textFieldRef}
             InputProps={{
               sx: {
