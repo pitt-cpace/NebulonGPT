@@ -36,6 +36,7 @@ interface InputAreaProps {
   chat: any;
   voiceText?: string;
   onClearInput?: React.MutableRefObject<(() => void) | null>; // Ref callback to clear input
+  onGetAttachments?: React.MutableRefObject<(() => FileAttachment[]) | null>; // Ref callback to get current attachments
 }
 
 const InputArea: React.FC<InputAreaProps> = ({
@@ -52,6 +53,7 @@ const InputArea: React.FC<InputAreaProps> = ({
   chat,
   voiceText,
   onClearInput,
+  onGetAttachments,
 }) => {
   const [message, setMessage] = useState(initialMessage || '');
   
@@ -207,12 +209,20 @@ const InputArea: React.FC<InputAreaProps> = ({
     calculateTokens('', []);
   }, [calculateTokens]);
 
-  // Expose clearInput function to parent
+  // Function to get current attachments
+  const getAttachments = useCallback(() => {
+    return attachments;
+  }, [attachments]);
+
+  // Expose clearInput and getAttachments functions to parent
   useEffect(() => {
     if (onClearInput) {
       onClearInput.current = clearInput;
     }
-  }, [onClearInput, clearInput]);
+    if (onGetAttachments) {
+      onGetAttachments.current = getAttachments;
+    }
+  }, [onClearInput, clearInput, onGetAttachments, getAttachments]);
 
   // Clear typing timeout and recalculate tokens when chat changes (keep input text)
   const prevChatIdRef = useRef(chat?.id);

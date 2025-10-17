@@ -131,6 +131,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [contextWarning, setContextWarning] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const onClearInputAreaRef = useRef<(() => void) | null>(null);
+  const onGetAttachmentsRef = useRef<(() => FileAttachment[]) | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const finalTranscriptRef = useRef<string>('');
@@ -542,13 +543,21 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       if (isFullVoiceMode) {
         // In full voice mode: auto-send message but keep microphone active
-        if (message.trim()) {
-          // Send the voice-recognized message
-          handleSendMessage(message.trim(), undefined);
+        // Get current attachments from InputArea
+        const currentAttachments = onGetAttachmentsRef.current ? onGetAttachmentsRef.current() : [];
+        
+        if (message.trim() || currentAttachments.length > 0) {
+          // Send the voice-recognized message with any attachments from InputArea
+          handleSendMessage(message.trim(), currentAttachments.length > 0 ? currentAttachments : undefined);
           
           // Clear the message and reset transcript for next speech recognition
           setMessage('');
           finalTranscriptRef.current = '';
+          
+          // Clear InputArea's attachments via the clear function
+          if (onClearInputAreaRef.current) {
+            onClearInputAreaRef.current();
+          }
         }
         // Don't stop listening - keep microphone active for continuous conversation
         // Only clear interim transcript
@@ -569,7 +578,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return () => {
       // Cleanup handled by Vosk service
     };
-  }, [voskRecognition, message, handleSendMessage, detectStopCommand, isListening, loading, onStopResponse]);
+  }, [voskRecognition, message, attachments, handleSendMessage, detectStopCommand, isListening, loading, onStopResponse]);
 
   // Handle mic stopped from settings - listen for the trigger
   useEffect(() => {
@@ -4625,6 +4634,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             chat={chat}
             voiceText={message}
             onClearInput={onClearInputAreaRef}
+            onGetAttachments={onGetAttachmentsRef}
           />
         </>
       )}
