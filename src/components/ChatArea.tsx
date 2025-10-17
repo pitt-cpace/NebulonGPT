@@ -1033,17 +1033,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       const headers: string[] = [];
       const rows: string[][] = [];
       
-      // Extract headers
+      // Extract headers - use innerHTML to preserve LaTeX delimiters
       const headerCells = table.querySelectorAll('th');
-      headerCells.forEach(th => headers.push(th.textContent?.trim() || ''));
+      headerCells.forEach(th => headers.push(th.innerHTML?.trim() || ''));
       
-      // Extract rows
+      // Extract rows - use innerHTML to preserve LaTeX delimiters
       const tableRows = table.querySelectorAll('tr');
       tableRows.forEach(tr => {
         const cells = tr.querySelectorAll('td');
         if (cells.length > 0) {
           const rowData: string[] = [];
-          cells.forEach(td => rowData.push(td.textContent?.trim() || ''));
+          cells.forEach(td => rowData.push(td.innerHTML?.trim() || ''));
           rows.push(rowData);
         }
       });
@@ -1283,12 +1283,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
     
-    // Match multiple LaTeX notations (more conservative to avoid false positives with markdown):
-    // 1. Double dollar: $$ block $$
-    // 2. Single dollar: $ inline $ (but must contain LaTeX commands or math symbols)
-    // 3. Standard: \( \) for inline, \[ \] for block
-    // Note: Removed overly aggressive ( ) and [ ] patterns that were catching markdown formatting
-    const latexPattern = /\$\$([\s\S]+?)\$\$|\$([^$]*(?:\\[a-zA-Z]+|[_^{}])[^$]*)\$|\\\((.+?)\\\)|\\\[([\s\S]+?)\\\]/g;
+    // Match multiple LaTeX notations:
+    // 1. Display math \[...\] - with optional whitespace
+    // 2. Double dollar: $$ block $$
+    // 3. Inline math \(...\)
+    // 4. Single dollar: $ inline $
+    const latexPattern = /\\\[\s*([\s\S]*?)\s*\\\]|\$\$([\s\S]+?)\$\$|\\\(\s*([\s\S]*?)\s*\\\)|\$([^$]+)\$/g;
     let match;
     
     while ((match = latexPattern.exec(text)) !== null) {
@@ -1298,28 +1298,27 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
       
       // Determine formula and type
-      const formula = match[1] || match[2] || match[3] || match[4];
-      const isBlock = !!(match[1] || match[4]); // $$ $$ or \[ \]
+      const formula = (match[1] || match[2] || match[3] || match[4] || '').trim();
+      const isBlock = !!(match[1] !== undefined || match[2] !== undefined); // \[...\] or $$...$$
       
       try {
         const html = katex.renderToString(formula, {
           displayMode: isBlock,
           throwOnError: false,
-          output: 'html'
+          output: 'html',
+          strict: false
         });
         
         parts.push(
-          <span
+          <Box
             key={`latex-${match.index}`}
+            component={isBlock ? 'div' : 'span'}
             dangerouslySetInnerHTML={{ __html: html }}
-            style={{ 
-              display: isBlock ? 'block' : 'inline',
-              margin: isBlock ? '8px 0' : '0'
-            }}
+            sx={isBlock ? { my: 1, display: 'block' } : {}}
           />
         );
       } catch (error) {
-        // If LaTeX parsing fails, show original text
+        // If KaTeX fails, show original text
         parts.push(<span key={`error-${match.index}`}>{match[0]}</span>);
       }
       
@@ -1358,6 +1357,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if (!textContent || textContent.trim() === '') {
       return textContent;
     }
+    
+    // Decode HTML entities that might be in the innerHTML
+    // This ensures LaTeX delimiters like \[ are properly detected
+    const decodeHtmlEntities = (text: string): string => {
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = text;
+      return textarea.value;
+    };
+    
+    textContent = decodeHtmlEntities(textContent);
     
     // Handle content with <br> tags by converting them to actual line breaks first
     textContent = textContent.replace(/<br\s*\/?>/gi, '\n');
@@ -1476,54 +1485,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Skip this check - let LaTeX reference code display as-is without backslash restoration
     // This allows "LaTeX Code" columns to show simplified syntax as intended by the LLM
     
-    // Check if cell contains LaTeX formulas with $ delimiters
-    // Render them directly with KaTeX for better reliability
-    const hasInlineMath = /\$[^$]+\$/.test(textContent);
+    // Check if cell contains any LaTeX-like patterns
+    // After HTML decoding, check for LaTeX delimiters more precisely
+    const hasMath = /\\\[|\\\(|\$\$|\$/.test(textContent);
     
-    if (hasInlineMath) {
-      // Split content by $ delimiters and render math parts with KaTeX
-      const parts: React.ReactNode[] = [];
-      const mathPattern = /\$([^$]+)\$/g;
-      let lastIndex = 0;
-      let match;
-      let partKey = 0;
-      
-      while ((match = mathPattern.exec(textContent)) !== null) {
-        // Add text before this math expression
-        if (match.index > lastIndex) {
-          const beforeText = textContent.substring(lastIndex, match.index);
-          parts.push(<span key={`text-${partKey++}`}>{beforeText}</span>);
-        }
-        
-        // Render the math expression with KaTeX
-        const formula = match[1];
-        try {
-          const html = katex.renderToString(formula, {
-            displayMode: false,
-            throwOnError: false,
-            output: 'html',
-            strict: false
-          });
-          parts.push(
-            <span 
-              key={`math-${partKey++}`}
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          );
-        } catch (error) {
-          // If KaTeX fails, show the original text
-          parts.push(<span key={`error-${partKey++}`}>${formula}$</span>);
-        }
-        
-        lastIndex = match.index + match[0].length;
-      }
-      
-      // Add any remaining text
-      if (lastIndex < textContent.length) {
-        parts.push(<span key={`text-${partKey++}`}>{textContent.substring(lastIndex)}</span>);
-      }
-      
-      return <>{parts}</>;
+    if (hasMath) {
+      // Use the existing renderLatex helper function which handles all LaTeX delimiters correctly
+      return renderLatex(textContent);
     }
     
     // For content without math, use ReactMarkdown for other markdown features
@@ -1668,19 +1636,21 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       </TableBody>
     ),
     // Override the default tr renderer
-    tr: ({ node, children, isHeader, ...props }: any) => {
-      const isOdd = props.index % 2 === 1;
+    tr: ({ node, children, isHeader, index, ...restProps }: any) => {
+      // Filter out any non-DOM props before spreading
+      const { isheader, ...domProps } = restProps;
+      const isOdd = index % 2 === 1;
       return (
         <TableRow 
           sx={isOdd ? styles.tableRowOdd : styles.tableRowEven} 
-          {...props}
+          {...domProps}
         >
           {children}
         </TableRow>
       );
     },
     // Override the default th renderer with markdown support
-    th: ({ node, children, ...props }: any) => (
+    th: ({ node, children, isHeader, ...props }: any) => (
       <TableCell 
         component="th"
         align="left"
@@ -1691,7 +1661,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       </TableCell>
     ),
     // Override the default td renderer with markdown support
-    td: ({ node, children, ...props }: any) => (
+    td: ({ node, children, isHeader, ...props }: any) => (
       <TableCell 
         align="left"
         sx={styles.tableCell} 
@@ -1991,6 +1961,304 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return processed;
   };
 
+  // ============================================================================
+  // STRUCTURAL CONTENT DETECTION AND RENDERING SYSTEM
+  // ============================================================================
+
+  // Content type enumeration
+  enum ContentType {
+    HTML_TABLE = 'HTML_TABLE',
+    LATEX_TABLE = 'LATEX_TABLE',
+    MARKDOWN_TABLE = 'MARKDOWN_TABLE',
+    WIKI_TABLE = 'WIKI_TABLE',
+    CSV_TABLE = 'CSV_TABLE',
+    JSON_TABLE = 'JSON_TABLE',
+    TEXT_TABLE = 'TEXT_TABLE',
+    CODE_BLOCK = 'CODE_BLOCK',
+    PLAIN_TEXT = 'PLAIN_TEXT'
+  }
+
+  // Content block interface
+  interface ContentBlock {
+    type: ContentType;
+    content: string;
+    startIndex: number;
+    endIndex: number;
+    data?: {
+      headers?: string[];
+      rows?: string[][];
+      language?: string;
+    };
+  }
+
+  // 1. TABLE TYPE DETECTORS
+  const detectHtmlTable = (content: string, startIndex: number = 0): ContentBlock | null => {
+    const htmlTableRegex = /<table[\s\S]*?<\/table>/i;
+    const match = content.substring(startIndex).match(htmlTableRegex);
+    
+    if (match && match.index !== undefined) {
+      const tableContent = match[0];
+      const tableData = parseHtmlTable(tableContent);
+      
+      if (tableData) {
+        return {
+          type: ContentType.HTML_TABLE,
+          content: tableContent,
+          startIndex: startIndex + match.index,
+          endIndex: startIndex + match.index + tableContent.length,
+          data: tableData
+        };
+      }
+    }
+    return null;
+  };
+
+  const detectLatexTable = (content: string, startIndex: number = 0): ContentBlock | null => {
+    const latexTableRegex = /\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/;
+    const match = content.substring(startIndex).match(latexTableRegex);
+    
+    if (match && match.index !== undefined) {
+      const tableContent = match[1];
+      const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+      const lines = cleanedContent.split('\\\\').map(line => line.trim()).filter(line => line.length > 0);
+      
+      if (lines.length >= 1) {
+        const headers = lines[0].split('&').map(h => h.trim()).filter(h => h.length > 0);
+        const rows = lines.slice(1).map(row => 
+          row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
+        );
+        
+        return {
+          type: ContentType.LATEX_TABLE,
+          content: match[0],
+          startIndex: startIndex + match.index,
+          endIndex: startIndex + match.index + match[0].length,
+          data: { headers, rows }
+        };
+      }
+    }
+    return null;
+  };
+
+  const detectMarkdownTable = (content: string, startIndex: number = 0): ContentBlock | null => {
+    const markdownTableRegex = /\|.+\|\n\|[-:\s|]+\|\n(?:\|.+\|\n)+/;
+    const match = content.substring(startIndex).match(markdownTableRegex);
+    
+    if (match && match.index !== undefined) {
+      const tableContent = match[0];
+      const lines = tableContent.trim().split('\n');
+      
+      if (lines.length >= 3) {
+        const smartSplit = (line: string): string[] => {
+          const cells: string[] = [];
+          let current = '';
+          let inBackticks = false;
+          
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '`') {
+              inBackticks = !inBackticks;
+              current += char;
+            } else if (char === '|' && !inBackticks) {
+              cells.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          cells.push(current);
+          return cells.filter(cell => cell.trim() !== '').map(cell => cell.trim());
+        };
+        
+        const headers = smartSplit(lines[0]);
+        const rows = lines.slice(2).map(row => smartSplit(row));
+        
+        return {
+          type: ContentType.MARKDOWN_TABLE,
+          content: tableContent,
+          startIndex: startIndex + match.index,
+          endIndex: startIndex + match.index + tableContent.length,
+          data: { headers, rows }
+        };
+      }
+    }
+    return null;
+  };
+
+  const detectWikiTable = (content: string, startIndex: number = 0): ContentBlock | null => {
+    const wikiTableRegex = /\{\|[^\n]*\n[\s\S]*?\|\}/;
+    const match = content.substring(startIndex).match(wikiTableRegex);
+    
+    if (match && match.index !== undefined) {
+      const tableContent = match[0];
+      const { parseMediaWikiTable } = require('./TableRenderer');
+      const tableData = parseMediaWikiTable(tableContent);
+      
+      if (tableData) {
+        return {
+          type: ContentType.WIKI_TABLE,
+          content: tableContent,
+          startIndex: startIndex + match.index,
+          endIndex: startIndex + match.index + tableContent.length,
+          data: tableData
+        };
+      }
+    }
+    return null;
+  };
+
+  // 2. LATEX DETECTOR
+  const detectLatex = (text: string): boolean => {
+    // Check for LaTeX delimiters: $...$, $$...$$, \[...\], \(...\)
+    return /\$|\\\[|\\\(|\\frac|\\sqrt|\\int|\\sum/.test(text);
+  };
+
+  // 3. CONTENT BLOCK DETECTOR (Main detector that finds all content blocks)
+  const detectContentBlocks = (content: string): ContentBlock[] => {
+    const blocks: ContentBlock[] = [];
+    let currentIndex = 0;
+    
+    while (currentIndex < content.length) {
+      // Try to detect tables in priority order
+      let detected = 
+        detectHtmlTable(content, currentIndex) ||
+        detectLatexTable(content, currentIndex) ||
+        detectWikiTable(content, currentIndex) ||
+        detectMarkdownTable(content, currentIndex);
+      
+      if (detected) {
+        // Add any plain text before this block
+        if (detected.startIndex > currentIndex) {
+          blocks.push({
+            type: ContentType.PLAIN_TEXT,
+            content: content.substring(currentIndex, detected.startIndex),
+            startIndex: currentIndex,
+            endIndex: detected.startIndex
+          });
+        }
+        
+        // Add the detected block
+        blocks.push(detected);
+        currentIndex = detected.endIndex;
+      } else {
+        // No more structured content, rest is plain text
+        if (currentIndex < content.length) {
+          blocks.push({
+            type: ContentType.PLAIN_TEXT,
+            content: content.substring(currentIndex),
+            startIndex: currentIndex,
+            endIndex: content.length
+          });
+        }
+        break;
+      }
+    }
+    
+    return blocks;
+  };
+
+  // 4. CONTENT RENDERERS
+  const renderTableBlock = (block: ContentBlock): React.ReactNode => {
+    if (!block.data?.headers || !block.data?.rows) return null;
+    
+    const tableId = `${block.type}-${block.startIndex}`;
+    
+    return renderTableWithCopyButton(
+      tableId,
+      block.data.headers,
+      block.data.rows,
+      <TableContainer component={Paper} sx={styles.tableContainer}>
+        <Table>
+          <TableHead sx={styles.tableHead}>
+            <TableRow>
+              {block.data.headers.map((header: string, idx: number) => (
+                <TableCell key={idx} sx={styles.tableHeaderCell}>
+                  {renderCellContent(header)}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {block.data.rows.map((row: string[], rowIdx: number) => (
+              <TableRow 
+                key={rowIdx}
+                sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+              >
+                {row.map((cell: string, cellIdx: number) => (
+                  <TableCell key={cellIdx} sx={styles.tableCell}>
+                    {renderCellContent(cell)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    );
+  };
+
+  const renderContentBlock = (block: ContentBlock, key: number): React.ReactNode => {
+    switch (block.type) {
+      case ContentType.HTML_TABLE:
+      case ContentType.LATEX_TABLE:
+      case ContentType.WIKI_TABLE:
+      case ContentType.MARKDOWN_TABLE:
+        return <Box key={key} sx={{ mb: 2 }}>{renderTableBlock(block)}</Box>;
+      
+      case ContentType.PLAIN_TEXT:
+        return (
+          <Box key={key}>
+            <ReactMarkdown 
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+              components={markdownComponents}
+            >
+              {block.content}
+            </ReactMarkdown>
+          </Box>
+        );
+      
+      default:
+        return null;
+    }
+  };
+
+  // 5. MAIN RENDERING FUNCTION (Structural approach)
+  const renderContentStructurally = (content: string): React.ReactNode => {
+    // This is the main entry point for rendering any content
+    // It uses a hierarchical detection system:
+    // 1. First, detect structured content (tables) - they take priority
+    // 2. Then, plain text is passed to ReactMarkdown which handles:
+    //    - LaTeX (via remark-math and rehype-katex)
+    //    - Code blocks (via markdown code fence syntax)
+    //    - Regular markdown formatting
+    // 3. Within tables, renderCellContent handles nested content:
+    //    - LaTeX formulas (via renderLatex)
+    //    - Nested tables (via recursive table parsing)
+    //    - Inline code and markdown
+    
+    // Detect all content blocks (tables and text)
+    const blocks = detectContentBlocks(content);
+    
+    // Render each block with its appropriate renderer
+    // Tables → renderTableBlock (which uses renderCellContent for cells)
+    // Plain text → ReactMarkdown (which handles LaTeX, code, markdown)
+    // The nesting is automatic:
+    // - renderCellContent is called for each table cell and handles LaTeX
+    // - ReactMarkdown processes LaTeX in plain text
+    // - Both can handle nested structures recursively
+    
+    return (
+      <div>
+        {blocks.map((block, index) => renderContentBlock(block, index))}
+      </div>
+    );
+  };
+
+  // ============================================================================
+  // END OF STRUCTURAL SYSTEM
+  // ============================================================================
+
   // Function to preprocess content to fix Llama3-3 table format and single-line tables
   const preprocessLlama3TableFormat = (content: string): string => {
     // Note: LaTeX delimiters are already preprocessed before this function is called
@@ -2122,30 +2390,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // Remove orphaned \end{tabular} 
       .replace(/\\end\{tabular\}/g, '');
     
-    // Extract and render \[...\] display math before markdown processing
-    // This avoids markdown stripping backslashes which breaks remark-math
+    // Note: remark-math handles \[...\] and \(...\) natively when configured properly
     const displayMathBlocks: Array<{ placeholder: string, html: string }> = [];
-    
-    // Extract \[...\] blocks and render them with KaTeX directly
-    const displayMathRegex = /\\\[([\s\S]*?)\\\]/g;
-    let matchIndex = 0;
-    processedContent = processedContent.replace(displayMathRegex, (match, formula) => {
-      try {
-        const html = katex.renderToString(formula.trim(), {
-          displayMode: true,
-          throwOnError: false,
-          output: 'html'
-        });
-        // Use {{...}} format which markdown won't process
-        const placeholder = `{{KATEX_DISPLAY_${matchIndex}}}`;
-        displayMathBlocks.push({ placeholder, html });
-        matchIndex++;
-        return placeholder;
-      } catch (error) {
-        // If rendering fails, leave the original text
-        return match;
-      }
-    });
     
     // Check for LaTeX tabular environments in plain text and store them for rendering
     const tabularRegex = /\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/g;
@@ -3214,8 +3460,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 displayContent
               ) : (
                 <>
-                  {/* Try direct Llama3-3 table detection first */}
-                  {detectAndRenderLlama3Table(displayContent) || renderMarkdownWithTables(displayContent)}
+                  {/* Use structural rendering system */}
+                  {renderContentStructurally(displayContent)}
                   {isStreaming && (
                     <span className="streaming-cursor"></span>
                   )}
