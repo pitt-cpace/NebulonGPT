@@ -1102,6 +1102,45 @@ function startExpressServer() {
     expressApp.use(bodyParser.json({ limit: '50mb' }));
     expressApp.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
+    // Ollama Proxy - Forward requests to local Ollama instance
+    const axios = require('axios');
+    const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+
+    expressApp.all('/api/ollama/*', async (req, res) => {
+      try {
+        const ollamaPath = req.path.replace('/api/ollama', '');
+        const ollamaUrl = `${OLLAMA_BASE_URL}/api${ollamaPath}`;
+        
+        console.log(`Proxying Ollama request: ${req.method} ${ollamaPath}`);
+        
+        const config = {
+          method: req.method,
+          url: ollamaUrl,
+          data: req.body,
+          headers: {
+            'Content-Type': req.headers['content-type'] || 'application/json',
+            ...(req.headers['authorization'] && { 'Authorization': req.headers['authorization'] })
+          },
+          responseType: req.body && req.body.stream ? 'stream' : 'json',
+          timeout: 300000
+        };
+        
+        const response = await axios(config);
+        
+        if (response.data && response.data.pipe) {
+          res.setHeader('Content-Type', 'text/event-stream');
+          response.data.pipe(res);
+        } else {
+          res.json(response.data);
+        }
+      } catch (error) {
+        console.error('Ollama proxy error:', error.message);
+        res.status(error.response?.status || 500).json({ 
+          error: error.message || 'Ollama proxy error' 
+        });
+      }
+    });
+
     // Create WebSocket proxy middleware instances
     const voskProxy = createProxyMiddleware({
       target: 'ws://127.0.0.1:2700',
