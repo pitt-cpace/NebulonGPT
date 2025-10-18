@@ -525,11 +525,15 @@ const App: React.FC = () => {
     // Set the current message ID from the LLM response or fallback to local ID
     setCurrentMsgId(aiMessageId);
     
-    // Set active message ID for TTS if full voice mode is enabled and mic is listening
+    // Stop any ongoing TTS and clear the queue before starting new response
     if (ttsSettings.fullVoiceMode && isListening) {
+      // Stop current playback and clear queue to prevent old messages from playing
+      await ttsService.stop();
+      
+      // Set the new active message ID for this response
       const success = await ttsService.setActiveMessageId(aiMessageId);
       if (!success) {
-        console.error('Srart : Failed to set active message ID for TTS:', aiMessageId);
+        console.error('Start: Failed to set active message ID for TTS:', aiMessageId);
       }
     }
        
