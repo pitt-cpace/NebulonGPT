@@ -13,9 +13,14 @@ const PORT = process.env.PORT || 3001;
 const DATA_DIR = path.join(__dirname, 'data');
 const CHATS_FILE = path.join(DATA_DIR, 'chats.json');
 
-// Vosk models directory - points to Electron's extracted models location
-// This ensures localhost, 127.0.0.1, and system IP all use the same models as Electron
-const VOSK_MODELS_DIR = path.join(os.homedir(), '.nebulon-gpt', 'vosk-models');
+// Vosk models directory - detect environment and use appropriate path
+// Docker: /app/vosk-server/models
+// Development/Electron: ~/.nebulon-gpt/vosk-models
+const VOSK_MODELS_DIR = fs.existsSync('/app/vosk-server/models') 
+  ? '/app/vosk-server/models'  // Docker environment
+  : path.join(os.homedir(), '.nebulon-gpt', 'vosk-models');  // Development/Electron
+  
+console.log(`📂 Using Vosk models directory: ${VOSK_MODELS_DIR}`);
 
 
 // Configure multer for file uploads
