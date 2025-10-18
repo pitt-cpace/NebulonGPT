@@ -6,14 +6,16 @@ const bodyParser = require('body-parser');
 const multer = require('multer');
 const AdmZip = require('adm-zip');
 const axios = require('axios');
+const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const DATA_DIR = path.join(__dirname, 'data');
 const CHATS_FILE = path.join(DATA_DIR, 'chats.json');
 
-// Vosk models directory - this should match the Docker volume mount
-const VOSK_MODELS_DIR = path.join(__dirname, 'vosk-server', 'models');
+// Vosk models directory - points to Electron's extracted models location
+// This ensures localhost, 127.0.0.1, and system IP all use the same models as Electron
+const VOSK_MODELS_DIR = path.join(os.homedir(), '.nebulon-gpt', 'vosk-models');
 
 
 // Configure multer for file uploads

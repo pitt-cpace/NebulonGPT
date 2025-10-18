@@ -34,6 +34,8 @@ echo "🐍 Using bundled Python: $PYTHON_EXE"
 # Start Vosk Server (Speech Recognition) on port 2700
 echo "🎤 Starting Vosk server on port 2700..."
 cd python-bundle/python-env/vosk-server
+# Set VOSK_MODELS_DIR to point to Electron's extracted models location
+export VOSK_MODELS_DIR="$HOME/.nebulon-gpt/vosk-models"
 $PYTHON_EXE asr_server_with_models.py &
 VOSK_PID=$!
 echo "🎤 Vosk server started with PID: $VOSK_PID"
