@@ -1,14 +1,14 @@
 import axios from 'axios';
 import { isElectron } from './electronApi';
 
-// Configure axios with base URL for Ollama status checks
+// Function to get base URL for Ollama status checks
 // In Electron, connect directly to Ollama
-// In Docker/web, use the proxied path
-const baseURL = isElectron() 
-  ? 'http://localhost:11434/api' // Direct connection to Ollama in Electron
-  : (process.env.NODE_ENV === 'production' 
-    ? '/api/ollama' // Proxied by Nginx in Docker
-    : (process.env.REACT_APP_OLLAMA_API_URL || 'http://localhost:11434/api')); // Development
+// In Docker/web, use the proxied path through server
+const getBaseURL = (): string => {
+  return isElectron() 
+    ? 'http://localhost:11434/api' // Direct connection to Ollama in Electron
+    : '/api/ollama'; // Always use proxy through Node server (works in dev and production)
+};
 
 export interface OllamaStatus {
   isAvailable: boolean;
@@ -22,6 +22,8 @@ export interface OllamaStatus {
  */
 export const checkOllamaStatus = async (): Promise<OllamaStatus> => {
   try {
+    const baseURL = getBaseURL(); // Get base URL dynamically
+    
     // Try to fetch the version endpoint first (lightweight check)
     const versionResponse = await axios.get(`${baseURL}/version`, {
       timeout: 5000, // 5 second timeout

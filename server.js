@@ -5,6 +5,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const multer = require('multer');
 const AdmZip = require('adm-zip');
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -48,6 +49,44 @@ if (!fs.existsSync(CHATS_FILE)) {
 app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' })); // Increase payload size limit for large chat histories
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+
+// Ollama Proxy - Forward requests to local Ollama instance
+const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+
+app.all('/api/ollama/*', async (req, res) => {
+  try {
+    const ollamaPath = req.path.replace('/api/ollama', '');
+    const ollamaUrl = `${OLLAMA_BASE_URL}/api${ollamaPath}`;
+    
+    console.log(`Proxying Ollama request: ${req.method} ${ollamaPath}`);
+    
+    const config = {
+      method: req.method,
+      url: ollamaUrl,
+      data: req.body,
+      headers: {
+        'Content-Type': req.headers['content-type'] || 'application/json',
+        ...(req.headers['authorization'] && { 'Authorization': req.headers['authorization'] })
+      },
+      responseType: req.body && req.body.stream ? 'stream' : 'json',
+      timeout: 300000
+    };
+    
+    const response = await axios(config);
+    
+    if (response.data && response.data.pipe) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      response.data.pipe(res);
+    } else {
+      res.json(response.data);
+    }
+  } catch (error) {
+    console.error('Ollama proxy error:', error.message);
+    res.status(error.response?.status || 500).json({ 
+      error: error.message || 'Ollama proxy error' 
+    });
+  }
+});
 
 // API endpoints
 app.get('/api/chats', (req, res) => {

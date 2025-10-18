@@ -228,8 +228,8 @@ export const getWebSocketUrls = () => {
   );
   
   // Additional development environment checks
+  // Port 3000 is the default React dev server port, so if we're on port 3000 with dev indicators, treat as dev mode
   const isReactDevServer = (
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && 
     window.location.port === '3000' &&
     (hasWebpackDevServer || hasReactDevTools)
   );
@@ -237,7 +237,7 @@ export const getWebSocketUrls = () => {
   // Check for unbuilt/development assets (these indicate dev mode)
   const hasDevAssets = document.querySelector('script[src*="/static/js/bundle.js"]') !== null;
   
-  // Combine development indicators - must have webpack dev server OR be on localhost:3000 with dev assets
+  // Combine development indicators - must have webpack dev server OR be on port 3000 with dev assets
   const isDevelopmentMode = hasWebpackDevServer || (isReactDevServer && hasDevAssets);
   
   // Scenario 3: Development mode (React dev server) - use direct connections to Python services

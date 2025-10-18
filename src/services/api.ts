@@ -15,12 +15,10 @@ const getBaseURL = (): string => {
   
   // Otherwise, use default logic
   // In Electron, connect directly to Ollama
-  // In Docker/web, use the proxied path
+  // In Docker/web, use the proxied path through server
   return isElectron() 
     ? 'http://localhost:11434/api' // Direct connection to Ollama in Electron
-    : (process.env.NODE_ENV === 'production' 
-      ? '/api/ollama' // Proxied by Nginx in Docker
-      : (process.env.REACT_APP_OLLAMA_API_URL || 'http://localhost:11434/api')); // Development
+    : '/api/ollama'; // Always use proxy through Node server (works in dev and production)
 };
 
 // Function to get the API key from localStorage
