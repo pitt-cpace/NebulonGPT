@@ -4188,311 +4188,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               contain: 'layout style paint', // Prevent cross-layout recalculations
             }}
           >
-            {/* Full Voice Mode Indicator */}
-            {(() => {
-              const ttsSettings = ttsService.getSettings();
-              const isFullVoiceMode = ttsSettings.fullVoiceMode;
-              const ttsQueueStatus = ttsService.getQueueStatus();
-              const isTTSPaused = ttsService.isPausedState();
-              
-              // Show indicator if Full Voice Mode is active OR if we're in the process of turning off
-              if ((isFullVoiceMode && isListening) || (isTurningOff && isListening)) {
-                return (
-                  <Box
-                    sx={{
-                      position: 'fixed',
-                      bottom: '120px',
-                      right: '20px',
-                      zIndex: 1000,
-                      backgroundColor: isTurningOff ? 'rgba(158, 158, 158, 0.95)' : 'rgba(244, 67, 54, 0.95)',
-                      color: 'white',
-                      padding: '20px',
-                      borderRadius: '16px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: 2,
-                      boxShadow: isTurningOff 
-                        ? '0 8px 32px rgba(158, 158, 158, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)'
-                        : '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)',
-                      backdropFilter: 'blur(20px)',
-                      border: isTurningOff ? '2px solid rgba(158, 158, 158, 0.8)' : '2px solid rgba(244, 67, 54, 0.8)',
-                      minWidth: '200px',
-                      animation: isTurningOff ? 'none' : 'pulseRed 2s infinite',
-                      transition: 'all 0.5s ease-in-out',
-                      '@keyframes pulseRed': {
-                        '0%': {
-                          boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(244, 67, 54, 0.7)',
-                        },
-                        '70%': {
-                          boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 15px rgba(244, 67, 54, 0)',
-                        },
-                        '100%': {
-                          boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(244, 67, 54, 0)',
-                        },
-                      },
-                      '@keyframes fadeOut': {
-                        '0%': {
-                          opacity: 1,
-                          transform: 'scale(1)',
-                          backgroundColor: 'rgba(244, 67, 54, 0.95)',
-                        },
-                        '50%': {
-                          opacity: 0.7,
-                          transform: 'scale(0.9)',
-                          backgroundColor: 'rgba(158, 158, 158, 0.95)',
-                        },
-                        '100%': {
-                          opacity: 0,
-                          transform: 'scale(0.8)',
-                          backgroundColor: 'rgba(158, 158, 158, 0.5)',
-                        },
-                      },
-                    }}
-                  >
-                    {/* Main indicator content */}
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
-                      {/* Large animated microphone icon */}
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: '60px',
-                          height: '60px',
-                          borderRadius: '50%',
-                          backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                          animation: 'bounce 1.5s infinite',
-                          '@keyframes bounce': {
-                            '0%, 20%, 50%, 80%, 100%': {
-                              transform: 'translateY(0)',
-                            },
-                            '40%': {
-                              transform: 'translateY(-5px)',
-                            },
-                            '60%': {
-                              transform: 'translateY(-2px)',
-                            },
-                          },
-                        }}
-                      >
-                        <MicIcon sx={{ fontSize: 32, color: 'white' }} />
-                      </Box>
-                      
-                      {/* Title */}
-                      <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.1rem', textAlign: 'center' }}>
-                        Full Voice Mode
-                      </Typography>
-                      
-                      {/* Status text - changes based on TTS state */}
-                      <Typography variant="body2" sx={{ fontSize: '0.9rem', opacity: 0.9, textAlign: 'center' }}>
-                        {isTTSPaused ? (
-                          '⏸️ Audio Paused - Listening...'
-                        ) : ttsQueueStatus.isPlaying ? (
-                          '🔊 Playing Audio - Listening...'
-                        ) : (
-                          '🎙️ Listening for your voice...'
-                        )}
-                      </Typography>
-                      
-                      {/* Helpful tip about "stop stop" command */}
-                      <Typography variant="caption" sx={{ 
-                        fontSize: '0.75rem', 
-                        opacity: 0.8, 
-                        textAlign: 'center',
-                        fontStyle: 'italic',
-                        mt: 0.5
-                      }}>
-                        💡 Say "stop stop" to stop listening
-                      </Typography>
-                      
-                      {/* Real-time audio waveform visualization */}
-                      <WaveformVisualization 
-                        voskRecognition={voskRecognition}
-                        isListening={isListening}
-                      />
-                    </Box>
-                    
-                    {/* Detection Sensitivity Control */}
-                    <Box sx={{ width: '100%', px: 1, pb: 1 }}>
-                      <Box sx={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center',
-                        mb: 1,
-                        gap: 1
-                      }}>
-                        <Typography variant="caption" sx={{ 
-                          fontSize: '0.75rem',
-                          opacity: 0.8 
-                        }}>
-                          Detection Sensitivity: {detectionSensitivity}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={handleSetSensitivityTo100}
-                          title="Reset detection sensitivity to optimal level (100)"
-                          sx={{
-                            color: 'white',
-                            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                            width: 20,
-                            height: 20,
-                            '&:hover': {
-                              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                              transform: 'scale(1.1)',
-                            },
-                            '&:active': {
-                              transform: 'scale(0.95)',
-                            },
-                            transition: 'all 0.2s ease-in-out',
-                          }}
-                        >
-                          <RefreshIcon sx={{ fontSize: 12 }} />
-                        </IconButton>
-                      </Box>
-                      <Box sx={{ px: 1, pb: 1 }}>
-                        <Slider
-                          value={detectionSensitivity}
-                          onChange={handleDetectionSensitivityChange}
-                          min={0}
-                          max={100}
-                          step={1}
-                          size="small"
-                          sx={{
-                            color: 'white',
-                            '& .MuiSlider-thumb': {
-                              backgroundColor: 'white',
-                              border: '3px solid rgba(255, 255, 255, 0.9)',
-                              width: 24,
-                              height: 16,
-                              borderRadius: '50px', // More oval/elliptical shape
-                              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1)',
-                              transition: 'all 0.2s ease-in-out',
-                              '&:hover': {
-                                boxShadow: '0 0 0 12px rgba(255, 255, 255, 0.12), 0 4px 12px rgba(0, 0, 0, 0.4)',
-                                transform: 'scale(1.1)',
-                                border: '3px solid rgba(255, 255, 255, 1)',
-                              },
-                              '&:active': {
-                                boxShadow: '0 0 0 16px rgba(255, 255, 255, 0.2), 0 2px 6px rgba(0, 0, 0, 0.5)',
-                                transform: 'scale(1.05)',
-                              },
-                              '&::before': {
-                                content: '""',
-                                position: 'absolute',
-                                top: '50%',
-                                left: '50%',
-                                transform: 'translate(-50%, -50%)',
-                                width: '8px',
-                                height: '4px',
-                                backgroundColor: 'rgba(244, 67, 54, 0.8)',
-                                borderRadius: '50px',
-                                transition: 'all 0.2s ease-in-out',
-                              },
-                            },
-                            '& .MuiSlider-track': {
-                              backgroundColor: 'white',
-                              border: 'none',
-                              height: 16,
-                              borderRadius: '1px 12px 12px 1px', // Very thin start, thick end
-                              boxShadow: '0 3px 8px rgba(0, 0, 0, 0.4)',
-                              background: 'linear-gradient(to right, white 0%, white 100%)',
-                              clipPath: 'polygon(0% 45%, 100% 0%, 100% 100%, 0% 55%)', // Much thinner start
-                            },
-                            '& .MuiSlider-rail': {
-                              backgroundColor: 'rgba(255, 255, 255, 0.25)',
-                              height: 16,
-                              borderRadius: '1px 12px 12px 1px', // Very thin start, thick end
-                              boxShadow: 'inset 0 3px 6px rgba(0, 0, 0, 0.3)',
-                              clipPath: 'polygon(0% 45%, 100% 0%, 100% 100%, 0% 55%)', // Much thinner start
-                            },
-                            '& .MuiSlider-mark': {
-                              display: 'none', // Hide marks to prevent overflow
-                            },
-                            '& .MuiSlider-markLabel': {
-                              display: 'none', // Hide mark labels to prevent overflow
-                            },
-                          }}
-                        />
-                      </Box>
-                      {/* Custom labels row */}
-                      <Box sx={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        px: 2,
-                        mt: -0.5
-                      }}>
-                        <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>0</Typography>
-                        <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>25</Typography>
-                        <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>50</Typography>
-                        <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>75</Typography>
-                        <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>100</Typography>
-                      </Box>
-                    </Box>
-                    
-                    {/* Separator line */}
-                    <Box
-                      sx={{
-                        width: '100%',
-                        height: '1px',
-                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                        my: 1,
-                      }}
-                    />
-                    
-                    {/* Disable button at the bottom */}
-                    <Button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        console.log('🔇 User clicked to disable full voice mode');
-                        
-                        // Start the turning off animation immediately
-                        setIsTurningOff(true);
-                        
-                        // Disable full voice mode and stop mic immediately (but keep animation running)
-                        ttsService.updateSettings({ fullVoiceMode: false });
-                        ttsService.saveSettings();
-                        
-                        // Stop mic listening when disabling full voice mode
-                        if (onMicStop && onMicStop.current) {
-                          await onMicStop.current();
-                        }
-                        
-                        // The turning off state will be reset when isListening becomes false
-                        // This happens automatically when the mic stops
-                      }}
-                      variant="contained"
-                      size="small"
-                      sx={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                        color: 'white',
-                        borderRadius: '20px',
-                        textTransform: 'none',
-                        fontSize: '0.85rem',
-                        fontWeight: 'bold',
-                        px: 3,
-                        py: 1,
-                        border: '1px solid rgba(255, 255, 255, 0.3)',
-                        '&:hover': {
-                          backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                          transform: 'scale(1.05)',
-                          transition: 'all 0.2s ease-in-out',
-                        },
-                        '&:active': {
-                          transform: 'scale(0.95)',
-                        },
-                      }}
-                    >
-                      🔇 Turn Off
-                    </Button>
-                  </Box>
-                );
-              }
-              
-              return null;
-            })()}
-            
-            
             {renderedCompletedMessages}
             {streamingMessage && renderMessage(streamingMessage, chat?.messages, loading)}
             
@@ -4586,6 +4281,293 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             
             <div ref={messagesEndRef} />
           </Box>
+
+          {/* Full Voice Mode Indicator - Fixed above input box, outside scroll container */}
+          {(() => {
+            const ttsSettings = ttsService.getSettings();
+            const isFullVoiceMode = ttsSettings.fullVoiceMode;
+            const ttsQueueStatus = ttsService.getQueueStatus();
+            const isTTSPaused = ttsService.isPausedState();
+            
+            // Show indicator if Full Voice Mode is active OR if we're in the process of turning off
+            if ((isFullVoiceMode && isListening) || (isTurningOff && isListening)) {
+              return (
+                <Box
+                  sx={{
+                    position: 'fixed',
+                    bottom: 'calc(var(--chat-input-h, 88px) + 20px)', // Position above input overlay
+                    right: '20px',
+                    zIndex: 1100, // Above input (1000) but below topbar (1300)
+                    backgroundColor: isTurningOff ? 'rgba(158, 158, 158, 0.95)' : 'rgba(244, 67, 54, 0.95)',
+                    color: 'white',
+                    padding: '20px',
+                    borderRadius: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 2,
+                    boxShadow: isTurningOff 
+                      ? '0 8px 32px rgba(158, 158, 158, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)'
+                      : '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                    backdropFilter: 'blur(20px)',
+                    border: isTurningOff ? '2px solid rgba(158, 158, 158, 0.8)' : '2px solid rgba(244, 67, 54, 0.8)',
+                    minWidth: '200px',
+                    animation: isTurningOff ? 'none' : 'pulseRed 2s infinite',
+                    transition: 'all 0.5s ease-in-out',
+                    '@keyframes pulseRed': {
+                      '0%': {
+                        boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(244, 67, 54, 0.7)',
+                      },
+                      '70%': {
+                        boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 15px rgba(244, 67, 54, 0)',
+                      },
+                      '100%': {
+                        boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(244, 67, 54, 0)',
+                      },
+                    },
+                  }}
+                >
+                  {/* Main indicator content */}
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
+                    {/* Large animated microphone icon */}
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '60px',
+                        height: '60px',
+                        borderRadius: '50%',
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        animation: 'bounce 1.5s infinite',
+                        '@keyframes bounce': {
+                          '0%, 20%, 50%, 80%, 100%': {
+                            transform: 'translateY(0)',
+                          },
+                          '40%': {
+                            transform: 'translateY(-5px)',
+                          },
+                          '60%': {
+                            transform: 'translateY(-2px)',
+                          },
+                        },
+                      }}
+                    >
+                      <MicIcon sx={{ fontSize: 32, color: 'white' }} />
+                    </Box>
+                    
+                    {/* Title */}
+                    <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.1rem', textAlign: 'center' }}>
+                      Full Voice Mode
+                    </Typography>
+                    
+                    {/* Status text - changes based on TTS state */}
+                    <Typography variant="body2" sx={{ fontSize: '0.9rem', opacity: 0.9, textAlign: 'center' }}>
+                      {isTTSPaused ? (
+                        '⏸️ Audio Paused - Listening...'
+                      ) : ttsQueueStatus.isPlaying ? (
+                        '🔊 Playing Audio - Listening...'
+                      ) : (
+                        '🎙️ Listening for your voice...'
+                      )}
+                    </Typography>
+                    
+                    {/* Helpful tip about "stop stop" command */}
+                    <Typography variant="caption" sx={{ 
+                      fontSize: '0.75rem', 
+                      opacity: 0.8, 
+                      textAlign: 'center',
+                      fontStyle: 'italic',
+                      mt: 0.5
+                    }}>
+                      💡 Say "stop stop" to stop listening
+                    </Typography>
+                    
+                    {/* Real-time audio waveform visualization */}
+                    <WaveformVisualization 
+                      voskRecognition={voskRecognition}
+                      isListening={isListening}
+                    />
+                  </Box>
+                  
+                  {/* Detection Sensitivity Control */}
+                  <Box sx={{ width: '100%', px: 1, pb: 1 }}>
+                    <Box sx={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      mb: 1,
+                      gap: 1
+                    }}>
+                      <Typography variant="caption" sx={{ 
+                        fontSize: '0.75rem',
+                        opacity: 0.8 
+                      }}>
+                        Detection Sensitivity: {detectionSensitivity}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        onClick={handleSetSensitivityTo100}
+                        title="Reset detection sensitivity to optimal level (100)"
+                        sx={{
+                          color: 'white',
+                          backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                          width: 20,
+                          height: 20,
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                            transform: 'scale(1.1)',
+                          },
+                          '&:active': {
+                            transform: 'scale(0.95)',
+                          },
+                          transition: 'all 0.2s ease-in-out',
+                        }}
+                      >
+                        <RefreshIcon sx={{ fontSize: 12 }} />
+                      </IconButton>
+                    </Box>
+                    <Box sx={{ px: 1, pb: 1 }}>
+                      <Slider
+                        value={detectionSensitivity}
+                        onChange={handleDetectionSensitivityChange}
+                        min={0}
+                        max={100}
+                        step={1}
+                        size="small"
+                        sx={{
+                          color: 'white',
+                          '& .MuiSlider-thumb': {
+                            backgroundColor: 'white',
+                            border: '3px solid rgba(255, 255, 255, 0.9)',
+                            width: 24,
+                            height: 16,
+                            borderRadius: '50px',
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                            transition: 'all 0.2s ease-in-out',
+                            '&:hover': {
+                              boxShadow: '0 0 0 12px rgba(255, 255, 255, 0.12), 0 4px 12px rgba(0, 0, 0, 0.4)',
+                              transform: 'scale(1.1)',
+                              border: '3px solid rgba(255, 255, 255, 1)',
+                            },
+                            '&:active': {
+                              boxShadow: '0 0 0 16px rgba(255, 255, 255, 0.2), 0 2px 6px rgba(0, 0, 0, 0.5)',
+                              transform: 'scale(1.05)',
+                            },
+                            '&::before': {
+                              content: '""',
+                              position: 'absolute',
+                              top: '50%',
+                              left: '50%',
+                              transform: 'translate(-50%, -50%)',
+                              width: '8px',
+                              height: '4px',
+                              backgroundColor: 'rgba(244, 67, 54, 0.8)',
+                              borderRadius: '50px',
+                              transition: 'all 0.2s ease-in-out',
+                            },
+                          },
+                          '& .MuiSlider-track': {
+                            backgroundColor: 'white',
+                            border: 'none',
+                            height: 16,
+                            borderRadius: '1px 12px 12px 1px',
+                            boxShadow: '0 3px 8px rgba(0, 0, 0, 0.4)',
+                            background: 'linear-gradient(to right, white 0%, white 100%)',
+                            clipPath: 'polygon(0% 45%, 100% 0%, 100% 100%, 0% 55%)',
+                          },
+                          '& .MuiSlider-rail': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                            height: 16,
+                            borderRadius: '1px 12px 12px 1px',
+                            boxShadow: 'inset 0 3px 6px rgba(0, 0, 0, 0.3)',
+                            clipPath: 'polygon(0% 45%, 100% 0%, 100% 100%, 0% 55%)',
+                          },
+                          '& .MuiSlider-mark': {
+                            display: 'none',
+                          },
+                          '& .MuiSlider-markLabel': {
+                            display: 'none',
+                          },
+                        }}
+                      />
+                    </Box>
+                    {/* Custom labels row */}
+                    <Box sx={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      px: 2,
+                      mt: -0.5
+                    }}>
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>0</Typography>
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>25</Typography>
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>50</Typography>
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>75</Typography>
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>100</Typography>
+                    </Box>
+                  </Box>
+                  
+                  {/* Separator line */}
+                  <Box
+                    sx={{
+                      width: '100%',
+                      height: '1px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                      my: 1,
+                    }}
+                  />
+                  
+                  {/* Disable button at the bottom */}
+                  <Button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      console.log('🔇 User clicked to disable full voice mode');
+                      
+                      // Start the turning off animation immediately
+                      setIsTurningOff(true);
+                      
+                      // Disable full voice mode and stop mic immediately (but keep animation running)
+                      ttsService.updateSettings({ fullVoiceMode: false });
+                      ttsService.saveSettings();
+                      
+                      // Stop mic listening when disabling full voice mode
+                      if (onMicStop && onMicStop.current) {
+                        await onMicStop.current();
+                      }
+                      
+                      // The turning off state will be reset when isListening becomes false
+                      // This happens automatically when the mic stops
+                    }}
+                    variant="contained"
+                    size="small"
+                    sx={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      color: 'white',
+                      borderRadius: '20px',
+                      textTransform: 'none',
+                      fontSize: '0.85rem',
+                      fontWeight: 'bold',
+                      px: 3,
+                      py: 1,
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                        transform: 'scale(1.05)',
+                        transition: 'all 0.2s ease-in-out',
+                      },
+                      '&:active': {
+                        transform: 'scale(0.95)',
+                      },
+                    }}
+                  >
+                    🔇 Turn Off
+                  </Button>
+                </Box>
+              );
+            }
+            
+            return null;
+          })()}
 
           {/* Jump to bottom button - shows when scrolled up, hides when at bottom */}
           {showJumpButton && (
