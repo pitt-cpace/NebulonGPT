@@ -68,6 +68,59 @@ import * as styles from '../styles/components/ChatArea.styles';
 import WaveformVisualization from './WaveformVisualization';
 import InputArea from './InputArea';
 
+// Fixed Top Bar Overlay Component using Portal
+function FixedTopbarOverlay({
+  children,
+  sidebarOpen,
+}: {
+  children: React.ReactNode;
+  sidebarOpen: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState(64); // default guess for AppBar height
+
+  useLayoutEffect(() => {
+    const ro = new ResizeObserver(() => {
+      if (ref.current) {
+        const height = ref.current.getBoundingClientRect().height;
+        setH(height);
+        document.body.style.setProperty('--chat-topbar-h', `${height}px`);
+      }
+    });
+    if (ref.current) ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+
+  // Clean up on unmount
+  useLayoutEffect(() => {
+    return () => {
+      document.body.style.removeProperty('--chat-topbar-h');
+    };
+  }, []);
+
+  // Match the drawer width from Sidebar
+  const drawerWidth = 280;
+  const leftGutter = sidebarOpen ? drawerWidth : 0;
+  
+  const node = (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: leftGutter,
+        right: 0,
+        width: `calc(100% - ${leftGutter}px)`,
+        zIndex: 1100, // Above input (1000)
+        transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms, width 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
+      }}
+    >
+      {children}
+    </div>
+  );
+  return createPortal(node, document.body);
+}
+
 // Fixed Input Overlay Component using Portal
 function FixedInputOverlay({
   children,
@@ -3950,12 +4003,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       component="main"
       sx={styles.container(sidebarOpen)}
     >
-      <AppBar
-        position="static"
-        color="transparent"
-        elevation={0}
-        sx={styles.appBar}
-      >
+      <FixedTopbarOverlay sidebarOpen={sidebarOpen}>
+        <AppBar
+          position="static"
+          color="transparent"
+          elevation={0}
+          sx={styles.appBar}
+        >
         <Toolbar>
           <IconButton
             edge="start"
@@ -4203,6 +4257,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           </IconButton>
         </Toolbar>
       </AppBar>
+      </FixedTopbarOverlay>
       
       {!chat || !chat.id ? (
         <Box
@@ -4254,10 +4309,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             sx={{
               ...styles.messagesContainer,
               // Make this the only scrollable surface
-              height: '100vh',
+              // Reserve space for TOP BAR
+              paddingTop: 'var(--chat-topbar-h, 64px)',
+              // Reserve space for INPUT
+              paddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
+              // Height is viewport minus the top bar
+              height: 'calc(100vh - var(--chat-topbar-h, 64px))',
               overflowY: 'auto',
               overscrollBehavior: 'contain', // Prevent scroll chaining to body
-              paddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
               scrollPaddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
             }}
           >
