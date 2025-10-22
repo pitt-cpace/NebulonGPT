@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import katex from 'katex';
+import { useElementHeightVar } from '../hooks/useElementHeightVar';
+import { RO } from '../hooks/ResizeObserverManager';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
@@ -99,31 +101,14 @@ function HeaderActionButton(props: React.ComponentProps<typeof IconButton>) {
 function FixedTopbarOverlay({
   children,
   sidebarOpen,
+  chatRootEl,
 }: {
   children: React.ReactNode;
   sidebarOpen: boolean;
+  chatRootEl: HTMLElement | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [h, setH] = useState(64); // default guess for AppBar height
-
-  useLayoutEffect(() => {
-    const ro = new ResizeObserver(() => {
-      if (ref.current) {
-        const height = ref.current.getBoundingClientRect().height;
-        setH(height);
-        document.body.style.setProperty('--chat-topbar-h', `${height}px`);
-      }
-    });
-    if (ref.current) ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
-
-  // Clean up on unmount
-  useLayoutEffect(() => {
-    return () => {
-      document.body.style.removeProperty('--chat-topbar-h');
-    };
-  }, []);
+  useElementHeightVar(ref, '--chat-topbar-h', { targetEl: chatRootEl, box: 'border-box' });
 
   // Match the drawer width from Sidebar
   const drawerWidth = 280;
@@ -156,28 +141,14 @@ function FixedTopbarOverlay({
 function FixedInputOverlay({
   children,
   sidebarOpen,
+  chatRootEl,
 }: {
   children: React.ReactNode;
   sidebarOpen: boolean;
+  chatRootEl: HTMLElement | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [h, setH] = useState(88); // default guess
-
-  useLayoutEffect(() => {
-    const ro = new ResizeObserver(() => {
-      if (ref.current) setH(ref.current.getBoundingClientRect().height);
-    });
-    if (ref.current) ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
-
-  // Expose height as CSS var on body for easy padding in scroller
-  useLayoutEffect(() => {
-    document.body.style.setProperty('--chat-input-h', `${h}px`);
-    return () => {
-      document.body.style.removeProperty('--chat-input-h');
-    };
-  }, [h]);
+  useElementHeightVar(ref, '--chat-input-h', { targetEl: chatRootEl, box: 'border-box' });
 
   // Match the drawer width from Sidebar
   const drawerWidth = 280;
@@ -269,6 +240,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const interimTranscriptRef = useRef<string>('');
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const suggestedPrompts = getSuggestedPrompts();
+
+  // Suspend ResizeObservers during sidebar open/close animation
+  useEffect(() => {
+    // Pause RO during the drawer slide animation (225ms transition + buffer)
+    RO.suspendFor(260);
+  }, [sidebarOpen]);
 
   // Function to detect "stop stop" command
   const detectStopCommand = useCallback((text: string): boolean => {
@@ -3875,7 +3852,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       component="main"
       sx={styles.container(sidebarOpen)}
     >
-      <FixedTopbarOverlay sidebarOpen={sidebarOpen}>
+      <FixedTopbarOverlay sidebarOpen={sidebarOpen} chatRootEl={messagesContainerRef.current}>
         <AppBar
           position="static"
           color="default"
@@ -4206,6 +4183,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               overflowY: 'auto',
               overscrollBehavior: 'contain', // Prevent scroll chaining to body
               scrollPaddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
+              contain: 'layout style paint', // Prevent cross-layout recalculations
             }}
           >
             {/* Full Voice Mode Indicator */}
@@ -4646,7 +4624,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             </Box>
           )}
 
-          <FixedInputOverlay sidebarOpen={sidebarOpen}>
+          <FixedInputOverlay sidebarOpen={sidebarOpen} chatRootEl={messagesContainerRef.current}>
             <InputArea
               loading={loading}
               onSendMessage={handleSendMessage}
