@@ -249,8 +249,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onOpenSettings,
 }) => {
   const [message, setMessage] = useState('');
-  const messageRef = useRef('');
-  const attachmentsRef = useRef<FileAttachment[]>([]);
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
   const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
   const [contributorsOpen, setContributorsOpen] = useState(false);
@@ -263,10 +261,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const [detectionSensitivity, setDetectionSensitivity] = useState<number>(100); // Default sensitivity display value (inverse of internal 0)
   const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
-  const [currentTokens, setCurrentTokens] = useState(0);
-  const [isContextExceeded, setIsContextExceeded] = useState(false);
-  const [contextWarning, setContextWarning] = useState<string | null>(null);
-  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const onClearInputAreaRef = useRef<(() => void) | null>(null);
   const onGetAttachmentsRef = useRef<(() => FileAttachment[]) | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -424,161 +418,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       console.log(`🎚️ Detection sensitivity set to 100 (internal: ${internalValue})`);
     }
   }, [voskRecognition]);
-
-  // Real-time token calculation function with intelligent history management
-  const calculateCurrentTokens = useCallback(async () => {
-    try {
-      const { tokenCountingService } = await import('../services/tokenCountingService');
-      
-      // Get current context length from settings (localStorage)
-      let contextLength = 4096; // Default fallback
-      try {
-        const savedContextLength = localStorage.getItem('contextLength');
-        if (savedContextLength) {
-          const parsed = parseInt(savedContextLength, 10);
-          if (!isNaN(parsed) && parsed >= 2000) {
-            contextLength = parsed;
-          }
-        }
-      } catch (error) {
-        console.error('Error reading context length from settings:', error);
-      }
-      
-      // Calculate tokens for CURRENT input (prompt + attachments)
-      // Use refs which are updated from InputArea without causing re-renders
-      const currentMessage = messageRef.current;
-      const currentAttachments = attachmentsRef.current;
-      
-      const currentPromptTokens = tokenCountingService.countTokens(currentMessage) + 10; // +10 for overhead
-      
-      let currentAttachmentsTokens = 0;
-      for (const attachment of currentAttachments) {
-        currentAttachmentsTokens += tokenCountingService.countAttachmentTokens(attachment);
-      }
-      
-      // Calculate how much conversation history can be included
-      const historyAllowance = tokenCountingService.calculateHistoryAllowance(
-        currentPromptTokens,
-        currentAttachmentsTokens,
-        contextLength
-      );
-      
-      // Get previous messages (excluding the one we're about to send)
-      const previousMessages = chat?.messages || [];
-      
-      // Calculate tokens from previous conversation that will be included
-      let historyTokensUsed = 0;
-      if (previousMessages.length > 0 && historyAllowance.historyTokens > 0) {
-        // Count tokens from most recent messages until we hit the limit
-        for (let i = previousMessages.length - 1; i >= 0 && historyTokensUsed < historyAllowance.historyTokens; i--) {
-          const msgTokens = tokenCountingService.countMessageTokens(previousMessages[i]);
-          if (historyTokensUsed + msgTokens <= historyAllowance.historyTokens) {
-            historyTokensUsed += msgTokens;
-          } else {
-            break; // Can't fit this message
-          }
-        }
-      }
-      
-      // Total tokens that will be sent = current + attachments + history
-      const totalTokens = currentPromptTokens + currentAttachmentsTokens + historyTokensUsed;
-      
-      setCurrentTokens(totalTokens);
-      
-      // Check if we've exceeded the available context (reserve 500 for response)
-      const reservedForResponse = 500;
-      const maxAllowedTokens = contextLength - reservedForResponse;
-      const isExceeded = totalTokens > maxAllowedTokens;
-      
-      setIsContextExceeded(isExceeded);
-      
-      // Determine warning state based on token usage
-      const hasUserInput = currentMessage.trim().length > 0 || currentAttachments.length > 0;
-      
-      // ALWAYS update or clear warning to show fresh token counts
-      // Calculate if history is fully reduced (cannot be reduced further)
-      const totalHistoryTokens = previousMessages.length > 0 
-        ? tokenCountingService.countTotalTokens(previousMessages)
-        : 0;
-      const hasNoHistory = totalHistoryTokens === 0;
-      const isHistoryFullyReduced = historyTokensUsed === 0 && totalHistoryTokens > 0;
-      
-      if (isExceeded) {
-        // Show red warning if: history is fully reduced OR there's no history at all
-        if (isHistoryFullyReduced || hasNoHistory) {
-          const historyMessage = isHistoryFullyReduced 
-            ? `All previous chat history has been excluded. ` 
-            : ``;
-          
-          setContextWarning(
-            `Context limit exceeded! ~${totalTokens}/${contextLength} tokens ` +
-            `(Current: ${currentPromptTokens + currentAttachmentsTokens}, Chat History Included: ${historyTokensUsed}, Safety Buffer: 500). ` +
-            `${historyMessage}You must remove text/attachments or increase context length from settings before sending.`
-          );
-        } else {
-          // History can still be reduced, don't show warning yet
-          setContextWarning(null);
-        }
-      } else if (hasUserInput && totalTokens > maxAllowedTokens - 500) {
-        // Show orange warning if: history is fully reduced OR there's no history at all
-        if (isHistoryFullyReduced || hasNoHistory) {
-          const safeArea = maxAllowedTokens - totalTokens;
-          const historyMessage = isHistoryFullyReduced 
-            ? `All previous chat history has been excluded. ` 
-            : ``;
-          
-          setContextWarning(
-            `Approaching context limit: ${totalTokens}/${contextLength} tokens ` +
-            `(Current: ${currentPromptTokens + currentAttachmentsTokens}, Chat History Included: ${historyTokensUsed}, Safety Buffer: 500). ` +
-            `${safeArea} tokens remaining. ${historyMessage}Consider keeping your message shorter or increase context length from settings.`
-          );
-        } else {
-          // History can still be reduced, don't show warning
-          setContextWarning(null);
-        }
-      } else {
-        // Clear warning in all other cases (safe zone or no input)
-        setContextWarning(null);
-      }
-       
-    } catch (error) {
-      console.error('Error calculating real-time tokens:', error);
-    }
-  }, [chat]);
-
-  // Listen for localStorage changes to recalculate when settings are updated
-  useEffect(() => {
-    const handleStorageChange = (event: StorageEvent) => {
-      // Only recalculate if context length setting changed
-      if (event.key === 'contextLength' && chat) {
-        console.log('🔄 Context length setting changed, recalculating tokens...');
-        calculateCurrentTokens();
-      }
-    };
-
-    // Listen for localStorage changes from other windows/tabs
-    window.addEventListener('storage', handleStorageChange);
-
-    // Also listen for manual localStorage updates in same window
-    const originalSetItem = localStorage.setItem;
-    localStorage.setItem = function(key: string, value: string) {
-      const result = originalSetItem.call(this, key, value);
-      if (key === 'contextLength' && chat) {
-        console.log('🔄 Context length setting updated, recalculating tokens...');
-        // Use setTimeout to ensure the value is saved before recalculating
-        setTimeout(() => {
-          calculateCurrentTokens();
-        }, 100);
-      }
-      return result;
-    };
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      // Restore original setItem (though component unmount usually means app is closing)
-      localStorage.setItem = originalSetItem;
-    };
-  }, [calculateCurrentTokens, chat]);
 
   // Keep ref in sync with state
   useEffect(() => {

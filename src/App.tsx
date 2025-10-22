@@ -879,6 +879,9 @@ const App: React.FC = () => {
     try {
       localStorage.setItem('contextLength', newContextLength.toString());
       localStorage.setItem('temperature', newTemperature.toString());
+      
+      // Dispatch custom event to notify components of context length change
+      window.dispatchEvent(new Event('contextLengthChanged'));
     } catch (error) {
       console.error('Failed to save settings to localStorage:', error);
     }

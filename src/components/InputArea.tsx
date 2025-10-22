@@ -257,6 +257,20 @@ const InputArea: React.FC<InputAreaProps> = ({
     }
   }, [chat?.id, calculateTokens]);
 
+  // Listen for context length changes from settings
+  useEffect(() => {
+    const handleContextLengthChanged = () => {
+      // Recalculate tokens when context length setting changes
+      calculateTokens(messageRef.current, attachmentsRef.current);
+    };
+
+    window.addEventListener('contextLengthChanged', handleContextLengthChanged);
+
+    return () => {
+      window.removeEventListener('contextLengthChanged', handleContextLengthChanged);
+    };
+  }, [calculateTokens]);
+
   const handleSendMessage = async () => {
     if ((message.trim() || attachments.length > 0) && !loading && !isContextExceeded) {
       let messageText = message.trim();
