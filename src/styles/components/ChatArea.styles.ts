@@ -10,7 +10,7 @@ export const container = (sidebarOpen: boolean): SxProps<Theme> => ({
   display: 'flex',
   flexDirection: 'column',
   height: '100vh',
-  // Remove overflow: 'hidden' to prevent clipping messages during LaTeX reflow
+  overflow: 'hidden', // Prevent page from creating its own scrollbar
   transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
 });
 

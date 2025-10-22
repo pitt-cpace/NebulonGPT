@@ -107,8 +107,9 @@ function FixedInputOverlay({
         left: leftGutter,
         right: 0,
         bottom: 0,
+        width: `calc(100% - ${leftGutter}px)`, // Explicit width prevents layout nudging
         zIndex: 1000,
-        transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
+        transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms, width 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
       }}
     >
       {children}
@@ -4244,6 +4245,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             ref={messagesContainerRef}
             sx={{
               ...styles.messagesContainer,
+              // Make this the only scrollable surface
+              height: '100vh',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain', // Prevent scroll chaining to body
               paddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
               scrollPaddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
             }}

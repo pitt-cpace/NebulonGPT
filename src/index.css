@@ -20,14 +20,19 @@
   --table-border: rgba(255, 255, 255, 0.1);
 }
 
-body {
+/* Lock the page - only the messages container should scroll */
+html, body, #root {
+  height: 100%;
   margin: 0;
+  overflow: hidden; /* Prevent outer scrollbar after portaling input */
+}
+
+body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow-x: hidden;
   background-color: var(--background-color);
   color: var(--text-color);
 }
