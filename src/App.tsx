@@ -958,6 +958,7 @@ const App: React.FC = () => {
         onLoadMoreChats={handleLoadMoreChats}
         hasMoreChats={chatPagination.hasMore}
         isLoadingChats={chatPagination.isLoading}
+        onClose={toggleSidebar}
       />
       <ChatArea 
         chat={currentChat}

@@ -3865,15 +3865,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           }}
         >
         <Toolbar>
-          <IconButton
-            edge="start"
-            color="inherit"
-            aria-label="menu"
-            onClick={onToggleSidebar}
-            sx={{ mr: 2 }}
-          >
-            <MenuIcon />
-          </IconButton>
+          {!sidebarOpen && (
+            <IconButton
+              edge="start"
+              color="inherit"
+              aria-label="menu"
+              onClick={onToggleSidebar}
+              sx={{ mr: 2 }}
+            >
+              <MenuIcon />
+            </IconButton>
+          )}
 
           <Button
             onClick={handleOpenModelMenu}

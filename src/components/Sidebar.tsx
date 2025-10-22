@@ -27,6 +27,7 @@ import {
   ExpandMore,
   Workspaces as WorkspacesIcon,
   AutoAwesome as AutoAwesomeIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { ChatType } from '../types';
 import * as styles from '../styles/components/Sidebar.styles';
@@ -42,6 +43,7 @@ interface SidebarProps {
   onLoadMoreChats?: () => void;
   hasMoreChats?: boolean;
   isLoadingChats?: boolean;
+  onClose?: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -55,6 +57,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onLoadMoreChats,
   hasMoreChats = false,
   isLoadingChats = false,
+  onClose,
 }) => {
   const [chatsOpen, setChatsOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -176,29 +179,49 @@ const Sidebar: React.FC<SidebarProps> = ({
       sx={styles.drawer}
     >
       <Box sx={styles.contentContainer}>
-        {/* Logo and App Name */}
-        <Box sx={styles.logoContainer}>
-          <Avatar sx={styles.logoAvatar}>
-            <AutoAwesomeIcon />
-          </Avatar>
-          <Box>
-            <Typography variant="h6" component="div" sx={styles.appTitle}>
-              Nebulon-GPT
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Your Private AI Assistant
-            </Typography>
-            <Box sx={styles.byLogoContainer}>
-              <Typography variant="caption" color="text.secondary" sx={styles.byText}>
-                BY
+        {/* Logo and App Name with Close button */}
+        <Box sx={{ ...styles.logoContainer, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Avatar sx={styles.logoAvatar}>
+              <AutoAwesomeIcon />
+            </Avatar>
+            <Box>
+              <Typography variant="h6" component="div" sx={styles.appTitle}>
+                Nebulon-GPT
               </Typography>
-              <Box component="img" 
-                src="./cpace-logo.png" 
-                alt="CPACE Logo" 
-                sx={styles.cpaceLogo} 
-              />
+              <Typography variant="caption" color="text.secondary">
+                Your Private AI Assistant
+              </Typography>
+              <Box sx={styles.byLogoContainer}>
+                <Typography variant="caption" color="text.secondary" sx={styles.byText}>
+                  BY
+                </Typography>
+                <Box component="img" 
+                  src="./cpace-logo.png" 
+                  alt="CPACE Logo" 
+                  sx={styles.cpaceLogo} 
+                />
+              </Box>
             </Box>
           </Box>
+          
+          {/* Close button - inline with title */}
+          {onClose && (
+            <IconButton
+              onClick={onClose}
+              size="small"
+              sx={{
+                color: 'text.secondary',
+                mt: 0.5,
+                '&:hover': {
+                  color: 'primary.main',
+                  backgroundColor: 'action.hover',
+                },
+              }}
+            >
+              <CloseIcon />
+            </IconButton>
+          )}
         </Box>
         
         {/* New Chat Button */}
