@@ -47,6 +47,7 @@ import {
   InsertDriveFile as InsertDriveFileIcon,
   Image as ImageIcon,
   People as PeopleIcon,
+  Settings as SettingsIcon,
   KeyboardArrowDown as ArrowDownIcon,
   Refresh as RefreshIcon,
   Error as ErrorIcon,
@@ -67,6 +68,32 @@ import { takeThinkingThenBody } from '../services/thinkingExtractor';
 import * as styles from '../styles/components/ChatArea.styles';
 import WaveformVisualization from './WaveformVisualization';
 import InputArea from './InputArea';
+
+// Shared Header Action Button Component
+function HeaderActionButton(props: React.ComponentProps<typeof IconButton>) {
+  return (
+    <IconButton
+      size="small"
+      sx={{
+        color: 'text.primary',
+        bgcolor: 'transparent',
+        border: '1px solid',
+        borderColor: 'divider',
+        position: 'relative',
+        zIndex: 1400, // Above topbar overlay
+        pointerEvents: 'auto',
+        '&:hover': {
+          bgcolor: 'action.hover',
+          borderColor: 'primary.main',
+          color: 'primary.main',
+        },
+        transition: 'all 0.2s',
+        ...props.sx,
+      }}
+      {...props}
+    />
+  );
+}
 
 // Fixed Top Bar Overlay Component using Portal
 function FixedTopbarOverlay({
@@ -111,7 +138,11 @@ function FixedTopbarOverlay({
         left: leftGutter,
         right: 0,
         width: `calc(100% - ${leftGutter}px)`,
-        zIndex: 1100, // Above input (1000)
+        zIndex: 1300, // Above all other overlays (input, FABs, etc.)
+        pointerEvents: 'auto', // Ensure clicks work
+        backgroundColor: '#1e1e1e', // Solid dark background matching theme
+        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        boxShadow: '0px 2px 4px rgba(0,0,0,0.2)',
         transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms, width 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
       }}
     >
@@ -192,6 +223,7 @@ interface ChatAreaProps {
   ollamaStatus: OllamaStatus;
   onRefreshOllamaStatus: () => Promise<OllamaStatus>;
   onCreateNewChat: () => Promise<void>;
+  onOpenSettings: () => void;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -214,6 +246,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   ollamaStatus,
   onRefreshOllamaStatus,
   onCreateNewChat,
+  onOpenSettings,
 }) => {
   const [message, setMessage] = useState('');
   const messageRef = useRef('');
@@ -4006,9 +4039,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       <FixedTopbarOverlay sidebarOpen={sidebarOpen}>
         <AppBar
           position="static"
-          color="transparent"
+          color="default"
           elevation={0}
-          sx={styles.appBar}
+          sx={{
+            ...styles.appBar,
+            bgcolor: 'background.paper', // Opaque background
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}
         >
         <Toolbar>
           <IconButton
@@ -4246,15 +4284,24 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
           <Box sx={{ flexGrow: 1 }} />
           
-          {/* Contributors Button */}
-          <IconButton
-            color="inherit"
-            onClick={() => setContributorsOpen(true)}
-            title="Contributors"
-            sx={{ mr: 5 }}
-          >
-            <PeopleIcon />
-          </IconButton>
+          {/* Header Action Buttons */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <HeaderActionButton
+              aria-label="contributors"
+              title="Contributors"
+              onClick={() => setContributorsOpen(true)}
+            >
+              <PeopleIcon fontSize="small" />
+            </HeaderActionButton>
+
+            <HeaderActionButton
+              aria-label="settings"
+              title="Settings"
+              onClick={onOpenSettings}
+            >
+              <SettingsIcon fontSize="small" />
+            </HeaderActionButton>
+          </Box>
         </Toolbar>
       </AppBar>
       </FixedTopbarOverlay>
@@ -4308,7 +4355,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             ref={messagesContainerRef}
             sx={{
               ...styles.messagesContainer,
-              // Make this the only scrollable surface
+              // Keep messages below the top bar
+              position: 'relative',
+              zIndex: 0, // Below top bar (1300) and input (1000)
               // Reserve space for TOP BAR
               paddingTop: 'var(--chat-topbar-h, 64px)',
               // Reserve space for INPUT
@@ -4727,7 +4776,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 bottom: '100px',
                 left: '50%',
                 transform: 'translateX(-50%)',
-                zIndex: 9999,
+                zIndex: 1050, // Below top bar (1300), above input (1000)
               }}
             >
               <IconButton

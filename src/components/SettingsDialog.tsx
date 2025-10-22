@@ -52,6 +52,8 @@ interface SettingsDialogProps {
   onMicStopped?: () => void;
   onMicStart?: React.MutableRefObject<(() => Promise<void>) | null>;
   onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 const SettingsDialog: React.FC<SettingsDialogProps> = ({
@@ -64,8 +66,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   onMicStopped,
   onMicStart,
   onMicStop,
+  open,
+  onOpenChange,
 }) => {
-  const [open, setOpen] = useState(false);
   const [localContextLength, setLocalContextLength] = useState(contextLength);
   const [localTemperature, setLocalTemperature] = useState(temperature);
   const [contextLengthError, setContextLengthError] = useState('');
@@ -196,76 +199,80 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     ttsService.updateSettings({ voiceGender: gender });
   };
 
-  const handleOpen = async () => {
-    // Refresh TTS settings from service when opening dialog
-    const currentSettings = ttsService.getSettings();
-    setFullVoiceMode(currentSettings.fullVoiceMode);
-    setVoiceGender(currentSettings.voiceGender);
-    setOriginalTtsSettings(currentSettings);
-    
-    // Refresh theme mode
-    const savedThemeMode = localStorage.getItem('themeMode') as 'light' | 'dark' | null;
-    const currentTheme = savedThemeMode || 'dark';
-    setThemeMode(currentTheme);
-    setOriginalThemeMode(currentTheme);
-    
-    // Refresh Ollama API URL and denormalize for display
-    const savedUrl = localStorage.getItem('ollamaApiUrl') || '';
-    const displayUrl = denormalizeOllamaUrl(savedUrl);
-    setOllamaApiUrl(displayUrl);
-    setOriginalOllamaApiUrl(displayUrl);
-    
-    // Refresh Ollama API Key
-    const savedKey = localStorage.getItem('ollamaApiKey') || '';
-    setOllamaApiKey(savedKey);
-    setOriginalOllamaApiKey(savedKey);
-    
-    setOpen(true);
-    
-    // If Full Voice Mode is enabled and TTS is disconnected, try to connect
-    if (currentSettings.fullVoiceMode && ttsService.getStatus() === 'disconnected') {
-      // console.log('🔌 Settings dialog opened with Full Voice Mode enabled but TTS disconnected - attempting to connect...');
+  // Effect to refresh settings when dialog opens
+  useEffect(() => {
+    if (open) {
+      // Refresh TTS settings from service when opening dialog
+      const currentSettings = ttsService.getSettings();
+      setFullVoiceMode(currentSettings.fullVoiceMode);
+      setVoiceGender(currentSettings.voiceGender);
+      setOriginalTtsSettings(currentSettings);
       
-      // Set status to "connecting" during the connection attempts
-      setTtsStatus('connecting');
+      // Refresh theme mode
+      const savedThemeMode = localStorage.getItem('themeMode') as 'light' | 'dark' | null;
+      const currentTheme = savedThemeMode || 'dark';
+      setThemeMode(currentTheme);
+      setOriginalThemeMode(currentTheme);
       
-      // Try to connect up to 60 times
-      let attempts = 0;
-      const maxAttempts = 60;
+      // Refresh Ollama API URL and denormalize for display
+      const savedUrl = localStorage.getItem('ollamaApiUrl') || '';
+      const displayUrl = denormalizeOllamaUrl(savedUrl);
+      setOllamaApiUrl(displayUrl);
+      setOriginalOllamaApiUrl(displayUrl);
       
-      while (attempts < maxAttempts && ttsService.getStatus() === 'disconnected') {
-        attempts++;
-        // console.log(`🔌 TTS connection attempt ${attempts}/${maxAttempts}...`);
-        
-        try {
-          await ttsService.connect();
-          // console.log(`✅ TTS connected successfully on attempt ${attempts}`);
-          break; // Exit loop if connection successful
-        } catch (error) {
-          console.error(`❌ TTS connection attempt ${attempts} failed:`, error);
+      // Refresh Ollama API Key
+      const savedKey = localStorage.getItem('ollamaApiKey') || '';
+      setOllamaApiKey(savedKey);
+      setOriginalOllamaApiKey(savedKey);
+      
+      // If Full Voice Mode is enabled and TTS is disconnected, try to connect
+      if (currentSettings.fullVoiceMode && ttsService.getStatus() === 'disconnected') {
+        // Use async IIFE for TTS connection attempts
+        (async () => {
+          // console.log('🔌 Settings dialog opened with Full Voice Mode enabled but TTS disconnected - attempting to connect...');
           
-          // Wait 1 second before next attempt (except for the last attempt)
-          if (attempts < maxAttempts) {
-            // console.log(`⏳ Waiting 1 second before attempt ${attempts + 1}...`);
-            await new Promise(resolve => setTimeout(resolve, 1000));
+          // Set status to "connecting" during the connection attempts
+          setTtsStatus('connecting');
+          
+          // Try to connect up to 60 times
+          let attempts = 0;
+          const maxAttempts = 60;
+          
+          while (attempts < maxAttempts && ttsService.getStatus() === 'disconnected') {
+            attempts++;
+            // console.log(`🔌 TTS connection attempt ${attempts}/${maxAttempts}...`);
+            
+            try {
+              await ttsService.connect();
+              // console.log(`✅ TTS connected successfully on attempt ${attempts}`);
+              break; // Exit loop if connection successful
+            } catch (error) {
+              console.error(`❌ TTS connection attempt ${attempts} failed:`, error);
+              
+              // Wait 1 second before next attempt (except for the last attempt)
+              if (attempts < maxAttempts) {
+                // console.log(`⏳ Waiting 1 second before attempt ${attempts + 1}...`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+            }
           }
-        }
-      }
-      
-      // Update status based on final result
-      const finalStatus = ttsService.getStatus();
-      setTtsStatus(finalStatus);
-      
-      if (finalStatus === 'connected') {
-        // console.log(`🎉 TTS connection successful after ${attempts} attempts`);
-      } else {
-        console.warn(`⚠️ TTS connection failed after ${maxAttempts} attempts. Final status: ${finalStatus}`);
+          
+          // Update status based on final result
+          const finalStatus = ttsService.getStatus();
+          setTtsStatus(finalStatus);
+          
+          if (finalStatus === 'connected') {
+            // console.log(`🎉 TTS connection successful after ${attempts} attempts`);
+          } else {
+            console.warn(`⚠️ TTS connection failed after ${maxAttempts} attempts. Final status: ${finalStatus}`);
+          }
+        })();
       }
     }
-  };
+  }, [open]);
 
   const handleClose = () => {
-    setOpen(false);
+    onOpenChange(false);
     // Reset to original values
     setLocalContextLength(contextLength);
     setLocalTemperature(temperature);
@@ -326,7 +333,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       window.location.reload();
     }
     
-    setOpen(false);
+    onOpenChange(false);
   };
 
   const handleContextLengthChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -507,15 +514,6 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
 
   return (
     <>
-      <IconButton
-        color="primary"
-        onClick={handleOpen}
-        sx={styles.settingsButton}
-        title="Settings"
-      >
-        <SettingsIcon />
-      </IconButton>
-
       <Dialog 
         open={open} 
         onClose={handleClose} 

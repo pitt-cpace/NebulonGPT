@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   
   // Ollama status state
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({ isAvailable: true });
@@ -938,6 +939,8 @@ const App: React.FC = () => {
         onMicStopped={handleMicStopped}
         onMicStart={onMicStartRef}
         onMicStop={onMicStopRef}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
       />
       
       {/* Chat interface */}
@@ -974,6 +977,7 @@ const App: React.FC = () => {
         onRefreshOllamaStatus={handleRefreshOllamaStatus}
         onCreateNewChat={handleCreateNewChat}
         onHideLoadingAnimation={onHideLoadingAnimationRef}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
     </Box>
   );
