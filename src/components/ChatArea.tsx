@@ -4591,9 +4591,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               sx={{
                 position: 'fixed',
                 bottom: '100px',
-                left: '50%',
+                left: sidebarOpen ? 'calc(140px + 50%)' : '50%',
                 transform: 'translateX(-50%)',
                 zIndex: 1050, // Below top bar (1300), above input (1000)
+                transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
               }}
             >
               <IconButton
