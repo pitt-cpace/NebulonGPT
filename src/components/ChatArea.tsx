@@ -1945,9 +1945,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 );
               }
             } else if (className === 'language-latex' || className === 'language-tex') {
-              // Pure LaTeX code block without $ delimiters - render entire content
+              // Pure LaTeX code block - strip wrappers and render
+              // Strip \[...\] or \(...\) wrappers if present
+              let cleanedContent = content.trim();
+              
+              // Remove display math wrappers \[...\]
+              cleanedContent = cleanedContent.replace(/^\\\[\s*/, '').replace(/\s*\\\]$/, '');
+              // Remove inline math wrappers \(...\)
+              cleanedContent = cleanedContent.replace(/^\\\(\s*/, '').replace(/\s*\\\)$/, '');
+              
               try {
-                const html = katex.renderToString(content, {
+                const html = katex.renderToString(cleanedContent, {
                   displayMode: true,
                   throwOnError: false,
                   output: 'html'
