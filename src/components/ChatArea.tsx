@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import katex from 'katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -66,6 +67,55 @@ import { takeThinkingThenBody } from '../services/thinkingExtractor';
 import * as styles from '../styles/components/ChatArea.styles';
 import WaveformVisualization from './WaveformVisualization';
 import InputArea from './InputArea';
+
+// Fixed Input Overlay Component using Portal
+function FixedInputOverlay({
+  children,
+  sidebarOpen,
+}: {
+  children: React.ReactNode;
+  sidebarOpen: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState(88); // default guess
+
+  useLayoutEffect(() => {
+    const ro = new ResizeObserver(() => {
+      if (ref.current) setH(ref.current.getBoundingClientRect().height);
+    });
+    if (ref.current) ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+
+  // Expose height as CSS var on body for easy padding in scroller
+  useLayoutEffect(() => {
+    document.body.style.setProperty('--chat-input-h', `${h}px`);
+    return () => {
+      document.body.style.removeProperty('--chat-input-h');
+    };
+  }, [h]);
+
+  // Match the drawer width from Sidebar
+  const drawerWidth = 280;
+  const leftGutter = sidebarOpen ? drawerWidth : 0;
+  
+  const node = (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        left: leftGutter,
+        right: 0,
+        bottom: 0,
+        zIndex: 1000,
+        transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
+      }}
+    >
+      {children}
+    </div>
+  );
+  return createPortal(node, document.body);
+}
 
 interface ChatAreaProps {
   chat: ChatType | null;
@@ -4192,7 +4242,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <Box
             key={chat.id}
             ref={messagesContainerRef}
-            sx={styles.messagesContainer}
+            sx={{
+              ...styles.messagesContainer,
+              paddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
+              scrollPaddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
+            }}
           >
             {/* Full Voice Mode Indicator */}
             {(() => {
@@ -4632,22 +4686,24 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             </Box>
           )}
 
-          <InputArea
-            loading={loading}
-            onSendMessage={handleSendMessage}
-            onStopResponse={onStopResponse}
-            voskRecognition={voskRecognition}
-            isListening={isListening}
-            isProcessingMic={isProcessingMic}
-            speechError={speechError}
-            interimTranscript={interimTranscript}
-            onToggleListening={toggleListening}
-            initialMessage={message}
-            chat={chat}
-            voiceText={message}
-            onClearInput={onClearInputAreaRef}
-            onGetAttachments={onGetAttachmentsRef}
-          />
+          <FixedInputOverlay sidebarOpen={sidebarOpen}>
+            <InputArea
+              loading={loading}
+              onSendMessage={handleSendMessage}
+              onStopResponse={onStopResponse}
+              voskRecognition={voskRecognition}
+              isListening={isListening}
+              isProcessingMic={isProcessingMic}
+              speechError={speechError}
+              interimTranscript={interimTranscript}
+              onToggleListening={toggleListening}
+              initialMessage={message}
+              chat={chat}
+              voiceText={message}
+              onClearInput={onClearInputAreaRef}
+              onGetAttachments={onGetAttachmentsRef}
+            />
+          </FixedInputOverlay>
         </>
       )}
       

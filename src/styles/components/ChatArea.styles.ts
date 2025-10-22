@@ -10,7 +10,7 @@ export const container = (sidebarOpen: boolean): SxProps<Theme> => ({
   display: 'flex',
   flexDirection: 'column',
   height: '100vh',
-  overflow: 'hidden',
+  // Remove overflow: 'hidden' to prevent clipping messages during LaTeX reflow
   transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
 });
 
@@ -25,11 +25,16 @@ export const modelSelector: SxProps<Theme> = {
 };
 
 export const messagesContainer: SxProps<Theme> = {
-  flexGrow: 1,
+  // Give explicit viewport-based height since input is now portaled out
+  position: 'relative',
+  minHeight: '100vh',
+  height: '100vh',
   p: 3,
   overflowY: 'auto',
   display: 'flex',
   flexDirection: 'column',
+  // Note: paddingBottom and scrollPaddingBottom are added dynamically in ChatArea.tsx
+  // based on the CSS variable --chat-input-h
 };
 
 export const messageBox: SxProps<Theme> = {
