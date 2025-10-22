@@ -2259,6 +2259,132 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         return <Box key={key} sx={{ mb: 2 }}>{renderTableBlock(block)}</Box>;
       
       case ContentType.PLAIN_TEXT:
+        // Extract and protect LaTeX formulas with backslash delimiters to avoid remark-math errors
+        const latexFormulas: Array<{ placeholder: string; html: string; isBlock: boolean }> = [];
+        let processedContent = block.content;
+        let formulaIndex = 0;
+        
+        // Extract \[...\] (display math) formulas
+        processedContent = processedContent.replace(/\\\[([\s\S]+?)\\\]/g, (match, formula) => {
+          const placeholder = `{{KATEX_DISPLAY_${formulaIndex}}}`;
+          try {
+            const html = katex.renderToString(formula.trim(), {
+              displayMode: true,
+              throwOnError: false,
+              output: 'html',
+              strict: false
+            });
+            latexFormulas.push({ placeholder, html, isBlock: true });
+          } catch (error) {
+            // If rendering fails, keep original
+            return match;
+          }
+          formulaIndex++;
+          return placeholder;
+        });
+        
+        // Extract \(...\) (inline math) formulas
+        processedContent = processedContent.replace(/\\\(([\s\S]+?)\\\)/g, (match, formula) => {
+          const placeholder = `{{KATEX_INLINE_${formulaIndex}}}`;
+          try {
+            const html = katex.renderToString(formula.trim(), {
+              displayMode: false,
+              throwOnError: false,
+              output: 'html',
+              strict: false
+            });
+            latexFormulas.push({ placeholder, html, isBlock: false });
+          } catch (error) {
+            // If rendering fails, keep original
+            return match;
+          }
+          formulaIndex++;
+          return placeholder;
+        });
+        
+        // If we extracted any LaTeX formulas, render with placeholders restored
+        if (latexFormulas.length > 0) {
+          // Create a map for quick placeholder lookup
+          const placeholderMap = new Map<string, { html: string; isBlock: boolean }>();
+          latexFormulas.forEach(formula => {
+            placeholderMap.set(formula.placeholder, { html: formula.html, isBlock: formula.isBlock });
+          });
+          
+          return (
+            <Box key={key}>
+              <ReactMarkdown 
+                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={{
+                  ...markdownComponents,
+                  // Custom component to restore LaTeX placeholders
+                  p: ({ children, ...props }: any) => {
+                    const childText = String(children);
+                    const hasPlaceholder = /\{\{KATEX_(?:DISPLAY|INLINE)_\d+\}\}/.test(childText);
+                    
+                    if (hasPlaceholder) {
+                      // Replace ALL placeholders with rendered LaTeX
+                      const parts: React.ReactNode[] = [];
+                      let remaining = childText;
+                      let partKey = 0;
+                      
+                      // Use regex to find all placeholders in order
+                      const placeholderRegex = /\{\{KATEX_(?:DISPLAY|INLINE)_\d+\}\}/g;
+                      let match;
+                      let lastIndex = 0;
+                      
+                      while ((match = placeholderRegex.exec(childText)) !== null) {
+                        const placeholder = match[0];
+                        const formulaData = placeholderMap.get(placeholder);
+                        
+                        if (formulaData) {
+                          // Add text before this placeholder
+                          if (match.index > lastIndex) {
+                            parts.push(
+                              <span key={`text-${partKey++}`}>
+                                {childText.substring(lastIndex, match.index)}
+                              </span>
+                            );
+                          }
+                          
+                          // Add rendered formula
+                          parts.push(
+                            <Box
+                              key={`latex-${partKey++}`}
+                              component={formulaData.isBlock ? 'div' : 'span'}
+                              dangerouslySetInnerHTML={{ __html: formulaData.html }}
+                              sx={formulaData.isBlock ? { my: 1, display: 'block' } : {}}
+                            />
+                          );
+                          
+                          lastIndex = match.index + placeholder.length;
+                        }
+                      }
+                      
+                      // Add any remaining text after the last placeholder
+                      if (lastIndex < childText.length) {
+                        parts.push(
+                          <span key={`text-${partKey++}`}>
+                            {childText.substring(lastIndex)}
+                          </span>
+                        );
+                      }
+                      
+                      return <p {...props}>{parts.length > 0 ? parts : children}</p>;
+                    }
+                    
+                    // Default paragraph rendering
+                    return <p {...props}>{children}</p>;
+                  },
+                }}
+              >
+                {processedContent}
+              </ReactMarkdown>
+            </Box>
+          );
+        }
+        
+        // No LaTeX formulas with backslash delimiters, use ReactMarkdown normally
         return (
           <Box key={key}>
             <ReactMarkdown 
@@ -2290,7 +2416,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     //    - Nested tables (via recursive table parsing)
     //    - Inline code and markdown
     
-    // Detect all content blocks (tables and text)
+    // NOTE: LaTeX delimiter conversion happens AFTER table detection
+    // in renderContentBlock for PLAIN_TEXT blocks only
+    
+    // Detect all content blocks (tables and text) from original content
     const blocks = detectContentBlocks(content);
     
     // Render each block with its appropriate renderer
