@@ -218,6 +218,44 @@ echo "✅ Python bundle creation completed successfully for $TARGET_ARCH!"
 echo "📦 Bundle size: $BUNDLE_SIZE bytes"
 echo "🎯 Bundle location: python-bundle/"
 echo ""
+
+# Sign all binaries before zipping
+echo "🔐 Signing all binaries in the bundle..."
+IDENTITY="University of Pittsburgh (BB467SPB6A)"
+ENTITLEMENTS="entitlements.mac.plist"
+
+if [ ! -f "$ENTITLEMENTS" ]; then
+    echo "⚠️  Warning: Entitlements file not found: $ENTITLEMENTS"
+    echo "⚠️  Skipping code signing. App may fail notarization."
+else
+    SIGNED_COUNT=0
+    FAILED_COUNT=0
+    
+    # Find and sign all Mach-O binaries
+    while IFS= read -r -d '' file; do
+        # Check if file is a Mach-O binary
+        if file "$file" | grep -q "Mach-O"; then
+            echo "   • Signing: ${file#python-bundle/}"
+            if codesign --force --sign "$IDENTITY" \
+                --timestamp \
+                --options runtime \
+                --entitlements "$ENTITLEMENTS" \
+                "$file" 2>/dev/null; then
+                ((SIGNED_COUNT++))
+            else
+                echo "     ⚠️  Warning: Failed to sign this file"
+                ((FAILED_COUNT++))
+            fi
+        fi
+    done < <(find python-bundle/python-env -type f \( -name "*.so" -o -name "*.dylib" -o -perm +111 \) -print0)
+    
+    echo "✅ Signed $SIGNED_COUNT binaries"
+    if [ $FAILED_COUNT -gt 0 ]; then
+        echo "⚠️  Failed to sign $FAILED_COUNT binaries"
+    fi
+fi
+
+echo ""
 echo "📦 Creating python-bundle.zip for distribution..."
 
 # Create zip file from the python-bundle directory
