@@ -30,7 +30,7 @@ const App: React.FC = () => {
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({ isAvailable: true });
   
   // Model settings
-  const [contextLength, setContextLength] = useState(4096); // Default context length
+  const [contextLength, setContextLength] = useState(12000); // Default context length
   const [temperature, setTemperature] = useState(0.1); // Default temperature
   const [maxContextLength, setMaxContextLength] = useState(32768); // Default max context length for modern models
 
