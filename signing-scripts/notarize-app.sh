@@ -1,0 +1,134 @@
+#!/bin/bash
+
+# Script to zip, notarize, and staple NebulonGPT app
+# Usage: ./notarize-app.sh [arm64|x64]
+
+set -e
+
+ARCH="$1"
+
+# If no architecture provided, ask user
+if [ -z "$ARCH" ]; then
+    echo "📦 NebulonGPT Notarization Script"
+    echo ""
+    echo "Select architecture:"
+    echo "  1) arm64 (Apple Silicon)"
+    echo "  2) x64 (Intel)"
+    echo ""
+    read -p "Enter choice (1 or 2): " choice
+    
+    case $choice in
+        1)
+            ARCH="arm64"
+            ;;
+        2)
+            ARCH="x64"
+            ;;
+        *)
+            echo "❌ Invalid choice"
+            exit 1
+            ;;
+    esac
+fi
+
+# Validate architecture
+if [ "$ARCH" != "arm64" ] && [ "$ARCH" != "x64" ]; then
+    echo "❌ Invalid architecture: $ARCH"
+    echo "Usage: $0 [arm64|x64]"
+    exit 1
+fi
+
+echo ""
+echo "🏗️  Selected architecture: $ARCH"
+echo ""
+
+# Define paths based on architecture
+# electron-builder uses "mac" for x64 and "mac-arm64" for arm64
+if [ "$ARCH" = "arm64" ]; then
+    BUILD_DIR="mac-arm64"
+else
+    BUILD_DIR="mac"
+fi
+
+APP_DIR="../dist-electron/${BUILD_DIR}/NebulonGPT.app"
+ZIP_FILE="../dist-electron/${BUILD_DIR}/NebulonGPT.zip"
+KEYCHAIN_PROFILE="AC_PROFILE"
+
+# Check if app exists
+if [ ! -d "$APP_DIR" ]; then
+    echo "❌ Error: App not found at: $APP_DIR"
+    echo ""
+    echo "Please build the app first:"
+    echo "  npm run dist:mac-${ARCH}"
+    exit 1
+fi
+
+echo "📦 Step 1: Creating zip file..."
+echo "   Source: $APP_DIR"
+echo "   Output: $ZIP_FILE"
+
+# Remove old zip if exists
+if [ -f "$ZIP_FILE" ]; then
+    rm "$ZIP_FILE"
+    echo "   (Removed old zip file)"
+fi
+
+# Create zip using ditto (preserves code signing)
+ditto -c -k --keepParent "$APP_DIR" "$ZIP_FILE"
+
+if [ ! -f "$ZIP_FILE" ]; then
+    echo "❌ Error: Failed to create zip file"
+    exit 1
+fi
+
+ZIP_SIZE=$(du -h "$ZIP_FILE" | cut -f1)
+echo "   ✅ Zip created successfully (Size: $ZIP_SIZE)"
+echo ""
+
+echo "🔐 Step 2: Submitting to Apple notary service..."
+echo "   This may take several minutes..."
+echo ""
+
+# Submit for notarization and wait
+xcrun notarytool submit "$ZIP_FILE" \
+    --keychain-profile "$KEYCHAIN_PROFILE" \
+    --wait
+
+NOTARY_EXIT_CODE=$?
+
+echo ""
+
+if [ $NOTARY_EXIT_CODE -ne 0 ]; then
+    echo "❌ Error: Notarization failed!"
+    echo ""
+    echo "To view the detailed log, get the Submission ID from above and run:"
+    echo "  xcrun notarytool log <submission-id> --keychain-profile \"$KEYCHAIN_PROFILE\""
+    exit 1
+fi
+
+echo "✅ Notarization successful!"
+echo ""
+
+echo "📌 Step 3: Stapling notarization ticket..."
+
+xcrun stapler staple "$APP_DIR"
+
+STAPLE_EXIT_CODE=$?
+
+echo ""
+
+if [ $STAPLE_EXIT_CODE -ne 0 ]; then
+    echo "❌ Error: Stapling failed!"
+    exit 1
+fi
+
+echo "✅ Stapling successful!"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🎉 Success! Your app is notarized and stapled."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "App location: $APP_DIR"
+echo ""
+echo "You can now distribute this app. It will be trusted by Gatekeeper."
+echo ""
