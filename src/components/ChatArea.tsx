@@ -2014,6 +2014,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           let current = '';
           let inBackticks = false;
           let inDollarSigns = false;
+          let inLatexParens = false; // Track \(...\) delimiters
           
           // Remove leading/trailing pipes if present
           let processLine = line.trim();
@@ -2022,19 +2023,34 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           
           for (let i = 0; i < processLine.length; i++) {
             const char = processLine[i];
+            const prevChar = i > 0 ? processLine[i - 1] : '';
+            const nextChar = i < processLine.length - 1 ? processLine[i + 1] : '';
+            
+            // Track \(...\) LaTeX inline math delimiters
+            if (char === '\\' && nextChar === '(' && !inBackticks && !inDollarSigns) {
+              inLatexParens = true;
+              current += char;
+              continue;
+            } else if (char === '\\' && nextChar === ')' && inLatexParens && !inBackticks && !inDollarSigns) {
+              inLatexParens = false;
+              current += char + nextChar;
+              i++; // Skip the next character since we already added it
+              continue;
+            }
             
             // Track backticks
-            if (char === '`' && !inDollarSigns) {
+            if (char === '`' && !inDollarSigns && !inLatexParens) {
               inBackticks = !inBackticks;
               current += char;
             }
             // Track dollar signs
-            else if (char === '$' && !inBackticks) {
+            else if (char === '$' && !inBackticks && !inLatexParens) {
               inDollarSigns = !inDollarSigns;
               current += char;
             }
-            // Split on pipe only when not inside backticks or dollar signs
-            else if (char === '|' && !inBackticks && !inDollarSigns) {
+            // Split on pipe only when not inside backticks, dollar signs, or LaTeX parens
+            // Also check if pipe is escaped with backslash (\|)
+            else if (char === '|' && !inBackticks && !inDollarSigns && !inLatexParens && prevChar !== '\\') {
               cells.push(current);
               current = '';
             } else {
@@ -2912,15 +2928,31 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const lines = tableMatch.trim().split('\n');
         const headerLine = lines[0];
         
-        // Helper function to split by | but not inside backticks
+        // Helper function to split by | but not inside backticks or LaTeX delimiters
         const smartSplit = (line: string): string[] => {
           const cells: string[] = [];
           let current = '';
           let inBackticks = false;
           let backticksCount = 0;
+          let inDollarSigns = false;
+          let inLatexParens = false;
           
           for (let i = 0; i < line.length; i++) {
             const char = line[i];
+            const prevChar = i > 0 ? line[i - 1] : '';
+            const nextChar = i < line.length - 1 ? line[i + 1] : '';
+            
+            // Track \(...\) LaTeX inline math delimiters
+            if (char === '\\' && nextChar === '(' && !inBackticks && !inDollarSigns) {
+              inLatexParens = true;
+              current += char;
+              continue;
+            } else if (char === '\\' && nextChar === ')' && inLatexParens && !inBackticks && !inDollarSigns) {
+              inLatexParens = false;
+              current += char + nextChar;
+              i++; // Skip the next character since we already added it
+              continue;
+            }
             
             // Check for backticks
             if (char === '`') {
@@ -2941,7 +2973,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 inBackticks = true;
                 backticksCount = count;
               }
-            } else if (char === '|' && !inBackticks) {
+            }
+            // Track dollar signs
+            else if (char === '$' && !inBackticks && !inLatexParens) {
+              inDollarSigns = !inDollarSigns;
+              current += char;
+            }
+            // Split on pipe only when not inside backticks, dollar signs, or LaTeX parens
+            // Also check if pipe is escaped with backslash (\|)
+            else if (char === '|' && !inBackticks && !inDollarSigns && !inLatexParens && prevChar !== '\\') {
               cells.push(current);
               current = '';
             } else {
