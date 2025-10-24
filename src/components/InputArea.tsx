@@ -603,7 +603,7 @@ const InputArea: React.FC<InputAreaProps> = ({
               sx={{ 
                 display: 'flex', 
                 flexWrap: 'wrap', 
-                gap: 0.5, 
+                gap: 1, 
                 p: 1, 
                 mb: 1,
                 borderRadius: 1,
@@ -614,47 +614,116 @@ const InputArea: React.FC<InputAreaProps> = ({
             >
               {attachments.map((attachment) => (
                 <Box 
-                  key={attachment.id} 
+                  key={attachment.id}
                   sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    bgcolor: 'action.hover',
-                    borderRadius: 1,
-                    p: 0.5,
-                    maxWidth: '100%',
-                    overflow: 'hidden'
+                    position: 'relative',
+                    display: 'inline-block',
                   }}
                 >
                   {attachment.type === 'image' ? (
-                    <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                    // Image thumbnail display
+                    <Box
+                      sx={{
+                        position: 'relative',
+                        width: 80,
+                        height: 80,
+                        borderRadius: 1.5,
+                        overflow: 'hidden',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        '&:hover .attachment-actions': {
+                          opacity: 1,
+                        }
+                      }}
+                    >
+                      <Box
+                        component="img"
+                        src={attachment.content}
+                        alt={attachment.name}
+                        sx={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                        }}
+                      />
+                      {/* Hover overlay with close button */}
+                      <Box
+                        className="attachment-actions"
+                        sx={{
+                          position: 'absolute',
+                          top: 0,
+                          right: 0,
+                          bottom: 0,
+                          left: 0,
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          justifyContent: 'flex-end',
+                          background: 'linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 50%)',
+                          opacity: 0,
+                          transition: 'opacity 0.2s ease',
+                          p: 0.5,
+                        }}
+                      >
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveAttachment(attachment.id);
+                          }}
+                          sx={{
+                            bgcolor: 'rgba(0, 0, 0, 0.6)',
+                            color: 'white',
+                            width: 24,
+                            height: 24,
+                            '&:hover': {
+                              bgcolor: 'rgba(0, 0, 0, 0.8)',
+                            }
+                          }}
+                        >
+                          <CloseIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </Box>
+                    </Box>
                   ) : (
-                    <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                    // Text file chip display
+                    <Box 
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        bgcolor: 'action.hover',
+                        borderRadius: 1,
+                        p: 0.5,
+                        maxWidth: '100%',
+                        overflow: 'hidden'
+                      }}
+                    >
+                      <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
+                      <Typography 
+                        variant="caption" 
+                        sx={{ 
+                          maxWidth: '150px', 
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {attachment.name}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveAttachment(attachment.id);
+                        }}
+                        sx={{ 
+                          ml: 0.5, 
+                          p: 0.25,
+                          '&:hover': { bgcolor: 'action.selected' }
+                        }}
+                      >
+                        <CloseIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    </Box>
                   )}
-                  <Typography 
-                    variant="caption" 
-                    sx={{ 
-                      maxWidth: '150px', 
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}
-                  >
-                    {attachment.name}
-                  </Typography>
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRemoveAttachment(attachment.id);
-                    }}
-                    sx={{ 
-                      ml: 0.5, 
-                      p: 0.25,
-                      '&:hover': { bgcolor: 'action.selected' }
-                    }}
-                  >
-                    <CloseIcon sx={{ fontSize: 14 }} />
-                  </IconButton>
                 </Box>
               ))}
             </Box>
