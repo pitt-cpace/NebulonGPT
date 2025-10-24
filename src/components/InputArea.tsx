@@ -451,17 +451,86 @@ const InputArea: React.FC<InputAreaProps> = ({
     e.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
     dragCounterRef.current = 0;
 
+    // First, check for files (dragging from file system or external sources)
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       processFiles(e.dataTransfer.files);
       e.dataTransfer.clearData();
+      return;
     }
-  }, [processFiles]);
+
+    // Second, check for image data (dragging images from within the page)
+    const imageUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/html');
+    
+    if (imageUrl) {
+      try {
+        // Extract image URL if it's wrapped in HTML
+        let imgSrc = imageUrl;
+        if (imageUrl.includes('<img')) {
+          const match = imageUrl.match(/src=["']([^"']+)["']/);
+          if (match && match[1]) {
+            imgSrc = match[1];
+          }
+        }
+
+        // If it's a data URL (base64 image)
+        if (imgSrc.startsWith('data:image/')) {
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+          const newAttachment: FileAttachment = {
+            id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: `dragged-image-${timestamp}.png`,
+            type: 'image',
+            content: imgSrc,
+            size: Math.round((imgSrc.length * 3) / 4), // Approximate size from base64
+            timestamp: new Date().toISOString(),
+          };
+          
+          setAttachments(prevAttachments => {
+            const updated = [...prevAttachments, newAttachment];
+            calculateTokens(message, updated);
+            return updated;
+          });
+        }
+        // If it's a regular URL, fetch and convert
+        else if (imgSrc.startsWith('http://') || imgSrc.startsWith('https://') || imgSrc.startsWith('/')) {
+          const response = await fetch(imgSrc);
+          const blob = await response.blob();
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+          
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            if (!event.target || typeof event.target.result !== 'string') return;
+            
+            const newAttachment: FileAttachment = {
+              id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: `dragged-image-${timestamp}.png`,
+              type: 'image',
+              content: event.target.result,
+              size: blob.size,
+              timestamp: new Date().toISOString(),
+            };
+            
+            setAttachments(prevAttachments => {
+              const updated = [...prevAttachments, newAttachment];
+              calculateTokens(message, updated);
+              return updated;
+            });
+          };
+          reader.readAsDataURL(blob);
+        }
+      } catch (error) {
+        console.error('Error processing dragged image:', error);
+        alert('Failed to process the dragged image. Please try copying and pasting instead.');
+      }
+    }
+
+    e.dataTransfer.clearData();
+  }, [processFiles, message, calculateTokens]);
 
   // Paste event handler
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
