@@ -2250,86 +2250,63 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           });
         }
         
-        // If we extracted any LaTeX formulas, render with placeholders restored
+        // If we extracted any LaTeX formulas, render with placeholders manually restored as HTML
         if (latexFormulas.length > 0) {
-          // Create a map for quick placeholder lookup
-          const placeholderMap = new Map<string, { html: string; isBlock: boolean }>();
-          latexFormulas.forEach(formula => {
-            placeholderMap.set(formula.placeholder, { html: formula.html, isBlock: formula.isBlock });
+          // Restore placeholders by splitting and rendering
+          const parts: React.ReactNode[] = [];
+          let remaining = processedContent;
+          let partKey = 0;
+          
+          // Process each formula placeholder in order
+          latexFormulas.forEach((formula) => {
+            const index = remaining.indexOf(formula.placeholder);
+            if (index !== -1) {
+              // Add text before this placeholder through ReactMarkdown
+              const beforeText = remaining.substring(0, index);
+              if (beforeText) {
+                parts.push(
+                  <Box key={`text-${partKey++}`}>
+                    <ReactMarkdown 
+                      remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                      rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                      components={markdownComponents}
+                    >
+                      {beforeText}
+                    </ReactMarkdown>
+                  </Box>
+                );
+              }
+              
+              // Add rendered formula
+              parts.push(
+                <Box
+                  key={`latex-${partKey++}`}
+                  component={formula.isBlock ? 'div' : 'span'}
+                  dangerouslySetInnerHTML={{ __html: formula.html }}
+                  sx={formula.isBlock ? { my: 1, display: 'block' } : {}}
+                />
+              );
+              
+              remaining = remaining.substring(index + formula.placeholder.length);
+            }
           });
           
-          return (
-            <Box key={key}>
-              <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
-                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-                components={{
-                  ...markdownComponents,
-                  // Custom component to restore LaTeX placeholders
-                  p: ({ children, ...props }: any) => {
-                    const childText = String(children);
-                    const hasPlaceholder = /\{\{KATEX_(?:DISPLAY|INLINE)_\d+\}\}/.test(childText);
-                    
-                    if (hasPlaceholder) {
-                      // Replace ALL placeholders with rendered LaTeX
-                      const parts: React.ReactNode[] = [];
-                      let remaining = childText;
-                      let partKey = 0;
-                      
-                      // Use regex to find all placeholders in order
-                      const placeholderRegex = /\{\{KATEX_(?:DISPLAY|INLINE)_\d+\}\}/g;
-                      let match;
-                      let lastIndex = 0;
-                      
-                      while ((match = placeholderRegex.exec(childText)) !== null) {
-                        const placeholder = match[0];
-                        const formulaData = placeholderMap.get(placeholder);
-                        
-                        if (formulaData) {
-                          // Add text before this placeholder
-                          if (match.index > lastIndex) {
-                            parts.push(
-                              <span key={`text-${partKey++}`}>
-                                {childText.substring(lastIndex, match.index)}
-                              </span>
-                            );
-                          }
-                          
-                          // Add rendered formula
-                          parts.push(
-                            <Box
-                              key={`latex-${partKey++}`}
-                              component={formulaData.isBlock ? 'div' : 'span'}
-                              dangerouslySetInnerHTML={{ __html: formulaData.html }}
-                              sx={formulaData.isBlock ? { my: 1, display: 'block' } : {}}
-                            />
-                          );
-                          
-                          lastIndex = match.index + placeholder.length;
-                        }
-                      }
-                      
-                      // Add any remaining text after the last placeholder
-                      if (lastIndex < childText.length) {
-                        parts.push(
-                          <span key={`text-${partKey++}`}>
-                            {childText.substring(lastIndex)}
-                          </span>
-                        );
-                      }
-                      
-                      return <p {...props}>{parts.length > 0 ? parts : children}</p>;
-                    }
-                    
-                    // Default paragraph rendering
-                    return <p {...props}>{children}</p>;
-                  },
-                }}
-              >
-                {processedContent}
-              </ReactMarkdown>
-            </Box>
-          );
+          // Add any remaining text after the last placeholder
+          if (remaining) {
+            parts.push(
+              <Box key={`text-${partKey++}`}>
+                <ReactMarkdown 
+                  remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                  rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                  components={markdownComponents}
+                >
+                  {remaining}
+                </ReactMarkdown>
+              </Box>
+            );
+          }
+          
+          return <Box key={key}>{parts}</Box>;
         }
         
         // No LaTeX formulas with backslash delimiters, use ReactMarkdown normally
