@@ -620,8 +620,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     setSpeechError(null); // Clear any previous errors
     
     try {
-      // Reset the final transcript when starting a new recognition session
-      finalTranscriptRef.current = message;
+      // Always start with empty transcript to prevent old prompts from reappearing
+      finalTranscriptRef.current = '';
+      setMessage('');
       
       // Start recognition
       await voskRecognition.start();

@@ -271,48 +271,21 @@ const InputArea: React.FC<InputAreaProps> = ({
     };
   }, [calculateTokens]);
 
-  const handleSendMessage = async () => {
+  // Single send function called by both button click and Enter key
+  const handleSend = () => {
     if ((message.trim() || attachments.length > 0) && !loading && !isContextExceeded) {
-      let messageText = message.trim();
-      
-      // Check if there are PDF attachments and add a special prompt
-      const hasPdfAttachments = attachments.some(attachment => attachment.type === 'pdf');
-      if (hasPdfAttachments) {
-        const pdfWithTextCount = attachments.filter(att => att.type === 'pdf' && att.content).length;
-        const pdfWithImagesCount = attachments.filter(att => att.type === 'pdf' && att.images && att.images.length > 0).length;
-        
-        let pdfDescription = "I've attached PDF file(s)";
-        if (pdfWithTextCount > 0 && pdfWithImagesCount > 0) {
-          pdfDescription += " containing both text and images";
-        } else if (pdfWithTextCount > 0) {
-          pdfDescription += " containing text";
-        } else if (pdfWithImagesCount > 0) {
-          pdfDescription += " containing images";
-        }
-        
-        if (!messageText) {
-          messageText = pdfDescription + ".";
-        } else {
-          messageText = messageText + " " + pdfDescription + ".";
-        }
-      }
-      
-      onSendMessage(messageText, attachments.length > 0 ? attachments : undefined);
-      
-      // Clear message, attachments, and warnings
+      onSendMessage(message.trim(), attachments.length > 0 ? attachments : undefined);
       setMessage('');
       setAttachments([]);
       setContextWarning(null);
       setIsContextExceeded(false);
     }
   };
-
+  
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!isContextExceeded) {
-        handleSendMessage();
-      }
+      handleSend();
     }
   };
 
@@ -708,7 +681,7 @@ const InputArea: React.FC<InputAreaProps> = ({
         ) : (
           <IconButton
             color={isContextExceeded ? "error" : "primary"}
-            onClick={handleSendMessage}
+            onClick={handleSend}
             disabled={(!message.trim() && attachments.length === 0) || isContextExceeded}
             title={isContextExceeded ? "Cannot send: Context limit exceeded" : "Send message"}
             sx={{ 
