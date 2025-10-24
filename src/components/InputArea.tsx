@@ -463,6 +463,46 @@ const InputArea: React.FC<InputAreaProps> = ({
     }
   }, [processFiles]);
 
+  // Paste event handler
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+
+    // Check for files in clipboard
+    const items = clipboardData.items;
+    const files: File[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      
+      // Handle images
+      if (item.type.startsWith('image/')) {
+        e.preventDefault(); // Prevent default paste behavior for images
+        const file = item.getAsFile();
+        if (file) {
+          // Generate a meaningful filename for pasted images
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+          const extension = item.type.split('/')[1] || 'png';
+          const renamedFile = new File([file], `pasted-image-${timestamp}.${extension}`, { type: file.type });
+          files.push(renamedFile);
+        }
+      }
+      // Handle files (if browser supports it)
+      else if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file && (file.type.startsWith('image/') || file.name.endsWith('.txt') || file.name.endsWith('.docx'))) {
+          e.preventDefault();
+          files.push(file);
+        }
+      }
+    }
+
+    // Process any files found in clipboard
+    if (files.length > 0) {
+      processFiles(files);
+    }
+  }, [processFiles]);
+
   return (
     <Box
       component={Paper}
@@ -651,6 +691,7 @@ const InputArea: React.FC<InputAreaProps> = ({
               }, 50);
             }}
             onKeyPress={handleKeyPress}
+            onPaste={handlePaste}
             inputRef={textFieldRef}
             InputProps={{
               sx: {
