@@ -1363,10 +1363,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     // CRITICAL FIX: Check for LaTeX patterns BEFORE other processing
     // This ensures LaTeX in tables is rendered properly
-    const hasLatexDelimiters = /\\\[|\\\(|\$\$|\$/.test(textContent);
+    // Check for both backslash delimiters and dollar signs
+    const hasLatexDelimiters = /\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]+?\$\$|\$[^$\n]+\$/.test(textContent);
     
     if (hasLatexDelimiters) {
-      // Use renderLatex which handles all LaTeX delimiters correctly
+      // Render with renderLatex which handles all LaTeX delimiters correctly
       return renderLatex(textContent);
     }
     
@@ -1717,38 +1718,65 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         // If it's a LaTeX code block OR any code block with formulas, extract and render
         if (hasLatexFormulas || className === 'language-latex' || className === 'language-tex') {
-          if (hasDocumentCommands) {
-            // Full LaTeX document - extract formulas
-            const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
-            
-            // Extract \[ \] display formulas
-            const displayMatches = content.match(/\\\[([\s\S]*?)\\\]/g);
-            if (displayMatches) {
-              displayMatches.forEach(match => {
-                const formula = match.replace(/^\\\[/, '').replace(/\\\]$/, '').trim();
-                if (formula) formulas.push({ formula, isDisplay: true });
-              });
-            }
-            
-            // Extract \( \) inline formulas
-            const inlineMatches = content.match(/\\\(([\s\S]*?)\\\)/g);
-            if (inlineMatches) {
-              inlineMatches.forEach(match => {
-                const formula = match.replace(/^\\\(/, '').replace(/\\\)$/, '').trim();
+          // Extract ALL formulas regardless of document structure
+          const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
+          
+          // First, remove LaTeX comments (lines starting with %) from content
+          const contentWithoutComments = content
+            .split('\n')
+            .filter(line => !line.trim().startsWith('%'))
+            .join('\n');
+          
+          // Extract \[ \] display formulas
+          const displayMatches = contentWithoutComments.match(/\\\[([\s\S]*?)\\\]/g);
+          if (displayMatches) {
+            displayMatches.forEach(match => {
+              const formula = match.replace(/^\\\[/, '').replace(/\\\]$/, '').trim();
+              if (formula) formulas.push({ formula, isDisplay: true });
+            });
+          }
+          
+          // Extract \( \) inline formulas
+          const inlineMatches = contentWithoutComments.match(/\\\(([\s\S]*?)\\\)/g);
+          if (inlineMatches) {
+            inlineMatches.forEach(match => {
+              const formula = match.replace(/^\\\(/, '').replace(/\\\)$/, '').trim();
+              if (formula) formulas.push({ formula, isDisplay: false });
+            });
+          }
+          
+          // Extract $$ $$ display formulas
+          const doubleDollarMatches = contentWithoutComments.match(/\$\$([\s\S]*?)\$\$/g);
+          if (doubleDollarMatches) {
+            doubleDollarMatches.forEach(match => {
+              const formula = match.replace(/^\$\$/, '').replace(/\$\$$/, '').trim();
+              if (formula) formulas.push({ formula, isDisplay: true });
+            });
+          }
+          
+          // Extract $ $ inline formulas (only if no display formulas found yet)
+          if (formulas.length === 0) {
+            const dollarMatches = contentWithoutComments.match(/\$([^\$]+)\$/g);
+            if (dollarMatches) {
+              dollarMatches.forEach(match => {
+                const formula = match.replace(/^\$/, '').replace(/\$$/, '').trim();
                 if (formula) formulas.push({ formula, isDisplay: false });
               });
             }
-            
-            // Render extracted formulas
-            if (formulas.length > 0) {
-              return (
-                <Box sx={{ my: 2 }}>
+          }
+          
+          // Render extracted formulas
+          if (formulas.length > 0) {
+            return (
+              <Box sx={{ position: 'relative' }}>
+                <Box sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
                   {formulas.map((item, idx) => {
                     try {
                       const html = katex.renderToString(item.formula, {
                         displayMode: item.isDisplay,
                         throwOnError: false,
-                        output: 'html'
+                        output: 'html',
+                        strict: false
                       });
                       
                       return (
@@ -1756,9 +1784,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                           key={idx}
                           sx={{ 
                             my: item.isDisplay ? 2 : 1,
-                            p: item.isDisplay ? 2 : 1,
-                            bgcolor: 'action.hover',
-                            borderRadius: 1
+                            display: item.isDisplay ? 'block' : 'inline-block',
                           }}
                           dangerouslySetInnerHTML={{ __html: html }}
                         />
@@ -1772,143 +1798,41 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     }
                   })}
                 </Box>
-              );
-            }
-          } else if (hasLatexFormulas || className === 'language-latex' || className === 'language-tex') {
-            // Code block with LaTeX formulas but no document structure
-            
-            // Check if there are $ $ wrapped formulas
-            const dollarMatches = content.match(/\$([^\$]+)\$/g);
-            if (dollarMatches) {
-              // Extract $ $ formulas and render them
-              const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
-              dollarMatches.forEach(match => {
-                const formula = match.replace(/^\$/, '').replace(/\$$/, '').trim();
-                if (formula) formulas.push({ formula, isDisplay: false });
-              });
-              
-              if (formulas.length > 0) {
-                return (
-                  <Box sx={{ position: 'relative' }}>
-                    <Box sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
-                      {formulas.map((item, idx) => {
-                        try {
-                          const html = katex.renderToString(item.formula, {
-                            displayMode: false,
-                            throwOnError: false,
-                            output: 'html'
-                          });
-                          
-                          return (
-                            <Box
-                              key={idx}
-                              sx={{ my: 1 }}
-                              dangerouslySetInnerHTML={{ __html: html }}
-                            />
-                          );
-                        } catch (error) {
-                          return null;
-                        }
-                      })}
-                    </Box>
-                    {/* Copy button for rendered LaTeX */}
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleCopyCode(content);
-                        }}
-                        sx={{
-                          opacity: 0.75,
-                          backgroundColor: 'rgba(0, 0, 0, 0.03)',
-                          borderRadius: '8px',
-                          padding: '6px',
-                          border: '1px solid rgba(0, 0, 0, 0.08)',
-                          transition: 'all 0.2s ease-in-out',
-                          '&:hover': {
-                            opacity: 1,
-                            backgroundColor: 'rgba(156, 39, 176, 0.1)',
-                            borderColor: 'secondary.main',
-                            color: 'secondary.main',
-                            transform: 'scale(1.1)',
-                            boxShadow: '0 2px 6px rgba(156, 39, 176, 0.2)',
-                          },
-                          '&:active': {
-                            transform: 'scale(0.95)',
-                          },
-                        }}
-                        title="Copy LaTeX code"
-                      >
-                        <ContentCopyIcon sx={{ fontSize: 16 }} />
-                      </IconButton>
-                    </Box>
-                  </Box>
-                );
-              }
-            } else if (className === 'language-latex' || className === 'language-tex') {
-              // Pure LaTeX code block - strip wrappers and render
-              // Strip \[...\] or \(...\) wrappers if present
-              let cleanedContent = content.trim();
-              
-              // Remove display math wrappers \[...\]
-              cleanedContent = cleanedContent.replace(/^\\\[\s*/, '').replace(/\s*\\\]$/, '');
-              // Remove inline math wrappers \(...\)
-              cleanedContent = cleanedContent.replace(/^\\\(\s*/, '').replace(/\s*\\\)$/, '');
-              
-              try {
-                const html = katex.renderToString(cleanedContent, {
-                  displayMode: true,
-                  throwOnError: false,
-                  output: 'html'
-                });
-                
-                return (
-                  <Box sx={{ position: 'relative' }}>
-                    <Box
-                      sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}
-                      dangerouslySetInnerHTML={{ __html: html }}
-                    />
-                    {/* Copy button for rendered LaTeX */}
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleCopyCode(content);
-                        }}
-                        sx={{
-                          opacity: 0.75,
-                          backgroundColor: 'rgba(0, 0, 0, 0.03)',
-                          borderRadius: '8px',
-                          padding: '6px',
-                          border: '1px solid rgba(0, 0, 0, 0.08)',
-                          transition: 'all 0.2s ease-in-out',
-                          '&:hover': {
-                            opacity: 1,
-                            backgroundColor: 'rgba(156, 39, 176, 0.1)',
-                            borderColor: 'secondary.main',
-                            color: 'secondary.main',
-                            transform: 'scale(1.1)',
-                            boxShadow: '0 2px 6px rgba(156, 39, 176, 0.2)',
-                          },
-                          '&:active': {
-                            transform: 'scale(0.95)',
-                          },
-                        }}
-                        title="Copy LaTeX code"
-                      >
-                        <ContentCopyIcon sx={{ fontSize: 16 }} />
-                      </IconButton>
-                    </Box>
-                  </Box>
-                );
-              } catch (error) {
-                // Fall through to normal code block rendering
-              }
-            }
+                {/* Copy button for rendered LaTeX */}
+                <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleCopyCode(content);
+                    }}
+                    sx={{
+                      opacity: 0.75,
+                      backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                      borderRadius: '8px',
+                      padding: '6px',
+                      border: '1px solid rgba(0, 0, 0, 0.08)',
+                      transition: 'all 0.2s ease-in-out',
+                      '&:hover': {
+                        opacity: 1,
+                        backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                        borderColor: 'secondary.main',
+                        color: 'secondary.main',
+                        transform: 'scale(1.1)',
+                        boxShadow: '0 2px 6px rgba(156, 39, 176, 0.2)',
+                      },
+                      '&:active': {
+                        transform: 'scale(0.95)',
+                      },
+                    }}
+                    title="Copy LaTeX code"
+                  >
+                    <ContentCopyIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Box>
+              </Box>
+            );
           }
         }
       }
@@ -2261,47 +2185,54 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       case ContentType.PLAIN_TEXT:
         // Extract and protect LaTeX formulas with backslash delimiters to avoid remark-math errors
+        // BUT skip extraction if content contains code fences (```) to let code blocks handle their own LaTeX
         const latexFormulas: Array<{ placeholder: string; html: string; isBlock: boolean }> = [];
         let processedContent = block.content;
         let formulaIndex = 0;
         
-        // Extract \[...\] (display math) formulas
-        processedContent = processedContent.replace(/\\\[([\s\S]+?)\\\]/g, (match, formula) => {
-          const placeholder = `{{KATEX_DISPLAY_${formulaIndex}}}`;
-          try {
-            const html = katex.renderToString(formula.trim(), {
-              displayMode: true,
-              throwOnError: false,
-              output: 'html',
-              strict: false
-            });
-            latexFormulas.push({ placeholder, html, isBlock: true });
-          } catch (error) {
-            // If rendering fails, keep original
-            return match;
-          }
-          formulaIndex++;
-          return placeholder;
-        });
+        // Check if content contains code fences (with or without language specifiers)
+        const hasCodeFences = /```[a-z]*\s*[\s\S]*?```/i.test(block.content);
         
-        // Extract \(...\) (inline math) formulas
-        processedContent = processedContent.replace(/\\\(([\s\S]+?)\\\)/g, (match, formula) => {
-          const placeholder = `{{KATEX_INLINE_${formulaIndex}}}`;
-          try {
-            const html = katex.renderToString(formula.trim(), {
-              displayMode: false,
-              throwOnError: false,
-              output: 'html',
-              strict: false
-            });
-            latexFormulas.push({ placeholder, html, isBlock: false });
-          } catch (error) {
-            // If rendering fails, keep original
-            return match;
-          }
-          formulaIndex++;
-          return placeholder;
-        });
+        if (!hasCodeFences) {
+          // Only extract LaTeX if there are no code fences
+          // Extract \[...\] (display math) formulas
+          processedContent = processedContent.replace(/\\\[([\s\S]+?)\\\]/g, (match, formula) => {
+            const placeholder = `{{KATEX_DISPLAY_${formulaIndex}}}`;
+            try {
+              const html = katex.renderToString(formula.trim(), {
+                displayMode: true,
+                throwOnError: false,
+                output: 'html',
+                strict: false
+              });
+              latexFormulas.push({ placeholder, html, isBlock: true });
+            } catch (error) {
+              // If rendering fails, keep original
+              return match;
+            }
+            formulaIndex++;
+            return placeholder;
+          });
+          
+          // Extract \(...\) (inline math) formulas
+          processedContent = processedContent.replace(/\\\(([\s\S]+?)\\\)/g, (match, formula) => {
+            const placeholder = `{{KATEX_INLINE_${formulaIndex}}}`;
+            try {
+              const html = katex.renderToString(formula.trim(), {
+                displayMode: false,
+                throwOnError: false,
+                output: 'html',
+                strict: false
+              });
+              latexFormulas.push({ placeholder, html, isBlock: false });
+            } catch (error) {
+              // If rendering fails, keep original
+              return match;
+            }
+            formulaIndex++;
+            return placeholder;
+          });
+        }
         
         // If we extracted any LaTeX formulas, render with placeholders restored
         if (latexFormulas.length > 0) {
