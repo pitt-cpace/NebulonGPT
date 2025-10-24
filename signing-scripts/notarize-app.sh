@@ -42,6 +42,10 @@ echo ""
 echo "🏗️  Selected architecture: $ARCH"
 echo ""
 
+# Determine the project root directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+
 # Define paths based on architecture
 # electron-builder uses "mac" for x64 and "mac-arm64" for arm64
 if [ "$ARCH" = "arm64" ]; then
@@ -50,8 +54,8 @@ else
     BUILD_DIR="mac"
 fi
 
-APP_DIR="../dist-electron/${BUILD_DIR}/NebulonGPT.app"
-ZIP_FILE="../dist-electron/${BUILD_DIR}/NebulonGPT.zip"
+APP_DIR="${PROJECT_ROOT}/dist-electron/${BUILD_DIR}/NebulonGPT.app"
+ZIP_FILE="${PROJECT_ROOT}/dist-electron/${BUILD_DIR}/NebulonGPT.zip"
 KEYCHAIN_PROFILE="AC_PROFILE"
 
 # Check if app exists
