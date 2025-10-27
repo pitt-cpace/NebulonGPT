@@ -41,54 +41,61 @@ export const electronApi = {
   // Chat management
   async getChats(): Promise<any[]> {
     if (isElectron() && window.electronAPI) {
+      // Electron mode: Use IPC to get chats from file system
       return await window.electronAPI.getChats();
     }
-    // Fallback to HTTP API for web/Docker version
-    const response = await fetch('/api/chats');
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    // Browser mode: Use localStorage for device-specific storage
+    try {
+      const chatsJson = localStorage.getItem('nebulon-gpt-chats');
+      if (chatsJson) {
+        return JSON.parse(chatsJson);
+      }
+      return [];
+    } catch (error) {
+      console.error('Failed to load chats from localStorage:', error);
+      return [];
     }
-    return await response.json();
   },
 
   async saveChat(chatId: string, chatData: any): Promise<{ success: boolean }> {
     if (isElectron() && window.electronAPI) {
+      // Electron mode: Use IPC to save to file system
       return await window.electronAPI.saveChat(chatId, chatData);
     }
-    // Fallback to HTTP API for web/Docker version
-    const response = await fetch(`/api/chats/${chatId}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(chatData),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    // Browser mode: Use localStorage for device-specific storage
+    try {
+      const chatsJson = localStorage.getItem('nebulon-gpt-chats');
+      const chats = chatsJson ? JSON.parse(chatsJson) : [];
+      
+      const existingChatIndex = chats.findIndex((chat: any) => chat.id === chatId);
+      
+      if (existingChatIndex >= 0) {
+        chats[existingChatIndex] = { ...chats[existingChatIndex], ...chatData, id: chatId };
+      } else {
+        chats.unshift({ ...chatData, id: chatId });
+      }
+      
+      localStorage.setItem('nebulon-gpt-chats', JSON.stringify(chats));
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to save chat to localStorage:', error);
+      return { success: false };
     }
-    
-    return await response.json();
   },
 
   async saveAllChats(chats: any[]): Promise<{ success: boolean }> {
     if (isElectron() && window.electronAPI) {
+      // Electron mode: Use IPC to save to file system
       return await window.electronAPI.saveAllChats(chats);
     }
-    // Fallback to HTTP API for web/Docker version
-    const response = await fetch('/api/chats', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(chats),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    // Browser mode: Use localStorage for device-specific storage
+    try {
+      localStorage.setItem('nebulon-gpt-chats', JSON.stringify(chats));
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to save chats to localStorage:', error);
+      return { success: false };
     }
-    
-    return await response.json();
   },
 
   // Vosk models management
