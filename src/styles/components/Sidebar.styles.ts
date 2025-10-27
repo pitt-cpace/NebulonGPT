@@ -127,10 +127,9 @@ export const editTextField: SxProps<Theme> = {
 };
 
 export const deleteButton: SxProps<Theme> = {
-  opacity: 0,
+  opacity: 0.7,
   transition: 'opacity 0.2s',
   '&:hover': { opacity: 1 },
-  '.MuiListItemButton-root:hover &': { opacity: 0.7 },
 };
 
 export const noChatFound: SxProps<Theme> = {
