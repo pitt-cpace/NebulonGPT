@@ -4329,8 +4329,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               // Keep messages below the top bar
               position: 'relative',
               zIndex: 0, // Below top bar (1300) and input (1000)
-              // Reserve space for TOP BAR
-              paddingTop: 'var(--chat-topbar-h, 64px)',
+              // Reserve space for TOP BAR with extra padding to prevent first message from being hidden
+              paddingTop: 'calc(var(--chat-topbar-h, 64px) + 40px)',
               // Reserve space for INPUT
               paddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
               // Height is viewport minus the top bar

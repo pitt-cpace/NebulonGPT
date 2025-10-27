@@ -17,6 +17,11 @@ import {
   Avatar,
   Button,
   CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -67,6 +72,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [tooltipContent, setTooltipContent] = useState('');
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [tooltipTimeout, setTooltipTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [chatToDelete, setChatToDelete] = useState<{ id: string; title: string } | null>(null);
   
   // Refs for scroll detection
   const chatListRef = useRef<HTMLDivElement>(null);
@@ -337,7 +344,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation();
-                              onDeleteChat(chat.id);
+                              setChatToDelete({ id: chat.id, title: chat.title });
+                              setDeleteConfirmOpen(true);
                             }}
                             sx={styles.deleteButton}
                           >
@@ -406,6 +414,48 @@ const Sidebar: React.FC<SidebarProps> = ({
           {tooltipContent}
         </Box>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmOpen}
+        onClose={() => setDeleteConfirmOpen(false)}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
+      >
+        <DialogTitle id="delete-dialog-title">
+          Delete Chat?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="delete-dialog-description">
+            Are you sure you want to delete "{chatToDelete?.title}"? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              setDeleteConfirmOpen(false);
+              setChatToDelete(null);
+            }}
+            color="primary"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={() => {
+              if (chatToDelete) {
+                onDeleteChat(chatToDelete.id);
+              }
+              setDeleteConfirmOpen(false);
+              setChatToDelete(null);
+            }}
+            color="error"
+            variant="contained"
+            autoFocus
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Drawer>
   );
 };
