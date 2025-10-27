@@ -21,7 +21,12 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<ModelType | null>(null);
   const [chats, setChats] = useState<ChatType[]>([]);
   const [currentChat, setCurrentChat] = useState<ChatType | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Detect mobile device and close sidebar by default on mobile
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    // Check if screen width is less than 900px (mobile/tablet)
+    const isMobile = window.innerWidth < 900;
+    return !isMobile; // Sidebar open on desktop, closed on mobile
+  });
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -66,6 +71,20 @@ const App: React.FC = () => {
       console.error('Failed to load settings from localStorage:', error);
     }
   }, []);
+
+  // Handle window resize to auto-close sidebar on mobile
+  useEffect(() => {
+    const handleResize = () => {
+      const isMobile = window.innerWidth < 900;
+      // Only auto-close on mobile, don't auto-open on desktop (let user control it)
+      if (isMobile && sidebarOpen) {
+        setSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [sidebarOpen]);
 
   // Vosk speech recognition state
   const [micStoppedTrigger, setMicStoppedTrigger] = useState(0);
