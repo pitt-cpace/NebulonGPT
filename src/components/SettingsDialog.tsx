@@ -710,8 +710,8 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             </Typography>
           </Box>
 
-          {/* LLM API URL Section */}
-          <Divider sx={{ my: 2 }} />
+          {/* LLM API URL Section - HIDDEN */}
+          {/* <Divider sx={{ my: 2 }} />
           <Box sx={styles.sectionContainer}>
             <Typography variant="h6" gutterBottom sx={{ color: 'primary.main' }}>
               LLM API Configuration
@@ -790,7 +790,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
                 ),
               }}
             />
-          </Box>
+          </Box> */}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleClose} color="primary">
