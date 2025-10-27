@@ -56,7 +56,11 @@ import {
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
   ContentCopy as ContentCopyIcon,
+  Devices as DevicesIcon,
+  Wifi as WifiIcon,
+  QrCode2 as QrCodeIcon,
 } from '@mui/icons-material';
+import { QRCodeSVG } from 'qrcode.react';
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
 import { getSuggestedPrompts } from '../services/api';
@@ -223,6 +227,19 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
   const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
   const [contributorsOpen, setContributorsOpen] = useState(false);
+  const [networkAccessOpen, setNetworkAccessOpen] = useState(false);
+  const [networkAddresses, setNetworkAddresses] = useState<{
+    localhost: string;
+    loopback: string;
+    network: string[];
+  }>({
+    localhost: 'http://localhost:3000',
+    loopback: 'http://127.0.0.1:3000',
+    network: []
+  });
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  const [qrCodeDialogOpen, setQrCodeDialogOpen] = useState(false);
+  const [qrCodeAddress, setQrCodeAddress] = useState<string>('');
   const [isListening, setIsListening] = useState(false);
   const [isProcessingMic, setIsProcessingMic] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
@@ -4183,6 +4200,64 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           {/* Header Action Buttons */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <HeaderActionButton
+              aria-label="network access"
+              title="Network Access"
+              onClick={async () => {
+                setNetworkAccessOpen(true);
+                // Fetch network addresses when opening dialog
+                if (window.electronAPI?.getNetworkAddresses) {
+                  // Electron mode - use IPC to get addresses
+                  try {
+                    const addresses = await window.electronAPI.getNetworkAddresses();
+                    setNetworkAddresses(addresses);
+                  } catch (error) {
+                    console.error('Failed to get network addresses:', error);
+                  }
+                } else {
+                  // Browser mode - detect from current URL with dynamic port
+                  try {
+                    const currentHostname = window.location.hostname;
+                    const currentPort = window.location.port || '80';
+                    const protocol = window.location.protocol;
+                    
+                    const addresses = {
+                      localhost: `${protocol}//localhost:${currentPort}`,
+                      loopback: `${protocol}//127.0.0.1:${currentPort}`,
+                      network: [] as string[]
+                    };
+                    
+                    // Fetch network IPs from server
+                    try {
+                      const response = await fetch('/api/network-info');
+                      if (response.ok) {
+                        const data = await response.json();
+                        if (data.networkIPs && Array.isArray(data.networkIPs)) {
+                          // Construct full URLs using current port
+                          data.networkIPs.forEach((ip: string) => {
+                            addresses.network.push(`${protocol}//${ip}:${currentPort}`);
+                          });
+                        }
+                      }
+                    } catch (error) {
+                      console.log('Could not fetch network IPs from server:', error);
+                      
+                      // Fallback: If accessing via an IP address, add it
+                      if (currentHostname !== 'localhost' && currentHostname !== '127.0.0.1') {
+                        addresses.network.push(`${protocol}//${currentHostname}:${currentPort}`);
+                      }
+                    }
+                    
+                    setNetworkAddresses(addresses);
+                  } catch (error) {
+                    console.error('Failed to detect network addresses in browser:', error);
+                  }
+                }
+              }}
+            >
+              <DevicesIcon fontSize="small" />
+            </HeaderActionButton>
+
+            <HeaderActionButton
               aria-label="contributors"
               title="Contributors"
               onClick={() => setContributorsOpen(true)}
@@ -4828,6 +4903,385 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setContributorsOpen(false)} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Network Access Dialog */}
+      <Dialog
+        open={networkAccessOpen}
+        onClose={() => setNetworkAccessOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <DevicesIcon color="primary" />
+              <Typography variant="h6">Network Access</Typography>
+            </Box>
+            <IconButton
+              edge="end"
+              color="inherit"
+              onClick={() => setNetworkAccessOpen(false)}
+              aria-label="close"
+              sx={{ p: 1 }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Access this application from other devices on the same network. Use any of the following addresses in your browser:
+          </Typography>
+
+          {/* Localhost address */}
+          <Box sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <WifiIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                Local (this computer only):
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5 }}>
+              <Box
+                sx={{ 
+                  backgroundColor: 'action.hover',
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  flex: 1,
+                }}
+              >
+                <Typography 
+                  component="a"
+                  href={networkAddresses.localhost}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="body2" 
+                  sx={{ 
+                    fontFamily: 'monospace', 
+                    fontSize: '0.95rem',
+                    color: 'primary.main',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    '&:hover': {
+                      color: 'primary.dark',
+                    }
+                  }}
+                >
+                  {networkAddresses.localhost}
+                </Typography>
+              </Box>
+              <IconButton
+                size="small"
+                onClick={async () => {
+                  try {
+                    if (window.electronAPI?.copyToClipboard) {
+                      await window.electronAPI.copyToClipboard(networkAddresses.localhost);
+                    } else {
+                      await navigator.clipboard.writeText(networkAddresses.localhost);
+                    }
+                    setCopiedAddress(networkAddresses.localhost);
+                    setTimeout(() => setCopiedAddress(null), 2000);
+                  } catch (error) {
+                    console.error('Failed to copy address:', error);
+                  }
+                }}
+                sx={{ 
+                  color: copiedAddress === networkAddresses.localhost ? 'success.main' : 'text.secondary',
+                  '&:hover': {
+                    backgroundColor: 'action.hover',
+                  }
+                }}
+              >
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  setQrCodeAddress(networkAddresses.localhost);
+                  setQrCodeDialogOpen(true);
+                }}
+                sx={{ 
+                  color: 'text.secondary',
+                  '&:hover': {
+                    backgroundColor: 'action.hover',
+                    color: 'primary.main',
+                  }
+                }}
+              >
+                <QrCodeIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Box>
+
+          {/* Loopback address */}
+          <Box sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <WifiIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                Loopback (this computer only):
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5 }}>
+              <Box
+                sx={{ 
+                  backgroundColor: 'action.hover',
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  flex: 1,
+                }}
+              >
+                <Typography 
+                  component="a"
+                  href={networkAddresses.loopback}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="body2"
+                  sx={{ 
+                    fontFamily: 'monospace', 
+                    fontSize: '0.95rem',
+                    color: 'primary.main',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    '&:hover': {
+                      color: 'primary.dark',
+                    }
+                  }}
+                >
+                  {networkAddresses.loopback}
+                </Typography>
+              </Box>
+              <IconButton
+                size="small"
+                onClick={async () => {
+                  try {
+                    if (window.electronAPI?.copyToClipboard) {
+                      await window.electronAPI.copyToClipboard(networkAddresses.loopback);
+                    } else {
+                      await navigator.clipboard.writeText(networkAddresses.loopback);
+                    }
+                    setCopiedAddress(networkAddresses.loopback);
+                    setTimeout(() => setCopiedAddress(null), 2000);
+                  } catch (error) {
+                    console.error('Failed to copy address:', error);
+                  }
+                }}
+                sx={{ 
+                  color: copiedAddress === networkAddresses.loopback ? 'success.main' : 'text.secondary',
+                  '&:hover': {
+                    backgroundColor: 'action.hover',
+                  }
+                }}
+              >
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  setQrCodeAddress(networkAddresses.loopback);
+                  setQrCodeDialogOpen(true);
+                }}
+                sx={{ 
+                  color: 'text.secondary',
+                  '&:hover': {
+                    backgroundColor: 'action.hover',
+                    color: 'primary.main',
+                  }
+                }}
+              >
+                <QrCodeIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Box>
+
+          {/* Network addresses */}
+          {networkAddresses.network.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <WifiIcon sx={{ fontSize: 18, color: 'success.main' }} />
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                  Network (accessible from other devices):
+                </Typography>
+              </Box>
+              {networkAddresses.network.map((address, index) => (
+                <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5, mb: 1 }}>
+                  <Box
+                    sx={{ 
+                      backgroundColor: 'action.hover',
+                      px: 1.5,
+                      py: 1,
+                      borderRadius: 1,
+                      flex: 1,
+                    }}
+                  >
+                    <Typography 
+                      component="a"
+                      href={address}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="body2"
+                      sx={{ 
+                        fontFamily: 'monospace', 
+                        fontSize: '0.95rem',
+                        color: 'success.main',
+                        textDecoration: 'underline',
+                        cursor: 'pointer',
+                        '&:hover': {
+                          color: 'success.dark',
+                        }
+                      }}
+                    >
+                      {address}
+                    </Typography>
+                  </Box>
+                  <IconButton
+                    size="small"
+                    onClick={async () => {
+                      try {
+                        if (window.electronAPI?.copyToClipboard) {
+                          await window.electronAPI.copyToClipboard(address);
+                        } else {
+                          await navigator.clipboard.writeText(address);
+                        }
+                        setCopiedAddress(address);
+                        setTimeout(() => setCopiedAddress(null), 2000);
+                      } catch (error) {
+                        console.error('Failed to copy address:', error);
+                      }
+                    }}
+                    sx={{ 
+                      color: copiedAddress === address ? 'success.main' : 'text.secondary',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                      }
+                    }}
+                  >
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      setQrCodeAddress(address);
+                      setQrCodeDialogOpen(true);
+                    }}
+                    sx={{ 
+                      color: 'text.secondary',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                        color: 'success.main',
+                      }
+                    }}
+                  >
+                    <QrCodeIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          <Box sx={{ 
+            mt: 3, 
+            p: 2, 
+            backgroundColor: 'action.hover',
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider'
+          }}>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+              💡 How to connect from another device:
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              1. Ensure both devices are on the same network (e.g., connected to the same WiFi or mobile hotspot)
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              2. Open a browser on the other device (phone, tablet, or laptop)
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              3. Enter one of the <strong>network addresses</strong> shown above
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, fontStyle: 'italic' }}>
+              📱 <strong>Quick Access with QR Code:</strong> Click the QR code icon next to any address to generate a scannable code. Simply open your mobile device's camera app and point it at the QR code to instantly access the application - no typing required!
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNetworkAccessOpen(false)} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* QR Code Dialog */}
+      <Dialog
+        open={qrCodeDialogOpen}
+        onClose={() => setQrCodeDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <QrCodeIcon color="primary" />
+              <Typography variant="h6">Scan QR Code</Typography>
+            </Box>
+            <IconButton
+              edge="end"
+              color="inherit"
+              onClick={() => setQrCodeDialogOpen(false)}
+              aria-label="close"
+              sx={{ p: 1 }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center',
+            gap: 2,
+            py: 2
+          }}>
+            <Box sx={{ 
+              p: 2, 
+              backgroundColor: 'white',
+              borderRadius: 2,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            }}>
+              <QRCodeSVG 
+                value={qrCodeAddress}
+                size={256}
+                level="H"
+                includeMargin={true}
+              />
+            </Box>
+            
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                fontFamily: 'monospace', 
+                color: 'text.secondary',
+                textAlign: 'center',
+                wordBreak: 'break-all',
+                px: 2
+              }}
+            >
+              {qrCodeAddress}
+            </Typography>
+            
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', px: 2 }}>
+              📱 Scan this QR code with your mobile device camera to quickly access the application
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setQrCodeDialogOpen(false)} color="primary">
             Close
           </Button>
         </DialogActions>

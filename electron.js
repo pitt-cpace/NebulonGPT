@@ -1184,6 +1184,30 @@ function startExpressServer() {
     expressApp.use('/vosk', voskProxy);
     expressApp.use('/tts', ttsProxy);
 
+    // API endpoint for network addresses - returns just the IP addresses
+    // Frontend will construct full URLs with the appropriate port
+    expressApp.get('/api/network-info', (req, res) => {
+      try {
+        const networkIPs = [];
+        const networkInterfaces = os.networkInterfaces();
+        
+        for (const interfaceName in networkInterfaces) {
+          const interfaces = networkInterfaces[interfaceName];
+          for (const iface of interfaces) {
+            // Get all IPv4 addresses that are not internal
+            if (iface.family === 'IPv4' && !iface.internal) {
+              networkIPs.push(iface.address);
+            }
+          }
+        }
+        
+        res.json({ networkIPs });
+      } catch (error) {
+        console.error('Error getting network addresses:', error);
+        res.status(500).json({ error: 'Failed to get network addresses' });
+      }
+    });
+
     // API endpoints for chat data
     expressApp.get('/api/chats', (req, res) => {
       res.json(chatsData);
@@ -2064,5 +2088,51 @@ ipcMain.handle('copy-to-clipboard', (event, text) => {
   } catch (error) {
     console.error('❌ Failed to copy to clipboard:', error);
     return { success: false, error: error.message };
+  }
+});
+
+// Get network addresses for the application
+ipcMain.handle('get-network-addresses', () => {
+  try {
+    // Dynamically detect the port from the running HTTP server
+    let port = 3000; // Default fallback
+    
+    if (httpServer && httpServer.address()) {
+      const address = httpServer.address();
+      port = typeof address === 'object' ? address.port : port;
+      console.log(`🌐 Detected dynamic port: ${port}`);
+    } else if (isDev) {
+      // In development mode, React dev server runs on port 3000
+      port = 3000;
+      console.log('🌐 Using default dev port: 3000');
+    }
+    
+    const addresses = {
+      localhost: `http://localhost:${port}`,
+      loopback: `http://127.0.0.1:${port}`,
+      network: []
+    };
+    
+    const networkInterfaces = os.networkInterfaces();
+    
+    for (const interfaceName in networkInterfaces) {
+      const interfaces = networkInterfaces[interfaceName];
+      for (const iface of interfaces) {
+        // Get all IPv4 addresses that are not internal
+        if (iface.family === 'IPv4' && !iface.internal) {
+          addresses.network.push(`http://${iface.address}:${port}`);
+        }
+      }
+    }
+    
+    return addresses;
+  } catch (error) {
+    console.error('Error getting network addresses:', error);
+    // Fallback with default port
+    return {
+      localhost: 'http://localhost:3000',
+      loopback: 'http://127.0.0.1:3000',
+      network: []
+    };
   }
 });

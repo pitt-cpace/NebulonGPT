@@ -15,6 +15,11 @@ declare global {
       getAppVersion: () => Promise<string>;
       copyToClipboard: (text: string) => Promise<{ success: boolean; error?: string }>;
       openExternal: (url: string) => Promise<void>;
+      getNetworkAddresses: () => Promise<{
+        localhost: string;
+        loopback: string;
+        network: string[];
+      }>;
       platform: string;
       isElectron: boolean;
     };

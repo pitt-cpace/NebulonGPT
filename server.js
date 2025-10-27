@@ -96,6 +96,32 @@ app.all('/api/ollama/*', async (req, res) => {
 });
 
 // API endpoints
+
+// Get network addresses - returns just the IP addresses without ports
+// Frontend will add the appropriate port based on window.location
+app.get('/api/network-info', (req, res) => {
+  try {
+    const networkIPs = [];
+    const networkInterfaces = os.networkInterfaces();
+    
+    for (const interfaceName in networkInterfaces) {
+      const interfaces = networkInterfaces[interfaceName];
+      for (const iface of interfaces) {
+        // Get all IPv4 addresses that are not internal
+        if (iface.family === 'IPv4' && !iface.internal) {
+          networkIPs.push(iface.address);
+        }
+      }
+    }
+    
+    console.log('Network IPs:', networkIPs);
+    res.json({ networkIPs });
+  } catch (error) {
+    console.error('Error getting network addresses:', error);
+    res.status(500).json({ error: 'Failed to get network addresses' });
+  }
+});
+
 app.get('/api/chats', (req, res) => {
   try {
     const chatsData = fs.readFileSync(CHATS_FILE, 'utf8');

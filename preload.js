@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Clipboard operations
   copyToClipboard: (text) => ipcRenderer.invoke('copy-to-clipboard', text),
   
+  // Network addresses
+  getNetworkAddresses: () => ipcRenderer.invoke('get-network-addresses'),
+  
   // Platform detection
   platform: process.platform,
   

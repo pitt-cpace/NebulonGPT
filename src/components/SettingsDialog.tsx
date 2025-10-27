@@ -34,6 +34,9 @@ import {
   VisibilityOff as VisibilityOffIcon,
   LightMode as LightModeIcon,
   DarkMode as DarkModeIcon,
+  Devices as DevicesIcon,
+  ContentCopy as ContentCopyIcon,
+  Wifi as WifiIcon,
 } from '@mui/icons-material';
 import { ModelType } from '../types';
 import { VoskRecognitionService } from '../services/vosk';
@@ -96,6 +99,18 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   const [showApiKey, setShowApiKey] = useState(false);
   const [urlValidationStatus, setUrlValidationStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
   const validationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Network addresses state
+  const [networkAddresses, setNetworkAddresses] = useState<{
+    localhost: string;
+    loopback: string;
+    network: string[];
+  }>({
+    localhost: 'http://localhost:3000',
+    loopback: 'http://127.0.0.1:3000',
+    network: []
+  });
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 
   // Update local state when props change
   useEffect(() => {
@@ -511,6 +526,32 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       }
     };
   }, []);
+
+  // Fetch network addresses when dialog opens
+  useEffect(() => {
+    if (open && window.electronAPI?.getNetworkAddresses) {
+      window.electronAPI.getNetworkAddresses().then((addresses) => {
+        setNetworkAddresses(addresses);
+      }).catch((error) => {
+        console.error('Failed to get network addresses:', error);
+      });
+    }
+  }, [open]);
+
+  // Handle copy address to clipboard
+  const handleCopyAddress = async (address: string) => {
+    try {
+      if (window.electronAPI?.copyToClipboard) {
+        await window.electronAPI.copyToClipboard(address);
+      } else {
+        await navigator.clipboard.writeText(address);
+      }
+      setCopiedAddress(address);
+      setTimeout(() => setCopiedAddress(null), 2000);
+    } catch (error) {
+      console.error('Failed to copy address:', error);
+    }
+  };
 
   return (
     <>
