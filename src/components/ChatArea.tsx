@@ -4326,19 +4326,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             ref={messagesContainerRef}
             sx={{
               ...styles.messagesContainer,
-              // Keep messages below the top bar
               position: 'relative',
-              zIndex: 0, // Below top bar (1300) and input (1000)
-              // Reserve space for TOP BAR with extra padding to prevent first message from being hidden
-              paddingTop: 'calc(var(--chat-topbar-h, 64px) + 40px)',
-              // Reserve space for INPUT
+              top: 'var(--chat-topbar-h, 64px)', // Start below the top bar
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 0,
+              paddingTop: 'calc(var(--chat-topbar-h, 0px) + 115px)',
+              paddingLeft: '16px',
+              paddingRight: '16px',
               paddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
-              // Height is viewport minus the top bar
-              height: 'calc(100vh - var(--chat-topbar-h, 64px))',
               overflowY: 'auto',
-              overscrollBehavior: 'contain', // Prevent scroll chaining to body
-              scrollPaddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
-              contain: 'layout style paint', // Prevent cross-layout recalculations
+              overscrollBehavior: 'contain',
+              WebkitOverflowScrolling: 'touch',
+              // Add small gap for first message only using CSS
+              '& > *:first-of-type': {
+                marginTop: '16px',
+              },
             }}
           >
             {renderedCompletedMessages}
