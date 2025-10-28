@@ -72,6 +72,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingChatTitle, setEditingChatTitle] = useState('');
+  const editTextFieldRef = useRef<HTMLInputElement>(null);
+  const pendingChatSelectionRef = useRef<string | null>(null);
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const [tooltipContent, setTooltipContent] = useState('');
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -105,6 +107,13 @@ const Sidebar: React.FC<SidebarProps> = ({
     // Notify parent that editing has ended
     if (onEditingStateChange) {
       onEditingStateChange(false);
+    }
+    
+    // If there's a pending chat selection, execute it after a small delay
+    if (pendingChatSelectionRef.current) {
+      const chatId = pendingChatSelectionRef.current;
+      pendingChatSelectionRef.current = null;
+      setTimeout(() => onSelectChat(chatId), 100);
     }
   };
 
@@ -320,7 +329,15 @@ const Sidebar: React.FC<SidebarProps> = ({
                     <ListItemButton
                       key={chat.id}
                       selected={chat.id === currentChatId}
-                      onClick={() => onSelectChat(chat.id)}
+                      onClick={() => {
+                        // If currently editing, queue the selection after save
+                        if (editingChatId) {
+                          pendingChatSelectionRef.current = chat.id;
+                          editTextFieldRef.current?.blur();
+                        } else {
+                          onSelectChat(chat.id);
+                        }
+                      }}
                       sx={styles.chatListItem}
                     >
                       <ListItemIcon sx={styles.chatListItemIcon}>
@@ -335,6 +352,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                           onBlur={() => handleSaveTitle(chat.id)}
                           autoFocus
                           onClick={(e) => e.stopPropagation()}
+                          inputRef={editTextFieldRef}
                           sx={styles.editTextField}
                         />
                       ) : (

@@ -74,19 +74,7 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Handle window resize to auto-close sidebar on mobile
-  useEffect(() => {
-    const handleResize = () => {
-      const isMobile = window.innerWidth < 900;
-      // Only auto-close on mobile if not editing, don't auto-open on desktop (let user control it)
-      if (isMobile && sidebarOpen && !isEditingChatTitle) {
-        setSidebarOpen(false);
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [sidebarOpen, isEditingChatTitle]);
+  // Removed auto-close on window resize - sidebar now only closes when user clicks X or outside
 
   // Vosk speech recognition state
   const [micStoppedTrigger, setMicStoppedTrigger] = useState(0);
@@ -396,6 +384,7 @@ const App: React.FC = () => {
     if (onClearChatInput.current) {
       onClearChatInput.current();
     }
+    
   };
 
   const handleSelectChat = (chatId: string) => {
@@ -409,14 +398,6 @@ const App: React.FC = () => {
         if (chatModel) {
           setSelectedModel(chatModel);
         }
-      }
-      
-      // Close sidebar on mobile only if not editing
-      const isMobile = window.innerWidth < 900;
-      if (isMobile && !isEditingChatTitle) {
-        // Suspend ResizeObserver before closing sidebar to prevent errors
-        RO.suspendFor(400);
-        setTimeout(() => setSidebarOpen(false), 50);
       }
     }
   };
@@ -896,10 +877,32 @@ const App: React.FC = () => {
     }
   };
 
+  // Centralized function to safely close sidebar with TextField unmount delay
+  const closeSidebarSafely = useCallback(() => {
+    // If editing, wait for TextField to unmount before closing
+    if (isEditingChatTitle) {
+      setTimeout(() => {
+        if (!isEditingChatTitle) {
+          RO.suspendFor(600);
+          setSidebarOpen(false);
+        }
+      }, 150);
+    } else {
+      // No editing, close immediately with suspension
+      RO.suspendFor(600);
+      setSidebarOpen(false);
+    }
+  }, [isEditingChatTitle]);
+
   const toggleSidebar = () => {
-    // Suspend ResizeObserver during sidebar toggle to prevent errors
-    RO.suspendFor(400);
-    setTimeout(() => setSidebarOpen(!sidebarOpen), 50);
+    if (sidebarOpen) {
+      // Closing sidebar
+      closeSidebarSafely();
+    } else {
+      // Opening sidebar
+      RO.suspendFor(400);
+      setTimeout(() => setSidebarOpen(true), 50);
+    }
   };
 
   const handleSaveSettings = (newContextLength: number, newTemperature: number) => {
