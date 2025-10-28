@@ -12,6 +12,7 @@ import { ttsService } from './services/ttsService';
 import { generateChatTitle } from './services/titleGenerator';
 import { checkOllamaStatus, OllamaStatus } from './services/ollamaStatus';
 import { electronApi } from './services/electronApi';
+import { RO } from './hooks/ResizeObserverManager';
 
 // Global current message ID - immediately accessible everywhere
 let currentMsgId: string | null = null;
@@ -413,7 +414,9 @@ const App: React.FC = () => {
       // Close sidebar on mobile only if not editing
       const isMobile = window.innerWidth < 900;
       if (isMobile && !isEditingChatTitle) {
-        setSidebarOpen(false);
+        // Suspend ResizeObserver before closing sidebar to prevent errors
+        RO.suspendFor(400);
+        setTimeout(() => setSidebarOpen(false), 50);
       }
     }
   };
@@ -894,7 +897,9 @@ const App: React.FC = () => {
   };
 
   const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen);
+    // Suspend ResizeObserver during sidebar toggle to prevent errors
+    RO.suspendFor(400);
+    setTimeout(() => setSidebarOpen(!sidebarOpen), 50);
   };
 
   const handleSaveSettings = (newContextLength: number, newTemperature: number) => {
@@ -985,7 +990,13 @@ const App: React.FC = () => {
         hasMoreChats={chatPagination.hasMore}
         isLoadingChats={chatPagination.isLoading}
         onClose={toggleSidebar}
-        onEditingStateChange={setIsEditingChatTitle}
+        onEditingStateChange={(isEditing) => {
+          setIsEditingChatTitle(isEditing);
+          // Suspend ResizeObserver when editing state changes
+          if (!isEditing) {
+            RO.suspendFor(400);
+          }
+        }}
       />
       <ChatArea 
         chat={currentChat}

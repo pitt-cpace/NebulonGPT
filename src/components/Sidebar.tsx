@@ -37,6 +37,7 @@ import {
 } from '@mui/icons-material';
 import { ChatType } from '../types';
 import * as styles from '../styles/components/Sidebar.styles';
+import { RO } from '../hooks/ResizeObserverManager';
 
 interface SidebarProps {
   open: boolean;
@@ -230,7 +231,11 @@ const Sidebar: React.FC<SidebarProps> = ({
           {/* Close button - inline with title */}
           {onClose && (
             <IconButton
-              onClick={onClose}
+              onClick={() => {
+                // Suspend ResizeObserver before closing
+                RO.suspendFor(300);
+                onClose();
+              }}
               size="small"
               sx={{
                 color: 'text.secondary',
