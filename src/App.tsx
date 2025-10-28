@@ -30,6 +30,7 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isEditingChatTitle, setIsEditingChatTitle] = useState(false);
   
   // Ollama status state
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({ isAvailable: true });
@@ -76,15 +77,15 @@ const App: React.FC = () => {
   useEffect(() => {
     const handleResize = () => {
       const isMobile = window.innerWidth < 900;
-      // Only auto-close on mobile, don't auto-open on desktop (let user control it)
-      if (isMobile && sidebarOpen) {
+      // Only auto-close on mobile if not editing, don't auto-open on desktop (let user control it)
+      if (isMobile && sidebarOpen && !isEditingChatTitle) {
         setSidebarOpen(false);
       }
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [sidebarOpen]);
+  }, [sidebarOpen, isEditingChatTitle]);
 
   // Vosk speech recognition state
   const [micStoppedTrigger, setMicStoppedTrigger] = useState(0);
@@ -407,6 +408,12 @@ const App: React.FC = () => {
         if (chatModel) {
           setSelectedModel(chatModel);
         }
+      }
+      
+      // Close sidebar on mobile only if not editing
+      const isMobile = window.innerWidth < 900;
+      if (isMobile && !isEditingChatTitle) {
+        setSidebarOpen(false);
       }
     }
   };
@@ -978,6 +985,7 @@ const App: React.FC = () => {
         hasMoreChats={chatPagination.hasMore}
         isLoadingChats={chatPagination.isLoading}
         onClose={toggleSidebar}
+        onEditingStateChange={setIsEditingChatTitle}
       />
       <ChatArea 
         chat={currentChat}

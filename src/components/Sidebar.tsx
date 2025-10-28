@@ -27,6 +27,7 @@ import {
   Add as AddIcon,
   Chat as ChatIcon,
   Delete as DeleteIcon,
+  Edit as EditIcon,
   Search as SearchIcon,
   ExpandLess,
   ExpandMore,
@@ -49,6 +50,7 @@ interface SidebarProps {
   hasMoreChats?: boolean;
   isLoadingChats?: boolean;
   onClose?: () => void;
+  onEditingStateChange?: (isEditing: boolean) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -63,6 +65,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   hasMoreChats = false,
   isLoadingChats = false,
   onClose,
+  onEditingStateChange,
 }) => {
   const [chatsOpen, setChatsOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,6 +90,10 @@ const Sidebar: React.FC<SidebarProps> = ({
     e.stopPropagation();
     setEditingChatId(chatId);
     setEditingChatTitle(currentTitle);
+    // Notify parent that editing has started
+    if (onEditingStateChange) {
+      onEditingStateChange(true);
+    }
   };
 
   const handleSaveTitle = (chatId: string) => {
@@ -94,6 +101,10 @@ const Sidebar: React.FC<SidebarProps> = ({
       onUpdateChatTitle(chatId, editingChatTitle.trim());
     }
     setEditingChatId(null);
+    // Notify parent that editing has ended
+    if (onEditingStateChange) {
+      onEditingStateChange(false);
+    }
   };
 
   const handleTitleKeyDown = (chatId: string, e: React.KeyboardEvent) => {
@@ -101,6 +112,10 @@ const Sidebar: React.FC<SidebarProps> = ({
       handleSaveTitle(chatId);
     } else if (e.key === 'Escape') {
       setEditingChatId(null);
+      // Notify parent that editing has ended (cancelled)
+      if (onEditingStateChange) {
+        onEditingStateChange(false);
+      }
     }
   };
 
@@ -322,35 +337,38 @@ const Sidebar: React.FC<SidebarProps> = ({
                           primary={
                             <Typography
                               noWrap
-                              sx={{ maxWidth: '150px', cursor: 'pointer' }}
+                              sx={{ maxWidth: '150px' }}
                               onMouseEnter={(e) => handleMouseEnter(e, chat.title)}
                               onMouseMove={handleMouseMove}
                               onMouseLeave={handleMouseLeave}
-                              onClick={(e) => {
-                                if (chat.title === 'New Chat') {
-                                  handleStartEditing(chat.id, chat.title, e);
-                                }
-                              }}
-                              onDoubleClick={(e) => handleStartEditing(chat.id, chat.title, e)}
                             >
                               {chat.title}
                             </Typography>
                           }
                         />
                       )}
-                      <Box sx={{ display: 'flex' }}>
-                        {!editingChatId && (
-                          <IconButton
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setChatToDelete({ id: chat.id, title: chat.title });
-                              setDeleteConfirmOpen(true);
-                            }}
-                            sx={styles.deleteButton}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        {editingChatId !== chat.id && (
+                          <>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => handleStartEditing(chat.id, chat.title, e)}
+                              sx={styles.editButton}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setChatToDelete({ id: chat.id, title: chat.title });
+                                setDeleteConfirmOpen(true);
+                              }}
+                              sx={styles.deleteButton}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </>
                         )}
                       </Box>
                     </ListItemButton>

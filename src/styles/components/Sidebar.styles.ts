@@ -126,6 +126,12 @@ export const editTextField: SxProps<Theme> = {
   },
 };
 
+export const editButton: SxProps<Theme> = {
+  opacity: 0.7,
+  transition: 'opacity 0.2s',
+  '&:hover': { opacity: 1 },
+};
+
 export const deleteButton: SxProps<Theme> = {
   opacity: 0.7,
   transition: 'opacity 0.2s',
