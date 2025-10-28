@@ -49,18 +49,20 @@ export const userMessage: SxProps<Theme> = {
   display: 'flex',
   p: 2,
   borderRadius: 2,
-  backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.08)' : 'rgba(25, 118, 210, 0.08)',
+  backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.08)' : 'rgba(25, 118, 210, 0.12)',
   maxWidth: '100%',
   width: '100%',
+  color: 'text.primary', // Ensure text color is theme-aware
 };
 
 export const assistantMessage: SxProps<Theme> = {
   display: 'flex',
   p: 2,
   borderRadius: 2,
-  backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+  backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.06)',
   maxWidth: '100%',
   width: '100%',
+  color: 'text.primary', // Ensure text color is theme-aware
 };
 
 export const messageContent: SxProps<Theme> = {

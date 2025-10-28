@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useTheme } from '@mui/material/styles';
 import katex from 'katex';
 import { useElementHeightVar } from '../hooks/useElementHeightVar';
 import { RO } from '../hooks/ResizeObserverManager';
@@ -112,6 +113,7 @@ function FixedTopbarOverlay({
   chatRootEl: HTMLElement | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const theme = useTheme();
   useElementHeightVar(ref, '--chat-topbar-h', { targetEl: chatRootEl, box: 'border-box' });
 
   // Match the drawer width from Sidebar
@@ -129,8 +131,8 @@ function FixedTopbarOverlay({
         width: `calc(100% - ${leftGutter}px)`,
         zIndex: 1300, // Above all other overlays (input, FABs, etc.)
         pointerEvents: 'auto', // Ensure clicks work
-        backgroundColor: '#1e1e1e', // Solid dark background matching theme
-        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        backgroundColor: theme.palette.background.paper, // Use theme background
+        borderBottom: `1px solid ${theme.palette.divider}`,
         boxShadow: '0px 2px 4px rgba(0,0,0,0.2)',
         transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms, width 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
       }}
@@ -4271,10 +4273,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       {!chat || !chat.id ? (
         <Box
-          sx={styles.welcomeContainer}
+          sx={{
+            ...styles.welcomeContainer,
+            bgcolor: 'background.default', // Theme-aware background
+          }}
         >
           <Box sx={styles.welcomeHeader}>
-            <Typography variant="h4" gutterBottom>
+            <Typography variant="h4" gutterBottom color="text.primary">
               {model?.name || 'Nebulon-GPT'}
             </Typography>
             <Typography variant="body1" color="text.secondary">
@@ -4285,7 +4290,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             </Typography>
           </Box>
 
-          <Typography variant="h6" gutterBottom sx={styles.suggestedPromptsHeader}>
+          <Typography variant="h6" gutterBottom color="text.primary" sx={styles.suggestedPromptsHeader}>
             <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Box component="span" sx={styles.sparkleIcon}>✨</Box> Suggested
             </Box>
@@ -4324,6 +4329,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               right: 0,
               bottom: 0,
               zIndex: 0,
+              bgcolor: 'background.default', // Theme-aware background color
               // Responsive paddingTop: mobile gets 130px, desktop gets 60px
               paddingTop: {
                 xs: 'calc(var(--chat-topbar-h, 0px) + 160px)', // Mobile

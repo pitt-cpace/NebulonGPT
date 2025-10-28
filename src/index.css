@@ -42,7 +42,7 @@ code {
     monospace;
 }
 
-/* Custom scrollbar for the entire app */
+/* Custom scrollbar for the entire app - Dark mode (default) */
 ::-webkit-scrollbar {
   width: 8px;
 }
@@ -58,6 +58,25 @@ code {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
+}
+
+/* Light mode scrollbar styles */
+[data-theme="light"] ::-webkit-scrollbar-track,
+.light-theme ::-webkit-scrollbar-track,
+body.light-mode ::-webkit-scrollbar-track {
+  background: #f5f5f5;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb,
+.light-theme ::-webkit-scrollbar-thumb,
+body.light-mode ::-webkit-scrollbar-thumb {
+  background: #c0c0c0;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover,
+.light-theme ::-webkit-scrollbar-thumb:hover,
+body.light-mode ::-webkit-scrollbar-thumb:hover {
+  background: #a0a0a0;
 }
 
 /* Animations */
