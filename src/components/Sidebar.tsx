@@ -241,9 +241,18 @@ const Sidebar: React.FC<SidebarProps> = ({
           {onClose && (
             <IconButton
               onClick={() => {
-                // Suspend ResizeObserver before closing
-                RO.suspendFor(300);
-                onClose();
+                // If editing, blur the TextField first, then close after delay
+                if (editingChatId && editTextFieldRef.current) {
+                  editTextFieldRef.current.blur();
+                  // Suspend for longer to cover TextField unmount + close animation
+                  RO.suspendFor(600);
+                  // Wait for blur event to complete before closing
+                  setTimeout(() => onClose(), 200);
+                } else {
+                  // Not editing, close normally
+                  RO.suspendFor(400);
+                  onClose();
+                }
               }}
               size="small"
               sx={{
