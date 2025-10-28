@@ -4327,19 +4327,22 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             sx={{
               ...styles.messagesContainer,
               position: 'relative',
-              top: 'var(--chat-topbar-h, 64px)', // Start below the top bar
+              top: 'var(--chat-topbar-h, 64px)',
               left: 0,
               right: 0,
               bottom: 0,
               zIndex: 0,
-              paddingTop: 'calc(var(--chat-topbar-h, 0px) + 115px)',
+              // Responsive paddingTop: mobile gets 130px, desktop gets 60px
+              paddingTop: {
+                xs: 'calc(var(--chat-topbar-h, 0px) + 160px)', // Mobile
+                sm: 'calc(var(--chat-topbar-h, 0px) + 60px)',  // Desktop
+              },
               paddingLeft: '16px',
               paddingRight: '16px',
               paddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
               overflowY: 'auto',
               overscrollBehavior: 'contain',
               WebkitOverflowScrolling: 'touch',
-              // Add small gap for first message only using CSS
               '& > *:first-of-type': {
                 marginTop: '16px',
               },
