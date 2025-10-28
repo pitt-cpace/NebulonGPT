@@ -4216,7 +4216,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 } else {
                   // Browser mode - detect from current URL with dynamic port
                   try {
-                    const currentHostname = window.location.hostname;
                     const currentPort = window.location.port || '80';
                     const protocol = window.location.protocol;
                     
@@ -4226,25 +4225,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       network: [] as string[]
                     };
                     
-                    // Fetch network IPs from server
+                    // Fetch network addresses from server (server returns full HTTPS URLs)
                     try {
                       const response = await fetch('/api/network-info');
                       if (response.ok) {
                         const data = await response.json();
                         if (data.networkIPs && Array.isArray(data.networkIPs)) {
-                          // Construct full URLs using current port
-                          data.networkIPs.forEach((ip: string) => {
-                            addresses.network.push(`${protocol}//${ip}:${currentPort}`);
-                          });
+                          // Use the URLs directly from server - they are already full HTTPS URLs
+                          addresses.network = data.networkIPs;
                         }
                       }
                     } catch (error) {
                       console.log('Could not fetch network IPs from server:', error);
-                      
-                      // Fallback: If accessing via an IP address, add it
-                      if (currentHostname !== 'localhost' && currentHostname !== '127.0.0.1') {
-                        addresses.network.push(`${protocol}//${currentHostname}:${currentPort}`);
-                      }
                     }
                     
                     setNetworkAddresses(addresses);

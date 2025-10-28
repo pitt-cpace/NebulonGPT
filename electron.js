@@ -58,6 +58,7 @@ if (isDev) {
 let mainWindow;
 let voskProcess = null;
 let ttsProcess = null;
+let backendServerProcess = null;
 let isQuitting = false;
 let httpServer = null;
 
@@ -1074,6 +1075,138 @@ function startTTSServer() {
   });
 }
 
+// Start HTTPS server for network access in production
+function startHTTPSServer() {
+  return new Promise((resolve, reject) => {
+    if (isDev) {
+      console.log('Development mode: HTTPS server managed separately');
+      resolve();
+      return;
+    }
+
+    console.log('Starting HTTPS server for network access...');
+    
+    try {
+      const https = require('https');
+      const HTTP_PORT = 3001;
+      const HTTPS_PORT = 3443;
+      
+      // Find SSL certificate paths in unpacked location
+      let certPath = path.join(PATHS.buildDir, 'Certification', 'cert.pem');
+      let keyPath = path.join(PATHS.buildDir, 'Certification', 'key.pem');
+      
+      // Check unpacked location for certificates
+      if (certPath.includes('app.asar')) {
+        const unpackedCertPath = certPath.replace('app.asar', 'app.asar.unpacked');
+        const unpackedKeyPath = keyPath.replace('app.asar', 'app.asar.unpacked');
+        
+        if (fs.existsSync(unpackedCertPath) && fs.existsSync(unpackedKeyPath)) {
+          certPath = unpackedCertPath;
+          keyPath = unpackedKeyPath;
+          console.log('🔐 Using unpacked SSL certificates');
+        }
+      }
+      
+      // Check if certificates exist
+      if (!fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
+        console.error('❌ SSL certificates not found');
+        console.error('   cert.pem:', certPath);
+        console.error('   key.pem:', keyPath);
+        resolve(); // Don't fail, just continue without HTTPS
+        return;
+      }
+      
+      console.log('🔐 Loading SSL certificates...');
+      const sslOptions = {
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath)
+      };
+      
+      // Create HTTPS server that proxies to HTTP server on port 3000
+      const httpsServer = https.createServer(sslOptions, (req, res) => {
+        const axios = require('axios');
+        const targetUrl = `http://127.0.0.1:3000${req.url}`;
+        
+        axios({
+          method: req.method,
+          url: targetUrl,
+          data: req.method !== 'GET' && req.method !== 'HEAD' ? req : undefined,
+          headers: req.headers,
+          responseType: 'stream'
+        }).then(response => {
+          res.writeHead(response.status, response.headers);
+          response.data.pipe(res);
+        }).catch(error => {
+          console.error('HTTPS proxy error:', error.message);
+          res.writeHead(502);
+          res.end('Bad Gateway');
+        });
+      });
+      
+      // Handle WebSocket upgrades for HTTPS
+      httpsServer.on('upgrade', (req, socket, head) => {
+        console.log(`🔄 HTTPS WebSocket upgrade request for: ${req.url}`);
+        
+        const net = require('net');
+        const http = require('http');
+        
+        // Create target connection to HTTP server
+        const targetSocket = net.connect(3000, '127.0.0.1', () => {
+          console.log(`📡 Connected to HTTP server for WebSocket upgrade: ${req.url}`);
+          
+          // Forward the original HTTP upgrade request to the target
+          const upgradeRequest = [
+            `${req.method} ${req.url} HTTP/1.1`,
+            'Host: ' + req.headers.host,
+            'Upgrade: websocket',
+            'Connection: Upgrade',
+            'Sec-WebSocket-Key: ' + req.headers['sec-websocket-key'],
+            'Sec-WebSocket-Version: ' + req.headers['sec-websocket-version']
+          ];
+          
+          if (req.headers['sec-websocket-protocol']) {
+            upgradeRequest.push('Sec-WebSocket-Protocol: ' + req.headers['sec-websocket-protocol']);
+          }
+          
+          upgradeRequest.push('', '');
+          targetSocket.write(upgradeRequest.join('\r\n'));
+          
+          // Pipe the sockets bidirectionally
+          targetSocket.pipe(socket);
+          socket.pipe(targetSocket);
+        });
+        
+        targetSocket.on('error', (err) => {
+          console.error(`❌ HTTPS WebSocket proxy error for ${req.url}:`, err.message);
+          socket.end();
+        });
+      });
+      
+      // Start HTTPS server on all interfaces
+      httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
+        console.log(`✅ HTTPS server running on port ${HTTPS_PORT}`);
+        
+        const networkInterfaces = os.networkInterfaces();
+        for (const interfaceName in networkInterfaces) {
+          const interfaces = networkInterfaces[interfaceName];
+          for (const iface of interfaces) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+              console.log(`   - Network: https://${iface.address}:${HTTPS_PORT}`);
+            }
+          }
+        }
+        
+        backendServerProcess = httpsServer; // Store reference for cleanup
+        resolve();
+      });
+      
+    } catch (error) {
+      console.error('❌ Failed to start HTTPS server:', error);
+      resolve(); // Don't fail, just continue without HTTPS
+    }
+  });
+}
+
 // Start Express server in production mode
 function startExpressServer() {
   return new Promise((resolve, reject) => {
@@ -1184,10 +1317,11 @@ function startExpressServer() {
     expressApp.use('/vosk', voskProxy);
     expressApp.use('/tts', ttsProxy);
 
-    // API endpoint for network addresses - returns just the IP addresses
-    // Frontend will construct full URLs with the appropriate port
+    // API endpoint for network addresses - returns HTTPS URLs for network access
     expressApp.get('/api/network-info', (req, res) => {
       try {
+        const HTTPS_PORT = 3443; // Same port as backend server
+        const HTTP_PORT = 3000; // Electron's Express server port
         const networkIPs = [];
         const networkInterfaces = os.networkInterfaces();
         
@@ -1196,12 +1330,17 @@ function startExpressServer() {
           for (const iface of interfaces) {
             // Get all IPv4 addresses that are not internal
             if (iface.family === 'IPv4' && !iface.internal) {
-              networkIPs.push(iface.address);
+              // Use HTTPS for network addresses with the HTTPS port
+              networkIPs.push(`https://${iface.address}:${HTTPS_PORT}`);
             }
           }
         }
         
-        res.json({ networkIPs });
+        res.json({ 
+          networkIPs,
+          httpsPort: HTTPS_PORT,
+          httpPort: HTTP_PORT
+        });
       } catch (error) {
         console.error('Error getting network addresses:', error);
         res.status(500).json({ error: 'Failed to get network addresses' });
@@ -1827,6 +1966,11 @@ async function initializeBackgroundServices() {
     // Extract bundled resources in background
     await extractBundledResources();
     
+    // Start HTTPS server for network access (production only)
+    if (!isDev) {
+      await startHTTPSServer();
+    }
+    
     // Start Python services in background
     console.log('Starting Python services in background...');
     await startVoskServer();
@@ -1862,7 +2006,12 @@ app.on('before-quit', () => {
     httpServer.close();
   }
   
-  // Terminate all processes
+  // Close HTTPS server (it's an https.Server object, not a process)
+  if (backendServerProcess && typeof backendServerProcess.close === 'function') {
+    backendServerProcess.close();
+  }
+  
+  // Terminate Python processes
   if (voskProcess) {
     voskProcess.kill();
   }
@@ -2091,25 +2240,28 @@ ipcMain.handle('copy-to-clipboard', (event, text) => {
   }
 });
 
-// Get network addresses for the application
-ipcMain.handle('get-network-addresses', () => {
+// Get network addresses for the application - fetches from backend server
+ipcMain.handle('get-network-addresses', async () => {
   try {
-    // Dynamically detect the port from the running HTTP server
-    let port = 3000; // Default fallback
-    
-    if (httpServer && httpServer.address()) {
-      const address = httpServer.address();
-      port = typeof address === 'object' ? address.port : port;
-      console.log(`🌐 Detected dynamic port: ${port}`);
-    } else if (isDev) {
-      // In development mode, React dev server runs on port 3000
-      port = 3000;
-      console.log('🌐 Using default dev port: 3000');
-    }
+    // Fetch network info from backend server API
+    const axios = require('axios');
+    const response = await axios.get('http://127.0.0.1:3001/api/network-info');
+    const { networkIPs, httpsPort, httpPort } = response.data;
     
     const addresses = {
-      localhost: `http://localhost:${port}`,
-      loopback: `http://127.0.0.1:${port}`,
+      localhost: `http://localhost:${httpPort}`,
+      loopback: `http://127.0.0.1:${httpPort}`,
+      network: networkIPs || [] // These are already full HTTPS URLs from server
+    };
+    
+    console.log('🌐 Network addresses from backend:', addresses);
+    return addresses;
+  } catch (error) {
+    console.error('Error getting network addresses from backend:', error);
+    // Fallback - generate addresses manually
+    const addresses = {
+      localhost: 'http://localhost:3001',
+      loopback: 'http://127.0.0.1:3001',
       network: []
     };
     
@@ -2120,19 +2272,12 @@ ipcMain.handle('get-network-addresses', () => {
       for (const iface of interfaces) {
         // Get all IPv4 addresses that are not internal
         if (iface.family === 'IPv4' && !iface.internal) {
-          addresses.network.push(`http://${iface.address}:${port}`);
+          // Use HTTPS for network addresses
+          addresses.network.push(`https://${iface.address}:3443`);
         }
       }
     }
     
     return addresses;
-  } catch (error) {
-    console.error('Error getting network addresses:', error);
-    // Fallback with default port
-    return {
-      localhost: 'http://localhost:3000',
-      loopback: 'http://127.0.0.1:3000',
-      network: []
-    };
   }
 });

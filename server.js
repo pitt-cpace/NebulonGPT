@@ -7,9 +7,13 @@ const multer = require('multer');
 const AdmZip = require('adm-zip');
 const axios = require('axios');
 const os = require('os');
+const https = require('https');
+const http = require('http');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 const DATA_DIR = path.join(__dirname, 'data');
 const CHATS_FILE = path.join(DATA_DIR, 'chats.json');
 
@@ -57,6 +61,35 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' })); // Increase payload size limit for large chat histories
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
+// WebSocket Proxies for Vosk and TTS (must be before static file serving)
+// Store proxy middleware references for manual upgrade handling
+const voskProxy = createProxyMiddleware({
+  target: 'ws://127.0.0.1:2700',
+  ws: true,
+  changeOrigin: true,
+  logLevel: 'debug',
+  onError: (err, req, res) => {
+    console.error('Vosk WebSocket Proxy Error:', err.message);
+  }
+});
+
+const ttsProxy = createProxyMiddleware({
+  target: 'http://127.0.0.1:2701',
+  ws: true,
+  changeOrigin: true,
+  logLevel: 'debug',
+  onError: (err, req, res) => {
+    console.error('TTS WebSocket Proxy Error:', err.message);
+  }
+});
+
+// Apply proxy middlewares to Express app
+app.use('/vosk', voskProxy);
+app.use('/tts', ttsProxy);
+
+// Serve static files from build directory (React app)
+app.use(express.static(path.join(__dirname, 'build')));
+
 // Ollama Proxy - Forward requests to local Ollama instance
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 
@@ -97,8 +130,7 @@ app.all('/api/ollama/*', async (req, res) => {
 
 // API endpoints
 
-// Get network addresses - returns just the IP addresses without ports
-// Frontend will add the appropriate port based on window.location
+// Get network addresses - returns HTTPS URLs for network access and HTTP for localhost
 app.get('/api/network-info', (req, res) => {
   try {
     const networkIPs = [];
@@ -109,13 +141,18 @@ app.get('/api/network-info', (req, res) => {
       for (const iface of interfaces) {
         // Get all IPv4 addresses that are not internal
         if (iface.family === 'IPv4' && !iface.internal) {
-          networkIPs.push(iface.address);
+          // Use HTTPS for network addresses with the HTTPS port
+          networkIPs.push(`https://${iface.address}:${HTTPS_PORT}`);
         }
       }
     }
     
-    console.log('Network IPs:', networkIPs);
-    res.json({ networkIPs });
+    console.log('Network addresses:', networkIPs);
+    res.json({ 
+      networkIPs,
+      httpsPort: HTTPS_PORT,
+      httpPort: PORT
+    });
   } catch (error) {
     console.error('Error getting network addresses:', error);
     res.status(500).json({ error: 'Failed to get network addresses' });
@@ -457,7 +494,60 @@ app.delete('/api/vosk/models/:name', (req, res) => {
   }
 });
 
-// Start the server on all network interfaces (0.0.0.0)
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Chat data server running on port ${PORT} and accessible from all network interfaces`);
+// Handle client-side routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
+
+// Start HTTP server (for localhost/127.0.0.1 only)
+const httpServer = http.createServer(app);
+httpServer.listen(PORT, '127.0.0.1', () => {
+  console.log(`HTTP server running on http://127.0.0.1:${PORT} (localhost only)`);
+  console.log(`HTTP server also accessible at http://localhost:${PORT}`);
+});
+
+// Start HTTPS server (for network access) with self-signed certificate
+try {
+  const certPath = path.join(__dirname, 'Certification', 'cert.pem');
+  const keyPath = path.join(__dirname, 'Certification', 'key.pem');
+  
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    const httpsOptions = {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath)
+    };
+    
+    const httpsServer = https.createServer(httpsOptions, app);
+    
+    // Handle WebSocket upgrades for the HTTPS server
+    httpsServer.on('upgrade', (req, socket, head) => {
+      console.log(`WebSocket upgrade request for: ${req.url}`);
+      
+      // Route to appropriate proxy based on URL
+      if (req.url.startsWith('/vosk')) {
+        console.log('Routing to Vosk proxy');
+        voskProxy.upgrade(req, socket, head);
+      } else if (req.url.startsWith('/tts')) {
+        console.log('Routing to TTS proxy');
+        ttsProxy.upgrade(req, socket, head);
+      } else {
+        console.log('Unknown WebSocket path:', req.url);
+        socket.destroy();
+      }
+    });
+    
+    httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
+      console.log(`HTTPS server running on port ${HTTPS_PORT} and accessible from all network interfaces`);
+      console.log(`⚠️  Using self-signed certificate - browsers will show a security warning`);
+      console.log(`💡 Accept the certificate warning to access from other devices`);
+      console.log(`📝 WebSocket proxies enabled for /vosk and /tts`);
+    });
+  } else {
+    console.warn('⚠️  SSL certificates not found. HTTPS server not started.');
+    console.warn('📝 Run the following command to generate certificates:');
+    console.warn('   openssl req -x509 -newkey rsa:2048 -keyout Certification/key.pem -out Certification/cert.pem -days 365 -nodes');
+  }
+} catch (error) {
+  console.error('Error starting HTTPS server:', error.message);
+  console.log('Continuing with HTTP server only...');
+}
