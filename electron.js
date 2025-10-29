@@ -1119,7 +1119,9 @@ function startHTTPSServer() {
       console.log('🔐 Loading SSL certificates...');
       const sslOptions = {
         key: fs.readFileSync(keyPath),
-        cert: fs.readFileSync(certPath)
+        cert: fs.readFileSync(certPath),
+        // Allow self-signed certificates
+        rejectUnauthorized: false
       };
       
       // Create HTTPS server that proxies to HTTP server on port 3000
@@ -1132,7 +1134,8 @@ function startHTTPSServer() {
           url: targetUrl,
           data: req.method !== 'GET' && req.method !== 'HEAD' ? req : undefined,
           headers: req.headers,
-          responseType: 'stream'
+          responseType: 'stream',
+          timeout: 30000 // 30 second timeout
         }).then(response => {
           res.writeHead(response.status, response.headers);
           response.data.pipe(res);
@@ -1143,12 +1146,34 @@ function startHTTPSServer() {
         });
       });
       
+      // Add error handlers for TLS errors
+      httpsServer.on('tlsClientError', (err, tlsSocket) => {
+        console.error('❌ TLS Client Error:', err.message);
+        // Don't crash the server on TLS errors
+        if (tlsSocket && !tlsSocket.destroyed) {
+          tlsSocket.end();
+        }
+      });
+      
+      httpsServer.on('clientError', (err, socket) => {
+        console.error('❌ Client Error:', err.message);
+        // Handle client errors gracefully
+        if (socket && !socket.destroyed) {
+          socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+        }
+      });
+      
       // Handle WebSocket upgrades for HTTPS
       httpsServer.on('upgrade', (req, socket, head) => {
         console.log(`🔄 HTTPS WebSocket upgrade request for: ${req.url}`);
         
         const net = require('net');
         const http = require('http');
+        
+        // Add error handler for socket
+        socket.on('error', (err) => {
+          console.error(`❌ HTTPS WebSocket socket error for ${req.url}:`, err.message);
+        });
         
         // Create target connection to HTTP server
         const targetSocket = net.connect(3000, '127.0.0.1', () => {
@@ -1178,7 +1203,22 @@ function startHTTPSServer() {
         
         targetSocket.on('error', (err) => {
           console.error(`❌ HTTPS WebSocket proxy error for ${req.url}:`, err.message);
-          socket.end();
+          if (!socket.destroyed) {
+            socket.end();
+          }
+        });
+        
+        // Clean up on socket close
+        socket.on('close', () => {
+          if (!targetSocket.destroyed) {
+            targetSocket.destroy();
+          }
+        });
+        
+        targetSocket.on('close', () => {
+          if (!socket.destroyed) {
+            socket.destroy();
+          }
         });
       });
       
@@ -1198,6 +1238,11 @@ function startHTTPSServer() {
         
         backendServerProcess = httpsServer; // Store reference for cleanup
         resolve();
+      });
+      
+      httpsServer.on('error', (error) => {
+        console.error('❌ HTTPS server error:', error);
+        // Don't fail, just log the error
       });
       
     } catch (error) {
