@@ -1073,11 +1073,11 @@ export class VoskRecognitionService {
       const shouldSend = rms > this.voiceDetectionThreshold;
 
       // Silence detected - check if we should start/continue silence timer
-        const silenceDuration = Date.now() - this.lastAudioTime;
-        
-        if (silenceDuration > 500 && !this.silenceTimer) { // Wait 500ms before starting silence timer
-          this.startSilenceTimer();
-        }
+      const silenceDuration = Date.now() - this.lastAudioTime;
+      
+      if (silenceDuration > 500 && !this.silenceTimer) { // Wait 500ms before starting silence timer
+        this.startSilenceTimer();
+      }
       
       return shouldSend;
       
@@ -1230,28 +1230,32 @@ export class VoskRecognitionService {
 
   /**
    * Set detection sensitivity (0-100 range)
-   * This controls voiceDetectionThreshold with the relationship:
-   * - voiceDetectionThreshold = sensitivity / 10000 (maps 0-100 to 0.0000-0.0100, with 20→0.002)
+   * INVERSE mapping to voiceDetectionThreshold from -1 to 1:
+   * - Sensitivity 100 → threshold = -1.0 (maximum sensitivity, picks up all sounds)
+   * - Sensitivity 0 → threshold = 1.0 (minimum sensitivity, filters out most noise)
    */
   public setDetectionSensitivity(sensitivity: number): void {
     // Clamp sensitivity between 0 and 100
     const clampedSensitivity = Math.max(0, Math.min(100, sensitivity));
     
-    // Calculate new threshold based on sensitivity (20 → 0.002)
-    const newVoiceDetectionThreshold = clampedSensitivity / 10000;
+    // INVERSE mapping: sensitivity 100 → threshold -1.0, sensitivity 0 → threshold 1.0
+    // Formula: threshold = (100 - 2*sensitivity) / 100
+    const newVoiceDetectionThreshold = (100 - 2 * clampedSensitivity) / 100;
     
     // Update the threshold
     this.voiceDetectionThreshold = newVoiceDetectionThreshold;
     
+    console.log(`🎚️ Detection Sensitivity: ${clampedSensitivity}, Threshold: ${newVoiceDetectionThreshold.toFixed(2)}`);
   }
 
   /**
    * Get current detection sensitivity (0-100 range)
-   * Calculated from current voiceDetectionThreshold
+   * Calculated from current voiceDetectionThreshold with INVERSE relationship
    */
   public getDetectionSensitivity(): number {
-    // Calculate sensitivity from current voiceDetectionThreshold (20 → 0.002)
-    return Math.round(this.voiceDetectionThreshold * 10000);
+    // INVERSE mapping: threshold -1.0 to 1.0 to sensitivity 100-0
+    // Formula: sensitivity = 50 - (threshold * 50)
+    return Math.round(50 - (this.voiceDetectionThreshold * 50));
   }
 
   /**
