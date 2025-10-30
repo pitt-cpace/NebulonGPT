@@ -97,11 +97,20 @@ const App: React.FC = () => {
   // Simple functions to manage current message ID
   const getCurrentMsgId = useCallback((): string | null => {
     return currentMsgId;
-  }, []);
+  }, [currentMsgId]);
 
-  const setCurrentMsgId = useCallback((msgId: string | null) => {
+  const setCurrentMsgId = useCallback(async (msgId: string | null) => {
     currentMsgId = msgId;
-  }, []);
+
+    const ttsSettings = ttsService.getSettings();
+    if (ttsSettings.fullVoiceMode && isListening) {
+      // Set the new active message ID for this response
+      const success = await ttsService.setActiveMessageId(msgId);
+      if (!success) {
+        console.error('Start: Failed to set active message ID for TTS:', msgId);
+      }
+    }
+  }, [isListening]);
 
   // Function to determine the chat API URL based on environment
   const getChatApiUrl = useCallback(() => {
@@ -485,7 +494,10 @@ const App: React.FC = () => {
     // Also stop TTS if full voice mode is enabled
     const ttsSettings = ttsService.getSettings();
     if (ttsSettings.fullVoiceMode && isListening) {
+
+      // Stop current playback and clear queue to prevent old messages from playing
       ttsService.pause();
+      await ttsService.stop();
     }
     await cancelStream();
   };
@@ -493,9 +505,13 @@ const App: React.FC = () => {
   const handleSendMessage = async (content: string, attachments?: FileAttachment[]) => {
     if (!currentChat || !selectedModel) return;
     
+    // Stop any ongoing LLM response, TTS and clear the queue before starting new response
+    await handleStopResponse();
+    
+    
     // Clear TTS if full voice mode is enabled (for new conversation turn)
     const ttsSettings = ttsService.getSettings();
-    
+        
     const userMessage: MessageType = {
       id: `msg-${Date.now()}`,
       role: 'user',
@@ -526,28 +542,16 @@ const App: React.FC = () => {
     const updatedChats = chats.map(chat => 
       chat.id === currentChat.id ? updatedChat : chat
     );
-    
+       
     setCurrentChat(updatedChat);
     setChats(updatedChats);
-    
+
     // Create a placeholder for the AI response
     const aiMessageId = `msg-${Date.now() + 1}`;
             
     // Set the current message ID from the LLM response or fallback to local ID
     setCurrentMsgId(aiMessageId);
     
-    // Stop any ongoing TTS and clear the queue before starting new response
-    if (ttsSettings.fullVoiceMode && isListening) {
-      // Stop current playback and clear queue to prevent old messages from playing
-      await ttsService.stop();
-      
-      // Set the new active message ID for this response
-      const success = await ttsService.setActiveMessageId(aiMessageId);
-      if (!success) {
-        console.error('Start: Failed to set active message ID for TTS:', aiMessageId);
-      }
-    }
-       
     const aiMessage: MessageType = {
       id: aiMessageId,
       role: 'assistant',
