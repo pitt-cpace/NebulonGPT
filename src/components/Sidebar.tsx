@@ -33,7 +33,7 @@ import {
   ExpandMore,
   Workspaces as WorkspacesIcon,
   AutoAwesome as AutoAwesomeIcon,
-  Close as CloseIcon,
+  ChevronLeft as ChevronLeftIcon,
 } from '@mui/icons-material';
 import { ChatType } from '../types';
 import * as styles from '../styles/components/Sidebar.styles';
@@ -239,33 +239,35 @@ const Sidebar: React.FC<SidebarProps> = ({
           
           {/* Close button - inline with title */}
           {onClose && (
-            <IconButton
-              onClick={() => {
-                // If editing, blur the TextField first, then close after delay
-                if (editingChatId && editTextFieldRef.current) {
-                  editTextFieldRef.current.blur();
-                  // Suspend for longer to cover TextField unmount + close animation
-                  RO.suspendFor(600);
-                  // Wait for blur event to complete before closing
-                  setTimeout(() => onClose(), 200);
-                } else {
-                  // Not editing, close normally
-                  RO.suspendFor(400);
-                  onClose();
-                }
-              }}
-              size="small"
-              sx={{
-                color: 'text.secondary',
-                mt: 0.5,
-                '&:hover': {
-                  color: 'primary.main',
-                  backgroundColor: 'action.hover',
-                },
-              }}
-            >
-              <CloseIcon />
-            </IconButton>
+            <Tooltip title="Close sidebar">
+              <IconButton
+                onClick={() => {
+                  // If editing, blur the TextField first, then close after delay
+                  if (editingChatId && editTextFieldRef.current) {
+                    editTextFieldRef.current.blur();
+                    // Suspend for longer to cover TextField unmount + close animation
+                    RO.suspendFor(600);
+                    // Wait for blur event to complete before closing
+                    setTimeout(() => onClose(), 200);
+                  } else {
+                    // Not editing, close normally
+                    RO.suspendFor(400);
+                    onClose();
+                  }
+                }}
+                size="small"
+                sx={{
+                  color: 'text.secondary',
+                  mt: 0.5,
+                  '&:hover': {
+                    color: 'primary.main',
+                    backgroundColor: 'action.hover',
+                  },
+                }}
+              >
+                <ChevronLeftIcon />
+              </IconButton>
+            </Tooltip>
           )}
         </Box>
         
