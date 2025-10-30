@@ -22,11 +22,21 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<ModelType | null>(null);
   const [chats, setChats] = useState<ChatType[]>([]);
   const [currentChat, setCurrentChat] = useState<ChatType | null>(null);
+  
+  // Mobile detection state with resize listener
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  
   // Detect mobile device and close sidebar by default on mobile
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     // Check if screen width is less than 900px (mobile/tablet)
-    const isMobile = window.innerWidth < 900;
-    return !isMobile; // Sidebar open on desktop, closed on mobile
+    const isMobileDevice = window.innerWidth < 900;
+    return !isMobileDevice; // Sidebar open on desktop, closed on mobile
   });
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -1027,6 +1037,7 @@ const App: React.FC = () => {
         onCreateNewChat={handleCreateNewChat}
         onHideLoadingAnimation={onHideLoadingAnimationRef}
         onOpenSettings={() => setSettingsOpen(true)}
+        isMobile={isMobile}
       />
     </Box>
   );

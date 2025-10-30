@@ -37,6 +37,7 @@ interface InputAreaProps {
   voiceText?: string;
   onClearInput?: React.MutableRefObject<(() => void) | null>; // Ref callback to clear input
   onGetAttachments?: React.MutableRefObject<(() => FileAttachment[]) | null>; // Ref callback to get current attachments
+  isMobile: boolean;
 }
 
 const InputArea: React.FC<InputAreaProps> = ({
@@ -54,6 +55,7 @@ const InputArea: React.FC<InputAreaProps> = ({
   voiceText,
   onClearInput,
   onGetAttachments,
+  isMobile,
 }) => {
   const [message, setMessage] = useState(initialMessage || '');
   
@@ -283,7 +285,9 @@ const InputArea: React.FC<InputAreaProps> = ({
   };
   
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // On mobile devices, allow Enter to create new line
+    // On desktop, Enter sends the message (Shift+Enter for new line)
+    if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
       e.preventDefault();
       handleSend();
     }

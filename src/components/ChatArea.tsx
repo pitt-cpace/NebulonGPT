@@ -201,6 +201,7 @@ interface ChatAreaProps {
   onRefreshOllamaStatus: () => Promise<OllamaStatus>;
   onCreateNewChat: () => Promise<void>;
   onOpenSettings: () => void;
+  isMobile: boolean;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -224,6 +225,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onRefreshOllamaStatus,
   onCreateNewChat,
   onOpenSettings,
+  isMobile,
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
@@ -4783,6 +4785,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               voiceText={message}
               onClearInput={onClearInputAreaRef}
               onGetAttachments={onGetAttachmentsRef}
+              isMobile={isMobile}
             />
           </FixedInputOverlay>
         </>
