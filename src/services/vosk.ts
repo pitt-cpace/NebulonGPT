@@ -44,7 +44,7 @@ export class VoskRecognitionService {
   
   // Voice detection threshold to reduce background noise sensitivity
   private voiceDetectionEnabled = true;
-  private voiceDetectionThreshold = 0.0; // Root Mean Square (RMS) audio level 0.0-1.0 (0.0 = default sensitivity 100) - Audio below this won't be sent to Vosk server
+  private voiceDetectionThreshold = -1.0; // Root Mean Square (RMS) audio level -1.0 to 1.0 (-1.0 = default sensitivity 100 means height sensitivity) - Audio below this won't be sent to Vosk server
   
   // Real-time audio level tracking for waveform visualization
   private currentAudioLevel = 0;
@@ -1125,7 +1125,8 @@ export class VoskRecognitionService {
     }
     
     if (settings.voiceDetectionThreshold !== undefined) {
-      this.voiceDetectionThreshold = Math.max(0, Math.min(0.01, settings.voiceDetectionThreshold));
+      // Updated to support new -1 to 1 range
+      this.voiceDetectionThreshold = Math.max(-1, Math.min(1, settings.voiceDetectionThreshold));
     }
     
     if (settings.silenceDetectionEnabled !== undefined) {
@@ -1208,7 +1209,8 @@ export class VoskRecognitionService {
    * Set voice detection threshold (higher = less sensitive to background noise)
    */
   public setVoiceDetectionThreshold(threshold: number): void {
-    this.voiceDetectionThreshold = Math.max(0, Math.min(0.01, threshold)); // Clamp between 0 and 0.01 (matches 0-100 sensitivity range with 10000 scaling)
+    // Clamp between -1 and 1 to match new sensitivity range
+    this.voiceDetectionThreshold = Math.max(-1, Math.min(1, threshold));
   }
 
   /**
@@ -1245,7 +1247,7 @@ export class VoskRecognitionService {
     // Update the threshold
     this.voiceDetectionThreshold = newVoiceDetectionThreshold;
     
-    console.log(`🎚️ Detection Sensitivity: ${clampedSensitivity}, Threshold: ${newVoiceDetectionThreshold.toFixed(2)}`);
+    //console.log(`🎚️ Detection Sensitivity: ${clampedSensitivity}, Threshold: ${newVoiceDetectionThreshold.toFixed(2)}`);
   }
 
   /**

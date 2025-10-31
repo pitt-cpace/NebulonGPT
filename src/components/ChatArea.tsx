@@ -251,7 +251,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [isTurningOff, setIsTurningOff] = useState(false);
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
-  const [detectionSensitivity, setDetectionSensitivity] = useState<number>(100); // Default sensitivity display value (inverse of internal 0)
+  const [detectionSensitivity, setDetectionSensitivity] = useState<number>(100); // Default sensitivity display value
   const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
   const onClearInputAreaRef = useRef<(() => void) | null>(null);
   const onGetAttachmentsRef = useRef<(() => FileAttachment[]) | null>(null);
@@ -381,39 +381,36 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, []);
 
-  // Initialize detection sensitivity from Vosk service (inverse relationship)
+  // Initialize detection sensitivity from Vosk service
   useEffect(() => {
     if (voskRecognition) {
-      const internalSensitivity = voskRecognition.getDetectionSensitivity();
-      const displayValue = 100 - internalSensitivity; // Inverse for display
-      setDetectionSensitivity(displayValue);
+      const sensitivity = voskRecognition.getDetectionSensitivity();
+      setDetectionSensitivity(sensitivity);
     }
   }, [voskRecognition]);
 
-  // Handle detection sensitivity change (inverse relationship)
+  // Handle detection sensitivity change
   const handleDetectionSensitivityChange = useCallback((event: Event, newValue: number | number[]) => {
-    const displayValue = Array.isArray(newValue) ? newValue[0] : newValue;
-    const internalValue = 100 - displayValue; // Inverse relationship
+    const sensitivity = Array.isArray(newValue) ? newValue[0] : newValue;
     
-    setDetectionSensitivity(displayValue);
+    setDetectionSensitivity(sensitivity);
     
     if (voskRecognition) {
-      voskRecognition.updateSettings({ detectionSensitivity: internalValue });
+      voskRecognition.updateSettings({ detectionSensitivity: sensitivity });
       voskRecognition.saveSettings();
     }
   }, [voskRecognition]);
 
   // Function to set detection sensitivity to 100
   const handleSetSensitivityTo100 = useCallback(() => {
-    const displayValue = 100;
-    const internalValue = 100 - displayValue; // Inverse relationship
+    const sensitivity = 100;
     
-    setDetectionSensitivity(displayValue);
+    setDetectionSensitivity(sensitivity);
     
     if (voskRecognition) {
-      voskRecognition.updateSettings({ detectionSensitivity: internalValue });
+      voskRecognition.updateSettings({ detectionSensitivity: sensitivity });
       voskRecognition.saveSettings();
-      console.log(`🎚️ Detection sensitivity set to 100 (internal: ${internalValue})`);
+      console.log(`🎚️ Detection sensitivity set to 100 (most sensitive)`);
     }
   }, [voskRecognition]);
 
