@@ -109,7 +109,7 @@ const App: React.FC = () => {
     return currentMsgId;
   }, [currentMsgId]);
 
-  const setCurrentMsgId = useCallback(async (msgId: string | null) => {
+  const setCurrentMsgId = useCallback(async (msgId: string | null): Promise<boolean> => {
     currentMsgId = msgId;
 
     const ttsSettings = ttsService.getSettings();
@@ -119,7 +119,10 @@ const App: React.FC = () => {
       if (!success) {
         console.error('Start: Failed to set active message ID for TTS:', msgId);
       }
+      return success;
     }
+    
+    return true; // Success when not in full voice mode or not listening
   }, [isListening]);
 
   // Function to determine the chat API URL based on environment
@@ -518,6 +521,11 @@ const App: React.FC = () => {
     // Stop any ongoing LLM response, TTS and clear the queue before starting new response
     await handleStopResponse();
     
+    // If still loading after stop attempt, return early
+    if (loading) {
+      console.log('Still loading after handleStopResponse, aborting new message');
+      return;
+    }
     
     // Clear TTS if full voice mode is enabled (for new conversation turn)
     const ttsSettings = ttsService.getSettings();
@@ -560,7 +568,11 @@ const App: React.FC = () => {
     const aiMessageId = `msg-${Date.now() + 1}`;
             
     // Set the current message ID from the LLM response or fallback to local ID
-    setCurrentMsgId(aiMessageId);
+    // Retry until successful
+    while (!(await setCurrentMsgId(aiMessageId))) {
+      console.log('Retrying setCurrentMsgId...');
+      await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms before retry
+    }
     
     const aiMessage: MessageType = {
       id: aiMessageId,

@@ -38,7 +38,7 @@ export class TTSService {
   private reconnectDelay = 1000;
   private statusCallback?: (status: TTSStatus) => void;
   private getCurrentMsgId?: () => string | null; // Reference to the global getCurrentMsgId function
-  private setCurrentMsgId?: (msgId: string | null) => void; // Reference to set the current message ID
+  private setCurrentMsgId?: (msgId: string | null) => Promise<boolean>; // Reference to set the current message ID
   private getIsListening?: () => boolean; // Reference to get the current listening state
   private settings: TTSSettings = {
     fullVoiceMode: false,
@@ -95,7 +95,7 @@ export class TTSService {
     this.getCurrentMsgId = getCurrentMsgId;
   }
 
-  public setSetCurrentMsgId(setCurrentMsgId: (msgId: string | null) => void) {
+  public setSetCurrentMsgId(setCurrentMsgId: (msgId: string | null) => Promise<boolean>) {
     this.setCurrentMsgId = setCurrentMsgId;
   }
 
@@ -385,13 +385,17 @@ export class TTSService {
     // Generate new message ID to invalidate any remaining client-side audio
     const newMessageId = `msg-${Date.now() + 1}`;
     if (this.setCurrentMsgId) {
-      this.setCurrentMsgId(newMessageId); // Update current message ID to filter out old audio
+      // Retry until successful
+      while (!(await this.setCurrentMsgId(newMessageId))) {
+        await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms before retry
+      }
     }
 
-    const success = await ttsService.setActiveMessageId(newMessageId);
-    if (!success) {
-      console.error('Stop : Failed to set active message ID for TTS:', newMessageId);
-    }
+    //const success = await ttsService.setActiveMessageId(newMessageId);
+    //if (!success) {
+    //  console.error('Stop : Failed to set active message ID for TTS:', newMessageId);
+    //}
+
     // Send stop command to server
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const message = { 
