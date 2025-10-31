@@ -523,7 +523,6 @@ const App: React.FC = () => {
     
     // If still loading after stop attempt, return early
     if (loading) {
-      console.log('Still loading after handleStopResponse, aborting new message');
       return;
     }
     
@@ -570,7 +569,6 @@ const App: React.FC = () => {
     // Set the current message ID from the LLM response or fallback to local ID
     // Retry until successful
     while (!(await setCurrentMsgId(aiMessageId))) {
-      console.log('Retrying setCurrentMsgId...');
       await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms before retry
     }
     
