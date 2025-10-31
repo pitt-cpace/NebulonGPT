@@ -185,7 +185,7 @@ interface ChatAreaProps {
   models: ModelType[];
   loading: boolean;
   onSendMessage: (content: string, attachments?: FileAttachment[]) => void;
-  onStopResponse: () => Promise<void>;
+  onStopResponse: () => Promise<boolean>;
   onToggleSidebar: () => void;
   onSelectModel: (model: ModelType) => void;
   sidebarOpen: boolean;

@@ -498,32 +498,37 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStopResponse = async () => {
-    // Hide loading animation immediately when user stops the response
-    if (onHideLoadingAnimationRef.current) {
-      //onHideLoadingAnimationRef.current();
-    }
-    
-    // Also stop TTS if full voice mode is enabled
-    const ttsSettings = ttsService.getSettings();
-    if (ttsSettings.fullVoiceMode && isListening) {
+  const handleStopResponse = async (): Promise<boolean> => {
+    try {
+      // Hide loading animation immediately when user stops the response
+      if (onHideLoadingAnimationRef.current) {
+        //onHideLoadingAnimationRef.current();
+      }
+      
+      // Also stop TTS if full voice mode is enabled
+      const ttsSettings = ttsService.getSettings();
+      if (ttsSettings.fullVoiceMode && isListening) {
 
-      // Stop current playback and clear queue to prevent old messages from playing
-      ttsService.pause();
-      await ttsService.stop();
+        // Stop current playback and clear queue to prevent old messages from playing
+        ttsService.pause();
+        await ttsService.stop();
+      }
+      
+      const cancelSuccess = await cancelStream();
+      return cancelSuccess;
+    } catch (error) {
+      console.error('Error in handleStopResponse:', error);
+      return false;
     }
-    await cancelStream();
   };
 
   const handleSendMessage = async (content: string, attachments?: FileAttachment[]) => {
     if (!currentChat || !selectedModel) return;
-    
+
     // Stop any ongoing LLM response, TTS and clear the queue before starting new response
-    await handleStopResponse();
-    
     // If still loading after stop attempt, return early
-    if (loading) {
-      return;
+    while (!(await handleStopResponse() || loading)) {
+      await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms before retry
     }
     
     // Clear TTS if full voice mode is enabled (for new conversation turn)

@@ -25,7 +25,7 @@ import * as styles from '../styles/components/ChatArea.styles';
 interface InputAreaProps {
   loading: boolean;
   onSendMessage: (content: string, attachments?: FileAttachment[]) => void;
-  onStopResponse: () => Promise<void>;
+  onStopResponse: () => Promise<boolean>;
   voskRecognition?: any;
   isListening: boolean;
   isProcessingMic: boolean;

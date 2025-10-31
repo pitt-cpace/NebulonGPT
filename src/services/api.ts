@@ -88,15 +88,19 @@ export const fetchModels = async (): Promise<ModelType[]> => {
 let currentReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
 // Function to cancel the current stream
-export const cancelStream = async (): Promise<void> => {
+// Returns true if successfully cancelled, false otherwise
+export const cancelStream = async (): Promise<boolean> => {
   if (currentReader) {
     try {
       await currentReader.cancel('User cancelled the response');
       currentReader = null;
+      return true;
     } catch (error) {
       console.error('Error cancelling stream:', error);
+      return false;
     }
   }
+  return true; // No active reader to cancel, so return true
 };
 
 // Helper function to filter out chain-of-thought reasoning (text starting with asterisk)
