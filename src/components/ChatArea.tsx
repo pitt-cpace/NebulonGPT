@@ -5313,6 +5313,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             <Typography variant="body2" color="text.secondary">
               3. Enter one of the <strong>network addresses</strong> shown above
             </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              4. <strong>Accept the security warning</strong> - Your browser will show a "Not Secure" or "Your connection is not private" warning because we use a self-signed SSL certificate. This is normal and safe - click "Advanced" and then "Proceed" (or similar) to continue.
+            </Typography>
+            
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, fontStyle: 'italic', backgroundColor: 'rgba(33, 150, 243, 0.08)', p: 1, borderRadius: 1 }}>
+              🔒 <strong>Why HTTPS & Self-Signed Certificate?</strong> Network addresses use HTTPS with a self-signed certificate to enable secure connections and allow microphone access for voice features. The certificate warning is expected and safe to accept.
+            </Typography>
+            
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, fontStyle: 'italic' }}>
               📱 <strong>Quick Access with QR Code:</strong> Click the QR code icon next to any address to generate a scannable code. Simply open your mobile device's camera app and point it at the QR code to instantly access the application - no typing required!
             </Typography>
