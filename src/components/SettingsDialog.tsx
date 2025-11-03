@@ -104,11 +104,13 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   const [networkAddresses, setNetworkAddresses] = useState<{
     localhost: string;
     loopback: string;
-    network: string[];
+    wifi: string[];
+    ethernet: string[];
   }>({
     localhost: 'http://localhost:3000',
     loopback: 'http://127.0.0.1:3000',
-    network: []
+    wifi: [],
+    ethernet: []
   });
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 

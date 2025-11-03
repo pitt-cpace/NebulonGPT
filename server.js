@@ -131,25 +131,96 @@ app.all('/api/ollama/*', async (req, res) => {
 // API endpoints
 
 // Get network addresses - returns HTTPS URLs for network access and HTTP for localhost
+// Separates WiFi/hotspot connections from Ethernet connections
 app.get('/api/network-info', (req, res) => {
   try {
-    const networkIPs = [];
+    const wifiIPs = [];
+    const ethernetIPs = [];
     const networkInterfaces = os.networkInterfaces();
     
+    // Get WiFi interface names using platform-specific commands
+    let wifiInterfaceNames = new Set();
+    
+    // For macOS: use networksetup to get accurate WiFi interfaces
+    if (process.platform === 'darwin') {
+      try {
+        const { execSync } = require('child_process');
+        const output = execSync('networksetup -listallhardwareports').toString();
+        
+        // Parse output to find WiFi interfaces
+        // Format: Hardware Port: Wi-Fi\nDevice: en0\n
+        const lines = output.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].includes('Hardware Port:') && 
+              (lines[i].includes('Wi-Fi') || lines[i].includes('WiFi') || lines[i].includes('AirPort'))) {
+            // Next line should have Device: enX
+            if (i + 1 < lines.length && lines[i + 1].includes('Device:')) {
+              const deviceMatch = lines[i + 1].match(/Device:\s*(\S+)/);
+              if (deviceMatch) {
+                wifiInterfaceNames.add(deviceMatch[1]);
+                console.log(`🔍 Detected WiFi interface on macOS: ${deviceMatch[1]}`);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Could not run networksetup command:', error.message);
+      }
+    }
+    
+    // Process interfaces
     for (const interfaceName in networkInterfaces) {
       const interfaces = networkInterfaces[interfaceName];
+      const lowerName = interfaceName.toLowerCase();
+      
       for (const iface of interfaces) {
         // Get all IPv4 addresses that are not internal
         if (iface.family === 'IPv4' && !iface.internal) {
-          // Use HTTPS for network addresses with the HTTPS port
-          networkIPs.push(`https://${iface.address}:${HTTPS_PORT}`);
+          const address = `https://${iface.address}:${HTTPS_PORT}`;
+          
+          console.log(`📡 Processing interface: ${interfaceName} → ${iface.address}`);
+          
+          // Check if this interface was identified as WiFi by platform-specific command
+          if (wifiInterfaceNames.has(interfaceName)) {
+            console.log(`  ✅ Classified as WiFi (platform detection: ${interfaceName})`);
+            wifiIPs.push(address);
+          }
+          // Detect WiFi by interface name patterns
+          else if (/^(wlan|wlp|wl|wifi|wi-?fi|air|airport|wlx|wireless|wi_fi|wlan\d+)/i.test(lowerName)) {
+            console.log(`  ✅ Classified as WiFi (name pattern: ${interfaceName})`);
+            wifiIPs.push(address);
+          }
+          // Detect WiFi by AWDL (Apple Wireless Direct Link)
+          else if (lowerName.includes('awdl')) {
+            console.log(`  ✅ Classified as WiFi (AWDL: ${interfaceName})`);
+            wifiIPs.push(address);
+          }
+          // Bridge interfaces - for hotspot scenarios
+          else if (lowerName.includes('bridge')) {
+            console.log(`  ✅ Classified as WiFi (bridge: ${interfaceName})`);
+            wifiIPs.push(address);
+          }
+          // Detect Ethernet by name patterns
+          else if (/^(eth|enp|en|eno|ens|em|ethernet|lan|enx|usb|eth\d+)/i.test(lowerName)) {
+            console.log(`  ℹ️ Classified as Ethernet (name pattern: ${interfaceName})`);
+            ethernetIPs.push(address);
+          }
+          // Fallback: unknown interfaces go to Ethernet
+          else {
+            console.log(`  ℹ️ Classified as Ethernet (fallback: ${interfaceName})`);
+            ethernetIPs.push(address);
+          }
         }
       }
     }
     
-    console.log('Network addresses:', networkIPs);
+    console.log('✅ WiFi/Hotspot addresses:', wifiIPs);
+    console.log('✅ Ethernet/Cable addresses:', ethernetIPs);
+    
     res.json({ 
-      networkIPs,
+      wifiIPs,
+      ethernetIPs,
+      networkIPs: [...wifiIPs, ...ethernetIPs], // For backward compatibility
       httpsPort: HTTPS_PORT,
       httpPort: PORT
     });

@@ -60,6 +60,8 @@ import {
   Devices as DevicesIcon,
   Wifi as WifiIcon,
   QrCode2 as QrCodeIcon,
+  Computer as ComputerIcon,
+  Loop as LoopIcon,
 } from '@mui/icons-material';
 import { QRCodeSVG } from 'qrcode.react';
 import ReactMarkdown from 'react-markdown';
@@ -235,11 +237,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [networkAddresses, setNetworkAddresses] = useState<{
     localhost: string;
     loopback: string;
-    network: string[];
+    wifi: string[];
+    ethernet: string[];
   }>({
     localhost: 'http://localhost:3000',
     loopback: 'http://127.0.0.1:3000',
-    network: []
+    wifi: [],
+    ethernet: []
   });
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [qrCodeDialogOpen, setQrCodeDialogOpen] = useState(false);
@@ -4223,7 +4227,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     const addresses = {
                       localhost: `${protocol}//localhost:${currentPort}`,
                       loopback: `${protocol}//127.0.0.1:${currentPort}`,
-                      network: [] as string[]
+                      wifi: [] as string[],
+                      ethernet: [] as string[]
                     };
                     
                     // Fetch network addresses from server (server returns full HTTPS URLs)
@@ -4231,9 +4236,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       const response = await fetch('/api/network-info');
                       if (response.ok) {
                         const data = await response.json();
-                        if (data.networkIPs && Array.isArray(data.networkIPs)) {
-                          // Use the URLs directly from server - they are already full HTTPS URLs
-                          addresses.network = data.networkIPs;
+                        // Use WiFi and Ethernet arrays from server
+                        if (data.wifiIPs && Array.isArray(data.wifiIPs)) {
+                          addresses.wifi = data.wifiIPs;
+                        }
+                        if (data.ethernetIPs && Array.isArray(data.ethernetIPs)) {
+                          addresses.ethernet = data.ethernetIPs;
                         }
                       }
                     } catch (error) {
@@ -4945,7 +4953,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           {/* Localhost address */}
           <Box sx={{ mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-              <WifiIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+              <ComputerIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                 Local (this computer only):
               </Typography>
@@ -5026,7 +5034,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           {/* Loopback address */}
           <Box sx={{ mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-              <WifiIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+              <LoopIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
                 Loopback (this computer only):
               </Typography>
@@ -5104,16 +5112,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             </Box>
           </Box>
 
-          {/* Network addresses */}
-          {networkAddresses.network.length > 0 && (
+          {/* WiFi / Hotspot addresses */}
+          {networkAddresses.wifi.length > 0 && (
             <Box sx={{ mb: 2 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                 <WifiIcon sx={{ fontSize: 18, color: 'success.main' }} />
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                  Network (accessible from other devices):
+                  WiFi / Hotspot (accessible from other devices):
                 </Typography>
               </Box>
-              {networkAddresses.network.map((address, index) => (
+              {networkAddresses.wifi.map((address: string, index: number) => (
                 <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5, mb: 1 }}>
                   <Box
                     sx={{ 
@@ -5179,6 +5187,102 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       '&:hover': {
                         backgroundColor: 'action.hover',
                         color: 'success.main',
+                      }
+                    }}
+                  >
+                    <QrCodeIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          {/* Ethernet / Cable addresses */}
+          {networkAddresses.ethernet.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <Box
+                  component="span"
+                  sx={{
+                    fontSize: 18,
+                    color: 'warning.main',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  🔌
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                  Ethernet / Cable (accessible from other devices):
+                </Typography>
+              </Box>
+              {networkAddresses.ethernet.map((address: string, index: number) => (
+                <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5, mb: 1 }}>
+                  <Box
+                    sx={{ 
+                      backgroundColor: 'action.hover',
+                      px: 1.5,
+                      py: 1,
+                      borderRadius: 1,
+                      flex: 1,
+                    }}
+                  >
+                    <Typography 
+                      component="a"
+                      href={address}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="body2"
+                      sx={{ 
+                        fontFamily: 'monospace', 
+                        fontSize: '0.95rem',
+                        color: 'warning.main',
+                        textDecoration: 'underline',
+                        cursor: 'pointer',
+                        '&:hover': {
+                          color: 'warning.dark',
+                        }
+                      }}
+                    >
+                      {address}
+                    </Typography>
+                  </Box>
+                  <IconButton
+                    size="small"
+                    onClick={async () => {
+                      try {
+                        if (window.electronAPI?.copyToClipboard) {
+                          await window.electronAPI.copyToClipboard(address);
+                        } else {
+                          await navigator.clipboard.writeText(address);
+                        }
+                        setCopiedAddress(address);
+                        setTimeout(() => setCopiedAddress(null), 2000);
+                      } catch (error) {
+                        console.error('Failed to copy address:', error);
+                      }
+                    }}
+                    sx={{ 
+                      color: copiedAddress === address ? 'success.main' : 'text.secondary',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                      }
+                    }}
+                  >
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      setQrCodeAddress(address);
+                      setQrCodeDialogOpen(true);
+                    }}
+                    sx={{ 
+                      color: 'text.secondary',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                        color: 'warning.main',
                       }
                     }}
                   >

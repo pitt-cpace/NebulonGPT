@@ -1363,26 +1363,92 @@ function startExpressServer() {
     expressApp.use('/tts', ttsProxy);
 
     // API endpoint for network addresses - returns HTTPS URLs for network access
+    // Separates WiFi/hotspot connections from Ethernet connections
     expressApp.get('/api/network-info', (req, res) => {
       try {
         const HTTPS_PORT = 3443; // Same port as backend server
         const HTTP_PORT = 3000; // Electron's Express server port
-        const networkIPs = [];
+        const wifiIPs = [];
+        const ethernetIPs = [];
         const networkInterfaces = os.networkInterfaces();
         
+        // Get WiFi interface names using platform-specific commands
+        let wifiInterfaceNames = new Set();
+        
+        // For macOS: use networksetup to get accurate WiFi interfaces
+        if (process.platform === 'darwin') {
+          try {
+            const output = exec('networksetup -listallhardwareports').toString();
+            
+            // Parse output to find WiFi interfaces
+            const lines = output.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].includes('Hardware Port:') && 
+                  (lines[i].includes('Wi-Fi') || lines[i].includes('WiFi') || lines[i].includes('AirPort'))) {
+                if (i + 1 < lines.length && lines[i + 1].includes('Device:')) {
+                  const deviceMatch = lines[i + 1].match(/Device:\s*(\S+)/);
+                  if (deviceMatch) {
+                    wifiInterfaceNames.add(deviceMatch[1]);
+                    console.log(`🔍 Detected WiFi interface on macOS: ${deviceMatch[1]}`);
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            console.warn('Could not run networksetup command:', error.message);
+          }
+        }
+        
+        // Process interfaces
         for (const interfaceName in networkInterfaces) {
           const interfaces = networkInterfaces[interfaceName];
+          const lowerName = interfaceName.toLowerCase();
+          
           for (const iface of interfaces) {
             // Get all IPv4 addresses that are not internal
             if (iface.family === 'IPv4' && !iface.internal) {
-              // Use HTTPS for network addresses with the HTTPS port
-              networkIPs.push(`https://${iface.address}:${HTTPS_PORT}`);
+              const address = `https://${iface.address}:${HTTPS_PORT}`;
+              
+              console.log(`📡 Processing interface: ${interfaceName} → ${iface.address}`);
+              
+              // Check if this interface was identified as WiFi by platform-specific command
+              if (wifiInterfaceNames.has(interfaceName)) {
+                console.log(`  ✅ Classified as WiFi (platform detection: ${interfaceName})`);
+                wifiIPs.push(address);
+              }
+              // Detect WiFi by interface name patterns
+              else if (/^(wlan|wlp|wl|wifi|wi-?fi|air|airport|wlx|wireless|wi_fi|wlan\d+)/i.test(lowerName)) {
+                console.log(`  ✅ Classified as WiFi (name pattern: ${interfaceName})`);
+                wifiIPs.push(address);
+              }
+              // Detect WiFi by AWDL (Apple Wireless Direct Link)
+              else if (lowerName.includes('awdl')) {
+                console.log(`  ✅ Classified as WiFi (AWDL: ${interfaceName})`);
+                wifiIPs.push(address);
+              }
+              // Bridge interfaces - for hotspot scenarios
+              else if (lowerName.includes('bridge')) {
+                console.log(`  ✅ Classified as WiFi (bridge: ${interfaceName})`);
+                wifiIPs.push(address);
+              }
+              // Detect Ethernet by name patterns
+              else if (/^(eth|enp|en|eno|ens|em|ethernet|lan|enx|usb|eth\d+)/i.test(lowerName)) {
+                console.log(`  ℹ️ Classified as Ethernet (name pattern: ${interfaceName})`);
+                ethernetIPs.push(address);
+              }
+              // Fallback: unknown interfaces go to Ethernet
+              else {
+                console.log(`  ℹ️ Classified as Ethernet (fallback: ${interfaceName})`);
+                ethernetIPs.push(address);
+              }
             }
           }
         }
         
         res.json({ 
-          networkIPs,
+          wifiIPs,
+          ethernetIPs,
+          networkIPs: [...wifiIPs, ...ethernetIPs], // For backward compatibility
           httpsPort: HTTPS_PORT,
           httpPort: HTTP_PORT
         });
@@ -2291,12 +2357,13 @@ ipcMain.handle('get-network-addresses', async () => {
     // Fetch network info from backend server API
     const axios = require('axios');
     const response = await axios.get('http://127.0.0.1:3001/api/network-info');
-    const { networkIPs, httpsPort, httpPort } = response.data;
+    const { wifiIPs, ethernetIPs, httpsPort, httpPort } = response.data;
     
     const addresses = {
       localhost: `http://localhost:${httpPort}`,
       loopback: `http://127.0.0.1:${httpPort}`,
-      network: networkIPs || [] // These are already full HTTPS URLs from server
+      wifi: wifiIPs || [],
+      ethernet: ethernetIPs || []
     };
     
     console.log('🌐 Network addresses from backend:', addresses);
@@ -2307,18 +2374,72 @@ ipcMain.handle('get-network-addresses', async () => {
     const addresses = {
       localhost: 'http://localhost:3001',
       loopback: 'http://127.0.0.1:3001',
-      network: []
+      wifi: [],
+      ethernet: []
     };
     
     const networkInterfaces = os.networkInterfaces();
     
+    // Get WiFi interface names using platform-specific commands
+    let wifiInterfaceNames = new Set();
+    
+    // For macOS: use networksetup to get accurate WiFi interfaces
+    if (process.platform === 'darwin') {
+      try {
+        const output = exec('networksetup -listallhardwareports').toString();
+        
+        // Parse output to find WiFi interfaces
+        const lines = output.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].includes('Hardware Port:') && 
+              (lines[i].includes('Wi-Fi') || lines[i].includes('WiFi') || lines[i].includes('AirPort'))) {
+            if (i + 1 < lines.length && lines[i + 1].includes('Device:')) {
+              const deviceMatch = lines[i + 1].match(/Device:\s*(\S+)/);
+              if (deviceMatch) {
+                wifiInterfaceNames.add(deviceMatch[1]);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Could not run networksetup command:', error.message);
+      }
+    }
+    
+    // Process interfaces
     for (const interfaceName in networkInterfaces) {
       const interfaces = networkInterfaces[interfaceName];
+      const lowerName = interfaceName.toLowerCase();
+      
       for (const iface of interfaces) {
         // Get all IPv4 addresses that are not internal
         if (iface.family === 'IPv4' && !iface.internal) {
-          // Use HTTPS for network addresses
-          addresses.network.push(`https://${iface.address}:3443`);
+          const address = `https://${iface.address}:3443`;
+          
+          // Check if this interface was identified as WiFi by platform-specific command
+          if (wifiInterfaceNames.has(interfaceName)) {
+            addresses.wifi.push(address);
+          }
+          // Detect WiFi by interface name patterns
+          else if (/^(wlan|wlp|wl|wifi|wi-?fi|air|airport|wlx|wireless|wi_fi|wlan\d+)/i.test(lowerName)) {
+            addresses.wifi.push(address);
+          }
+          // Detect WiFi by AWDL (Apple Wireless Direct Link)
+          else if (lowerName.includes('awdl')) {
+            addresses.wifi.push(address);
+          }
+          // Bridge interfaces - for hotspot scenarios
+          else if (lowerName.includes('bridge')) {
+            addresses.wifi.push(address);
+          }
+          // Detect Ethernet by name patterns
+          else if (/^(eth|enp|en|eno|ens|em|ethernet|lan|enx|usb|eth\d+)/i.test(lowerName)) {
+            addresses.ethernet.push(address);
+          }
+          // Fallback: unknown interfaces go to Ethernet
+          else {
+            addresses.ethernet.push(address);
+          }
         }
       }
     }

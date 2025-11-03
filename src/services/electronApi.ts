@@ -18,7 +18,8 @@ declare global {
       getNetworkAddresses: () => Promise<{
         localhost: string;
         loopback: string;
-        network: string[];
+        wifi: string[];
+        ethernet: string[];
       }>;
       platform: string;
       isElectron: boolean;
