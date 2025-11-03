@@ -526,11 +526,18 @@ const App: React.FC = () => {
     if (!currentChat || !selectedModel) return;
 
     // Stop any ongoing LLM response, TTS and clear the queue before starting new response
-    // If still loading after stop attempt, return early
-    while (!(await handleStopResponse() || loading)) {
+    
+    while (!(await handleStopResponse())) {
       await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms before retry
     }
     
+    // If still loading after stop attempt, return early
+    if (loading)
+    {
+      return;
+    }
+
+
     // Clear TTS if full voice mode is enabled (for new conversation turn)
     const ttsSettings = ttsService.getSettings();
         
