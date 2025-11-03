@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const path = require('path');
-const { spawn, exec } = require('child_process');
+const { spawn, exec, execSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
@@ -1378,7 +1378,7 @@ function startExpressServer() {
         // For macOS: use networksetup to get accurate WiFi interfaces
         if (process.platform === 'darwin') {
           try {
-            const output = exec('networksetup -listallhardwareports').toString();
+            const output = execSync('networksetup -listallhardwareports', { encoding: 'utf8' });
             
             // Parse output to find WiFi interfaces
             const lines = output.split('\n');
@@ -2386,7 +2386,7 @@ ipcMain.handle('get-network-addresses', async () => {
     // For macOS: use networksetup to get accurate WiFi interfaces
     if (process.platform === 'darwin') {
       try {
-        const output = exec('networksetup -listallhardwareports').toString();
+        const output = execSync('networksetup -listallhardwareports', { encoding: 'utf8' });
         
         // Parse output to find WiFi interfaces
         const lines = output.split('\n');
