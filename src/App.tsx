@@ -962,6 +962,12 @@ const App: React.FC = () => {
     }
   };
 
+  // Set body class on mount based on initial theme mode
+  useEffect(() => {
+    document.body.className = themeMode === 'light' ? 'light-mode' : '';
+    console.log(`🎨 Initial theme set to ${themeMode} mode`);
+  }, []); // Run only once on mount
+
   // Listen for theme changes and update theme dynamically (no reload needed)
   useEffect(() => {
     const handleThemeChange = (event: CustomEvent<'light' | 'dark'>) => {
