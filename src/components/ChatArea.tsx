@@ -2123,6 +2123,25 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return null;
   };
 
+  const detectCodeBlock = (content: string, startIndex: number = 0): ContentBlock | null => {
+    const codeBlockRegex = /```([a-z]*)\s*([\s\S]*?)```/i;
+    const match = content.substring(startIndex).match(codeBlockRegex);
+    
+    if (match && match.index !== undefined) {
+      const language = match[1] || '';
+      const code = match[2] || '';
+      
+      return {
+        type: ContentType.CODE_BLOCK,
+        content: match[0],
+        startIndex: startIndex + match.index,
+        endIndex: startIndex + match.index + match[0].length,
+        data: { language }
+      };
+    }
+    return null;
+  };
+
   // 2. LATEX DETECTOR
   const detectLatex = (text: string): boolean => {
     // Check for LaTeX delimiters: $...$, $$...$$, \[...\], \(...\)
@@ -2135,8 +2154,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     let currentIndex = 0;
     
     while (currentIndex < content.length) {
-      // Try to detect tables in priority order
+      // Try to detect structured content in priority order
+      // Code blocks should be detected before tables to avoid conflicts
       let detected = 
+        detectCodeBlock(content, currentIndex) ||
         detectHtmlTable(content, currentIndex) ||
         detectLatexTable(content, currentIndex) ||
         detectWikiTable(content, currentIndex) ||
@@ -2221,56 +2242,67 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       case ContentType.MARKDOWN_TABLE:
         return <Box key={key} sx={{ mb: 2 }}>{renderTableBlock(block)}</Box>;
       
+      case ContentType.CODE_BLOCK:
+        // Render code blocks using ReactMarkdown
+        return (
+          <Box key={key}>
+            <ReactMarkdown 
+              remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+              components={markdownComponents}
+            >
+              {block.content}
+            </ReactMarkdown>
+          </Box>
+        );
+      
       case ContentType.PLAIN_TEXT:
         // Extract and protect LaTeX formulas with backslash delimiters to avoid remark-math errors
-        // BUT skip extraction if content contains code fences (```) to let code blocks handle their own LaTeX
         const latexFormulas: Array<{ placeholder: string; html: string; isBlock: boolean }> = [];
         let processedContent = block.content;
         let formulaIndex = 0;
         
-        // Check if content contains code fences (with or without language specifiers)
-        const hasCodeFences = /```[a-z]*\s*[\s\S]*?```/i.test(block.content);
-        
-        if (!hasCodeFences) {
+        // Since code blocks are now detected separately, we can always extract LaTeX from plain text
+        {
           // Only extract LaTeX if there are no code fences
-          // Extract \[...\] (display math) formulas
-          processedContent = processedContent.replace(/\\\[([\s\S]+?)\\\]/g, (match, formula) => {
-            const placeholder = `{{KATEX_DISPLAY_${formulaIndex}}}`;
-            try {
-              const html = katex.renderToString(formula.trim(), {
-                displayMode: true,
-                throwOnError: false,
-                output: 'html',
-                strict: false
-              });
-              latexFormulas.push({ placeholder, html, isBlock: true });
-            } catch (error) {
-              // If rendering fails, keep original
-              return match;
-            }
-            formulaIndex++;
-            return placeholder;
-          });
-          
-          // Extract \(...\) (inline math) formulas
-          processedContent = processedContent.replace(/\\\(([\s\S]+?)\\\)/g, (match, formula) => {
-            const placeholder = `{{KATEX_INLINE_${formulaIndex}}}`;
-            try {
-              const html = katex.renderToString(formula.trim(), {
-                displayMode: false,
-                throwOnError: false,
-                output: 'html',
-                strict: false
-              });
-              latexFormulas.push({ placeholder, html, isBlock: false });
-            } catch (error) {
-              // If rendering fails, keep original
-              return match;
-            }
-            formulaIndex++;
-            return placeholder;
-          });
-        }
+        // Extract \[...\] (display math) formulas
+        processedContent = processedContent.replace(/\\\[([\s\S]+?)\\\]/g, (match, formula) => {
+          const placeholder = `{{KATEX_DISPLAY_${formulaIndex}}}`;
+          try {
+            const html = katex.renderToString(formula.trim(), {
+              displayMode: true,
+              throwOnError: false,
+              output: 'html',
+              strict: false
+            });
+            latexFormulas.push({ placeholder, html, isBlock: true });
+          } catch (error) {
+            // If rendering fails, keep original
+            return match;
+          }
+          formulaIndex++;
+          return placeholder;
+        });
+        
+        // Extract \(...\) (inline math) formulas
+        processedContent = processedContent.replace(/\\\(([\s\S]+?)\\\)/g, (match, formula) => {
+          const placeholder = `{{KATEX_INLINE_${formulaIndex}}}`;
+          try {
+            const html = katex.renderToString(formula.trim(), {
+              displayMode: false,
+              throwOnError: false,
+              output: 'html',
+              strict: false
+            });
+            latexFormulas.push({ placeholder, html, isBlock: false });
+          } catch (error) {
+            // If rendering fails, keep original
+            return match;
+          }
+          formulaIndex++;
+          return placeholder;
+        });
+      }
         
         // If we extracted any LaTeX formulas, render with placeholders manually restored as HTML
         if (latexFormulas.length > 0) {
