@@ -2306,59 +2306,50 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         // If we extracted any LaTeX formulas, render with placeholders manually restored as HTML
         if (latexFormulas.length > 0) {
-          // Restore placeholders by splitting and rendering
+          // Create a map for quick placeholder lookup
+          const placeholderMap = new Map<string, { html: string; isBlock: boolean }>();
+          latexFormulas.forEach(formula => {
+            placeholderMap.set(formula.placeholder, { html: formula.html, isBlock: formula.isBlock });
+          });
+          
+          // Split content by all placeholders at once
+          const placeholderRegex = new RegExp(`(${latexFormulas.map(f => f.placeholder.replace(/[{}]/g, '\\$&')).join('|')})`, 'g');
+          const segments = processedContent.split(placeholderRegex);
+          
           const parts: React.ReactNode[] = [];
-          let remaining = processedContent;
           let partKey = 0;
           
-          // Process each formula placeholder in order
-          latexFormulas.forEach((formula) => {
-            const index = remaining.indexOf(formula.placeholder);
-            if (index !== -1) {
-              // Add text before this placeholder through ReactMarkdown
-              const beforeText = remaining.substring(0, index);
-              if (beforeText) {
-                parts.push(
-                  <Box key={`text-${partKey++}`}>
-                    <ReactMarkdown 
-                      remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
-                      rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-                      components={markdownComponents}
-                    >
-                      {beforeText}
-                    </ReactMarkdown>
-                  </Box>
-                );
-              }
-              
-              // Add rendered formula
+          segments.forEach((segment, idx) => {
+            if (!segment) return; // Skip empty segments
+            
+            // Check if this segment is a placeholder
+            const placeholderData = placeholderMap.get(segment);
+            
+            if (placeholderData) {
+              // This is a placeholder - render the math
               parts.push(
                 <Box
                   key={`latex-${partKey++}`}
-                  component={formula.isBlock ? 'div' : 'span'}
-                  dangerouslySetInnerHTML={{ __html: formula.html }}
-                  sx={formula.isBlock ? { my: 1, display: 'block' } : {}}
+                  component={placeholderData.isBlock ? 'div' : 'span'}
+                  dangerouslySetInnerHTML={{ __html: placeholderData.html }}
+                  sx={placeholderData.isBlock ? { my: 1, display: 'block' } : {}}
                 />
               );
-              
-              remaining = remaining.substring(index + formula.placeholder.length);
+            } else {
+              // This is regular text - render with ReactMarkdown
+              parts.push(
+                <Box key={`text-${partKey++}`} component="span">
+                  <ReactMarkdown 
+                    remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                    rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                    components={markdownComponents}
+                  >
+                    {segment}
+                  </ReactMarkdown>
+                </Box>
+              );
             }
           });
-          
-          // Add any remaining text after the last placeholder
-          if (remaining) {
-            parts.push(
-              <Box key={`text-${partKey++}`}>
-                <ReactMarkdown 
-                  remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
-                  rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-                  components={markdownComponents}
-                >
-                  {remaining}
-                </ReactMarkdown>
-              </Box>
-            );
-          }
           
           return <Box key={key}>{parts}</Box>;
         }
