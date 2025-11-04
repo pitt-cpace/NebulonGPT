@@ -1306,14 +1306,21 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           strict: false
         });
         
-        parts.push(
+      parts.push(
+        isBlock ? (
           <Box
             key={`latex-${match.index}`}
-            component={isBlock ? 'div' : 'span'}
+            component="div"
             dangerouslySetInnerHTML={{ __html: html }}
-            sx={isBlock ? { my: 1, display: 'block' } : {}}
+            sx={{ my: 1, display: 'block' }}
           />
-        );
+        ) : (
+          <span
+            key={`latex-${match.index}`}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        )
+      );
       } catch (error) {
         // If KaTeX fails, show original text
         parts.push(<span key={`error-${match.index}`}>{match[0]}</span>);
@@ -1471,7 +1478,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // For content without math, use ReactMarkdown for other markdown features
     return (
       <ReactMarkdown
-        remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+        remarkPlugins={[remarkMath]}
         rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
         components={{
           p: ({ children }) => <span>{children}</span>,
@@ -1561,6 +1568,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Custom renderers for ReactMarkdown
   const markdownComponents = {
+    // Override paragraph renderer to use inline span instead of block-level p
+    p: ({ node, children, ...props }: any) => <span {...props}>{children}</span>,
     // Override the default link renderer
     a: ({ node, children, href, ...props }: any) => (
       <a
@@ -2247,7 +2256,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         return (
           <Box key={key}>
             <ReactMarkdown 
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+              remarkPlugins={[remarkMath]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={markdownComponents}
             >
@@ -2257,114 +2266,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         );
       
       case ContentType.PLAIN_TEXT:
-        // Extract and protect LaTeX formulas with backslash delimiters to avoid remark-math errors
-        const latexFormulas: Array<{ placeholder: string; html: string; isBlock: boolean }> = [];
-        let processedContent = block.content;
-        let formulaIndex = 0;
-        
-        // Since code blocks are now detected separately, we can always extract LaTeX from plain text
-        {
-          // Only extract LaTeX if there are no code fences
-        // Extract \[...\] (display math) formulas
-        processedContent = processedContent.replace(/\\\[([\s\S]+?)\\\]/g, (match, formula) => {
-          const placeholder = `{{KATEX_DISPLAY_${formulaIndex}}}`;
-          try {
-            const html = katex.renderToString(formula.trim(), {
-              displayMode: true,
-              throwOnError: false,
-              output: 'html',
-              strict: false
-            });
-            latexFormulas.push({ placeholder, html, isBlock: true });
-          } catch (error) {
-            // If rendering fails, keep original
-            return match;
-          }
-          formulaIndex++;
-          return placeholder;
-        });
-        
-        // Extract \(...\) (inline math) formulas
-        processedContent = processedContent.replace(/\\\(([\s\S]+?)\\\)/g, (match, formula) => {
-          const placeholder = `{{KATEX_INLINE_${formulaIndex}}}`;
-          try {
-            const html = katex.renderToString(formula.trim(), {
-              displayMode: false,
-              throwOnError: false,
-              output: 'html',
-              strict: false
-            });
-            latexFormulas.push({ placeholder, html, isBlock: false });
-          } catch (error) {
-            // If rendering fails, keep original
-            return match;
-          }
-          formulaIndex++;
-          return placeholder;
-        });
-      }
-        
-        // If we extracted any LaTeX formulas, render with placeholders manually restored as HTML
-        if (latexFormulas.length > 0) {
-          // Create a map for quick placeholder lookup
-          const placeholderMap = new Map<string, { html: string; isBlock: boolean }>();
-          latexFormulas.forEach(formula => {
-            placeholderMap.set(formula.placeholder, { html: formula.html, isBlock: formula.isBlock });
-          });
-          
-          // Split content by all placeholders at once
-          const placeholderRegex = new RegExp(`(${latexFormulas.map(f => f.placeholder.replace(/[{}]/g, '\\$&')).join('|')})`, 'g');
-          const segments = processedContent.split(placeholderRegex);
-          
-          const parts: React.ReactNode[] = [];
-          let partKey = 0;
-          
-          segments.forEach((segment, idx) => {
-            if (!segment) return; // Skip empty segments
-            
-            // Check if this segment is a placeholder
-            const placeholderData = placeholderMap.get(segment);
-            
-            if (placeholderData) {
-              // This is a placeholder - render the math
-              parts.push(
-                <Box
-                  key={`latex-${partKey++}`}
-                  component={placeholderData.isBlock ? 'div' : 'span'}
-                  dangerouslySetInnerHTML={{ __html: placeholderData.html }}
-                  sx={placeholderData.isBlock ? { my: 1, display: 'block' } : {}}
-                />
-              );
-            } else {
-              // This is regular text - render with ReactMarkdown
-              parts.push(
-                <Box key={`text-${partKey++}`} component="span">
-                  <ReactMarkdown 
-                    remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
-                    rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-                    components={markdownComponents}
-                  >
-                    {segment}
-                  </ReactMarkdown>
-                </Box>
-              );
-            }
-          });
-          
-          return <Box key={key}>{parts}</Box>;
-        }
-        
-        // No LaTeX formulas with backslash delimiters, use ReactMarkdown normally
+        // Always use ReactMarkdown for plain text (LaTeX delimiters already preprocessed)
+        // ReactMarkdown with remark-math and rehype-katex handles both markdown and LaTeX
         return (
-          <Box key={key}>
+          <React.Fragment key={key}>
             <ReactMarkdown 
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+              remarkPlugins={[remarkMath]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={markdownComponents}
             >
               {block.content}
             </ReactMarkdown>
-          </Box>
+          </React.Fragment>
         );
       
       default:
@@ -2386,11 +2299,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     //    - Nested tables (via recursive table parsing)
     //    - Inline code and markdown
     
-    // NOTE: LaTeX delimiter conversion happens AFTER table detection
-    // in renderContentBlock for PLAIN_TEXT blocks only
+    // IMPORTANT: Preprocess LaTeX delimiters BEFORE detecting blocks
+    // This converts \[...\] to $$...$$ and \(...\) to $...$
+    // so ReactMarkdown can handle them properly
+    const preprocessedContent = preprocessLatexDelimiters(content);
     
-    // Detect all content blocks (tables and text) from original content
-    const blocks = detectContentBlocks(content);
+    // Detect all content blocks (tables and text) from preprocessed content
+    const blocks = detectContentBlocks(preprocessedContent);
     
     // Render each block with its appropriate renderer
     // Tables → renderTableBlock (which uses renderCellContent for cells)
@@ -2788,7 +2703,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               parts.push(
                 <Box key={`text-${key++}`}>
                   <ReactMarkdown 
-                    remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                    remarkPlugins={[remarkMath]}
                     rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                     components={customMarkdownComponents}
                   >
@@ -2814,7 +2729,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           parts.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                remarkPlugins={[remarkMath]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -2830,7 +2745,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // No display math blocks, just render normally
       return (
         <ReactMarkdown 
-          remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+          remarkPlugins={[remarkMath]}
           rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
           components={markdownComponents}
         >
@@ -2854,7 +2769,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                remarkPlugins={[remarkMath]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -2933,7 +2848,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                remarkPlugins={[remarkMath]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3089,7 +3004,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                remarkPlugins={[remarkMath]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3186,7 +3101,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                remarkPlugins={[remarkMath]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3309,7 +3224,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         result.push(
           <Box key={`text-${key++}`}>
             <ReactMarkdown 
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+              remarkPlugins={[remarkMath]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -3390,7 +3305,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             result.push(
               <Box key={`text-${key++}`}>
                 <ReactMarkdown 
-                  remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                  remarkPlugins={[remarkMath]}
                   rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                   components={customMarkdownComponents}
                 >
@@ -3459,7 +3374,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+                remarkPlugins={[remarkMath]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3472,7 +3387,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         result.push(
           <Box key={`text-${key++}`}>
             <ReactMarkdown 
-              remarkPlugins={[[remarkMath, { singleDollarTextMath: true }] as any]}
+              remarkPlugins={[remarkMath]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -3630,6 +3545,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   textAlign: textDirectionStyles.textAlign,
                   unicodeBidi: mixedContentAnalysis?.shouldUseBidi ? 'bidi-override' : textDirectionStyles.unicodeBidi,
                 }),
+                // Let KaTeX handle its own display modes - only hide MathML
+                '& .katex-mathml': {
+                  display: 'none !important',
+                },
               }}
             >
               {isUser ? (
