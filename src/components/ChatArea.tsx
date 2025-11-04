@@ -364,14 +364,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   useEffect(() => {
     userTypingRef.current = false;
     
-    // Scroll to bottom when switching chats
+    // Scroll to bottom when switching chats with multi-line input
     if (chat?.id && messagesContainerRef.current) {
-      setTimeout(() => {
+      const scrollToBottom = () => {
         if (messagesContainerRef.current) {
           const container = messagesContainerRef.current;
           container.scrollTop = container.scrollHeight;
         }
-      }, 10);
+      };
+      
+      // Retry scroll multiple times to ensure layout has stabilized
+      // This accounts for CSS variable updates and input box height changes
+      requestAnimationFrame(() => {
+        scrollToBottom();
+        setTimeout(scrollToBottom, 50);
+        setTimeout(scrollToBottom, 150);
+        setTimeout(scrollToBottom, 300);
+      });
     }
   }, [chat?.id]);
 
@@ -4280,13 +4289,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               zIndex: 0,
               bgcolor: 'background.default', // Theme-aware background color
               // Responsive paddingTop: mobile gets 130px, desktop gets 60px
-              paddingTop: {
-                xs: 'calc(var(--chat-topbar-h, 0px) + 160px)', // Mobile
-                sm: 'calc(var(--chat-topbar-h, 0px) + 60px)',  // Desktop
-              },
-              paddingLeft: '16px',
-              paddingRight: '16px',
-              paddingBottom: 'calc(var(--chat-input-h, 88px) + 16px)',
+            paddingTop: {
+              xs: 'calc(var(--chat-topbar-h, 0px) + 160px)', // Mobile
+              sm: 'calc(var(--chat-topbar-h, 0px) + 60px)',  // Desktop
+            },
+            paddingLeft: '16px',
+            paddingRight: '16px',
+            paddingBottom: 'calc(var(--chat-input-h, 88px) + 80px)',
               overflowY: 'auto',
               overscrollBehavior: 'contain',
               WebkitOverflowScrolling: 'touch',
