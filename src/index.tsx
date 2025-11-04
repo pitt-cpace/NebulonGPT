@@ -2,10 +2,6 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
-import { ThemeProvider } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-import { createAppTheme, getThemeMode } from './styles/theme';
-import getGlobalStyleOverrides from './styles/globalStyles';
 
 // Suppress benign ResizeObserver loop warnings
 // This prevents React's error overlay from showing non-fatal Chrome diagnostics
@@ -57,42 +53,17 @@ if (typeof window !== 'undefined') {
   }
 }
 
-// Create theme dynamically based on current mode
-const currentMode = getThemeMode();
-const theme = createAppTheme(currentMode);
-
-// Apply theme class to body for CSS scrollbar styling
-document.body.className = currentMode === 'light' ? 'light-mode' : '';
-
-// Update theme with global style overrides
-const themeWithGlobalStyles = {
-  ...theme,
-  components: {
-    ...theme.components,
-    MuiCssBaseline: {
-      styleOverrides: getGlobalStyleOverrides(theme),
-    },
-  },
-};
-
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 );
 
 // Use StrictMode only in production to avoid double-observation during development
-const AppTree =
+root.render(
   process.env.NODE_ENV === 'production' ? (
     <React.StrictMode>
-      <ThemeProvider theme={themeWithGlobalStyles}>
-        <CssBaseline />
-        <App />
-      </ThemeProvider>
+      <App />
     </React.StrictMode>
   ) : (
-    <ThemeProvider theme={themeWithGlobalStyles}>
-      <CssBaseline />
-      <App />
-    </ThemeProvider>
-  );
-
-root.render(AppTree);
+    <App />
+  )
+);

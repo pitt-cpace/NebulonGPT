@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Box, CssBaseline } from '@mui/material';
+import { Box, CssBaseline, ThemeProvider } from '@mui/material';
+import { createAppTheme, getThemeMode } from './styles/theme';
 import * as styles from './styles/components/App.styles';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
@@ -18,6 +19,10 @@ import { RO } from './hooks/ResizeObserverManager';
 let currentMsgId: string | null = null;
 
 const App: React.FC = () => {
+  // Theme state - dynamically update without reload
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => getThemeMode());
+  const [theme, setTheme] = useState(() => createAppTheme(themeMode));
+  
   const [models, setModels] = useState<ModelType[]>([]);
   const [selectedModel, setSelectedModel] = useState<ModelType | null>(null);
   const [chats, setChats] = useState<ChatType[]>([]);
@@ -957,6 +962,23 @@ const App: React.FC = () => {
     }
   };
 
+  // Listen for theme changes and update theme dynamically (no reload needed)
+  useEffect(() => {
+    const handleThemeChange = (event: CustomEvent<'light' | 'dark'>) => {
+      const newMode = event.detail;
+      setThemeMode(newMode);
+      setTheme(createAppTheme(newMode));
+      document.body.className = newMode === 'light' ? 'light-mode' : '';
+      console.log(`🎨 Theme switched to ${newMode} mode without reload`);
+    };
+
+    window.addEventListener('themeChange' as any, handleThemeChange as any);
+    
+    return () => {
+      window.removeEventListener('themeChange' as any, handleThemeChange as any);
+    };
+  }, []);
+
   // Function to refresh Ollama status
   const handleRefreshOllamaStatus = useCallback(async () => {
     try {
@@ -995,11 +1017,11 @@ const App: React.FC = () => {
   }, [models]);
 
   return (
-    <Box sx={styles.container}>
+    <ThemeProvider theme={theme}>
       <CssBaseline />
-      
-      {/* Startup loader overlay */}
-      <StartupLoader />
+      <Box sx={styles.container}>
+        {/* Startup loader overlay */}
+        <StartupLoader />
       
       {/* Settings dialog */}
       <SettingsDialog
@@ -1061,7 +1083,8 @@ const App: React.FC = () => {
         onOpenSettings={() => setSettingsOpen(true)}
         isMobile={isMobile}
       />
-    </Box>
+      </Box>
+    </ThemeProvider>
   );
 };
 

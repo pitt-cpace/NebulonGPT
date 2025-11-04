@@ -343,10 +343,16 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     localStorage.setItem('themeMode', themeMode);
     setOriginalThemeMode(themeMode);
     
-    // Trigger page reload to apply changes
+    // Dispatch theme change event if theme changed (no reload needed!)
+    if (themeMode !== originalThemeMode) {
+      const themeEvent = new CustomEvent('themeChange', { detail: themeMode });
+      window.dispatchEvent(themeEvent);
+      console.log(`🎨 Theme change event dispatched: ${themeMode}`);
+    }
+    
+    // Only reload if Ollama API settings changed
     if (ollamaApiUrl.trim() !== originalOllamaApiUrl || 
-        ollamaApiKey.trim() !== originalOllamaApiKey || 
-        themeMode !== originalThemeMode) {
+        ollamaApiKey.trim() !== originalOllamaApiKey) {
       window.location.reload();
     }
     
