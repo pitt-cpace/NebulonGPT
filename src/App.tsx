@@ -12,7 +12,7 @@ import { voskRecognition } from './services/vosk';
 import { ttsService } from './services/ttsService';
 import { generateChatTitle } from './services/titleGenerator';
 import { checkOllamaStatus, OllamaStatus } from './services/ollamaStatus';
-import { electronApi } from './services/electronApi';
+import { electronApi, checkElectronServer } from './services/electronApi';
 import { RO } from './hooks/ResizeObserverManager';
 
 // Global current message ID - immediately accessible everywhere
@@ -64,6 +64,19 @@ const App: React.FC = () => {
     isLoading: false,
   });
   const [allChats, setAllChats] = useState<ChatType[]>([]); // Store all chats from server
+
+  // Initialize server type detection on app start (for network access)
+  useEffect(() => {
+    checkElectronServer().then(isElectronServer => {
+      if (isElectronServer) {
+        console.log('🔍 Running on Electron server - using direct Ollama connections');
+      } else {
+        console.log('🔍 Running on web server - using proxy for Ollama');
+      }
+    }).catch(error => {
+      console.error('Failed to detect server type:', error);
+    });
+  }, []);
 
   // Load saved settings from localStorage on app start
   useEffect(() => {

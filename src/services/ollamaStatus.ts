@@ -2,11 +2,21 @@ import axios from 'axios';
 import { isElectron } from './electronApi';
 
 // Function to get base URL for Ollama status checks
-// In Electron, connect directly to Ollama
+// In Electron, connect directly to Ollama (HTTP only)
 // In Docker/web, use the proxied path through server
+// IMPORTANT: Always use proxy on HTTPS to avoid mixed content blocking
 const getBaseURL = (): string => {
+  // If page is loaded via HTTPS, we MUST use proxy to avoid mixed content errors
+  const isHttps = window.location.protocol === 'https:';
+  
+  if (isHttps) {
+    // Always use proxy when on HTTPS
+    return '/api/ollama';
+  }
+  
+  // For HTTP pages: direct connection in Electron, proxy otherwise
   return isElectron() 
-    ? 'http://localhost:11434/api' // Direct connection to Ollama in Electron
+    ? 'http://localhost:11434/api' // Direct connection to Ollama in Electron (HTTP only)
     : '/api/ollama'; // Always use proxy through Node server (works in dev and production)
 };
 

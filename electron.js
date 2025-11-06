@@ -1129,20 +1129,59 @@ function startHTTPSServer() {
         const axios = require('axios');
         const targetUrl = `http://127.0.0.1:3000${req.url}`;
         
-        axios({
-          method: req.method,
-          url: targetUrl,
-          data: req.method !== 'GET' && req.method !== 'HEAD' ? req : undefined,
-          headers: req.headers,
-          responseType: 'stream',
-          timeout: 30000 // 30 second timeout
-        }).then(response => {
-          res.writeHead(response.status, response.headers);
-          response.data.pipe(res);
-        }).catch(error => {
-          console.error('HTTPS proxy error:', error.message);
-          res.writeHead(502);
-          res.end('Bad Gateway');
+        console.log(`🔐 HTTPS proxy request: ${req.method} ${req.url}`);
+        
+        // Collect request body for non-GET/HEAD requests
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk.toString();
+        });
+        
+        req.on('end', () => {
+          const config = {
+            method: req.method,
+            url: targetUrl,
+            headers: {
+              ...req.headers,
+              // Remove headers that shouldn't be forwarded
+              host: 'localhost:3000'
+            },
+            responseType: 'stream',
+            timeout: 60000, // 60 second timeout
+            validateStatus: () => true, // Accept all status codes
+            maxRedirects: 0
+          };
+          
+          // Add body for POST/PUT/PATCH requests
+          if (body && req.method !== 'GET' && req.method !== 'HEAD') {
+            try {
+              config.data = body;
+            } catch (e) {
+              console.error('Error parsing request body:', e);
+            }
+          }
+          
+          axios(config).then(response => {
+            console.log(`✅ HTTPS proxy response: ${response.status} for ${req.url}`);
+            
+            // Forward status and headers
+            const headers = { ...response.headers };
+            delete headers['transfer-encoding']; // Let Node.js handle this
+            
+            res.writeHead(response.status, headers);
+            response.data.pipe(res);
+          }).catch(error => {
+            console.error('❌ HTTPS proxy error:', error.message);
+            console.error('   URL:', targetUrl);
+            console.error('   Code:', error.code);
+            
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+              error: 'Bad Gateway',
+              message: 'Failed to connect to backend server',
+              details: error.message
+            }));
+          });
         });
       });
       
@@ -1289,7 +1328,7 @@ function startExpressServer() {
         const ollamaPath = req.path.replace('/api/ollama', '');
         const ollamaUrl = `${OLLAMA_BASE_URL}/api${ollamaPath}`;
         
-        console.log(`Proxying Ollama request: ${req.method} ${ollamaPath}`);
+        console.log(`📡 Proxying Ollama request: ${req.method} ${ollamaPath} to ${ollamaUrl}`);
         
         const config = {
           method: req.method,
@@ -1300,21 +1339,46 @@ function startExpressServer() {
             ...(req.headers['authorization'] && { 'Authorization': req.headers['authorization'] })
           },
           responseType: req.body && req.body.stream ? 'stream' : 'json',
-          timeout: 300000
+          timeout: 300000,
+          validateStatus: function (status) {
+            return status < 600; // Accept all status codes to properly forward errors
+          }
         };
         
         const response = await axios(config);
         
+        console.log(`✅ Ollama response: ${response.status}`);
+        
+        // Set status code
+        res.status(response.status);
+        
+        // Forward headers
+        if (response.headers['content-type']) {
+          res.setHeader('Content-Type', response.headers['content-type']);
+        }
+        
+        // Handle streaming responses
         if (response.data && response.data.pipe) {
-          res.setHeader('Content-Type', 'text/event-stream');
           response.data.pipe(res);
         } else {
+          // Handle JSON responses
           res.json(response.data);
         }
       } catch (error) {
-        console.error('Ollama proxy error:', error.message);
-        res.status(error.response?.status || 500).json({ 
-          error: error.message || 'Ollama proxy error' 
+        console.error('❌ Ollama proxy error:', error.message);
+        console.error('   Code:', error.code);
+        console.error('   URL attempted:', error.config?.url);
+        
+        // Provide detailed error response
+        const statusCode = error.response?.status || 502;
+        const errorMessage = error.code === 'ECONNREFUSED' 
+          ? 'Cannot connect to Ollama - please ensure Ollama is running on localhost:11434'
+          : error.message || 'Ollama proxy error';
+        
+        res.status(statusCode).json({ 
+          error: errorMessage,
+          code: error.code,
+          details: error.response?.data
         });
       }
     });
@@ -1361,6 +1425,16 @@ function startExpressServer() {
     // Apply middleware to routes
     expressApp.use('/vosk', voskProxy);
     expressApp.use('/tts', ttsProxy);
+
+    // API endpoint to identify this server as Electron-based
+    expressApp.get('/api/server-info', (req, res) => {
+      res.json({
+        serverType: 'electron',
+        version: app.getVersion(),
+        platform: process.platform,
+        isElectron: true
+      });
+    });
 
     // API endpoint for network addresses - returns HTTPS URLs for network access
     // Separates WiFi/hotspot connections from Ethernet connections

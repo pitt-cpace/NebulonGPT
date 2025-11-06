@@ -28,14 +28,67 @@ declare global {
   }
 }
 
+// Cache for server type detection
+let serverTypeCache: { isElectron: boolean; checkedAt: number } | null = null;
+const CACHE_DURATION = 5000; // 5 seconds
+
 export const isElectron = () => {
-  // Check multiple ways to detect Electron
-  return !!(
+  // Check multiple ways to detect Electron - direct detection first
+  const directElectronDetection = !!(
     window.isElectron || 
     window.electronAPI || 
     (window as any).require ||
     (window.navigator && window.navigator.userAgent && window.navigator.userAgent.includes('Electron'))
   );
+  
+  if (directElectronDetection) {
+    return true;
+  }
+  
+  // If direct detection fails, check cache for server-based detection
+  if (serverTypeCache && (Date.now() - serverTypeCache.checkedAt) < CACHE_DURATION) {
+    return serverTypeCache.isElectron;
+  }
+  
+  // Return false by default if cache not available
+  // checkElectronServer() should be called on app initialization to populate cache
+  return false;
+};
+
+// Check if server is Electron-based (for network access detection)
+// This should be called during app initialization
+export const checkElectronServer = async (): Promise<boolean> => {
+  try {
+    const response = await fetch('/api/server-info', { 
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      const isElectronServer = data.serverType === 'electron' || data.isElectron === true;
+      
+      // Update cache
+      serverTypeCache = {
+        isElectron: isElectronServer,
+        checkedAt: Date.now()
+      };
+      
+      console.log(`🔍 Server type detection: ${isElectronServer ? 'Electron' : 'Web/Docker'}`);
+      return isElectronServer;
+    }
+  } catch (error) {
+    // If endpoint doesn't exist, it's not an Electron server
+    console.log('🔍 Server type detection: Not Electron (no server-info endpoint)');
+  }
+  
+  // Update cache with negative result
+  serverTypeCache = {
+    isElectron: false,
+    checkedAt: Date.now()
+  };
+  
+  return false;
 };
 
 export const electronApi = {
