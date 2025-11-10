@@ -1758,84 +1758,123 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         // If it's a LaTeX code block OR any code block with formulas, extract and render
         if (hasLatexFormulas || className === 'language-latex' || className === 'language-tex') {
-          // Extract ALL formulas regardless of document structure
-          const formulas: Array<{ formula: string; isDisplay: boolean }> = [];
+          // Extract ALL content elements (formulas AND text) in order
+          const contentElements: Array<{ 
+            type: 'formula' | 'text'; 
+            content: string; 
+            isDisplay?: boolean;
+            isItalic?: boolean;
+          }> = [];
           
-          // First, remove LaTeX comments (lines starting with %) from content
-          const contentWithoutComments = content
+          // First, remove LaTeX comments (lines starting with %) and document structure
+          let contentWithoutComments = content
             .split('\n')
             .filter(line => !line.trim().startsWith('%'))
             .join('\n');
           
-          // Extract \[ \] display formulas
-          const displayMatches = contentWithoutComments.match(/\\\[([\s\S]*?)\\\]/g);
-          if (displayMatches) {
-            displayMatches.forEach(match => {
-              const formula = match.replace(/^\\\[/, '').replace(/\\\]$/, '').trim();
-              if (formula) formulas.push({ formula, isDisplay: true });
-            });
-          }
+          // Remove document structure commands
+          contentWithoutComments = contentWithoutComments
+            .replace(/\\documentclass\{[^}]*\}/g, '')
+            .replace(/\\begin\{document\}/g, '')
+            .replace(/\\end\{document\}/g, '')
+            .replace(/\\usepackage\{[^}]*\}/g, '')
+            .replace(/\\section\{[^}]*\}/g, '');
           
-          // Extract \( \) inline formulas
-          const inlineMatches = contentWithoutComments.match(/\\\(([\s\S]*?)\\\)/g);
-          if (inlineMatches) {
-            inlineMatches.forEach(match => {
-              const formula = match.replace(/^\\\(/, '').replace(/\\\)$/, '').trim();
-              if (formula) formulas.push({ formula, isDisplay: false });
-            });
-          }
+          // Process content sequentially to preserve order
+          let processedContent = contentWithoutComments;
+          let lastIndex = 0;
           
-          // Extract $$ $$ display formulas
-          const doubleDollarMatches = contentWithoutComments.match(/\$\$([\s\S]*?)\$\$/g);
-          if (doubleDollarMatches) {
-            doubleDollarMatches.forEach(match => {
-              const formula = match.replace(/^\$\$/, '').replace(/\$\$$/, '').trim();
-              if (formula) formulas.push({ formula, isDisplay: true });
-            });
-          }
+          // Create a combined pattern that matches formulas and text formatting
+          const combinedPattern = /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$[^\$\n]+\$|\\textit\{[^}]*\}|\\textbf\{[^}]*\})/g;
+          let match;
           
-          // Extract $ $ inline formulas (only if no display formulas found yet)
-          if (formulas.length === 0) {
-            const dollarMatches = contentWithoutComments.match(/\$([^\$]+)\$/g);
-            if (dollarMatches) {
-              dollarMatches.forEach(match => {
-                const formula = match.replace(/^\$/, '').replace(/\$$/, '').trim();
-                if (formula) formulas.push({ formula, isDisplay: false });
-              });
+          while ((match = combinedPattern.exec(processedContent)) !== null) {
+            const matchedText = match[0];
+            
+            // Check if it's a formula
+            if (matchedText.startsWith('$$') || matchedText.startsWith('\\[')) {
+              // Display formula
+              const formula = matchedText
+                .replace(/^\$\$/, '').replace(/\$\$$/, '')
+                .replace(/^\\\[/, '').replace(/\\\]$/, '')
+                .trim();
+              if (formula) {
+                contentElements.push({ type: 'formula', content: formula, isDisplay: true });
+              }
+            } else if (matchedText.startsWith('\\(') || matchedText.startsWith('$')) {
+              // Inline formula
+              const formula = matchedText
+                .replace(/^\\\(/, '').replace(/\\\)$/, '')
+                .replace(/^\$/, '').replace(/\$$/, '')
+                .trim();
+              if (formula) {
+                contentElements.push({ type: 'formula', content: formula, isDisplay: false });
+              }
+            } else if (matchedText.startsWith('\\textit{')) {
+              // Italic text
+              const text = matchedText.replace(/^\\textit\{/, '').replace(/\}$/, '').trim();
+              if (text) {
+                contentElements.push({ type: 'text', content: text, isItalic: true });
+              }
+            } else if (matchedText.startsWith('\\textbf{')) {
+              // Bold text (bonus support)
+              const text = matchedText.replace(/^\\textbf\{/, '').replace(/\}$/, '').trim();
+              if (text) {
+                contentElements.push({ type: 'text', content: text, isItalic: false });
+              }
             }
           }
           
-          // Render extracted formulas
-          if (formulas.length > 0) {
+          // Render extracted content elements
+          if (contentElements.length > 0) {
             return (
               <Box sx={{ position: 'relative' }}>
                 <Box sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
-                  {formulas.map((item, idx) => {
-                    try {
-                      const html = katex.renderToString(item.formula, {
-                        displayMode: item.isDisplay,
-                        throwOnError: false,
-                        output: 'html',
-                        strict: false
-                      });
-                      
+                  {contentElements.map((item, idx) => {
+                    if (item.type === 'formula') {
+                      try {
+                        const html = katex.renderToString(item.content, {
+                          displayMode: item.isDisplay,
+                          throwOnError: false,
+                          output: 'html',
+                          strict: false
+                        });
+                        
+                        return (
+                          <Box
+                            key={idx}
+                            sx={{ 
+                              my: item.isDisplay ? 2 : 1,
+                              display: item.isDisplay ? 'block' : 'inline-block',
+                            }}
+                            dangerouslySetInnerHTML={{ __html: html }}
+                          />
+                        );
+                      } catch (error) {
+                        return (
+                          <Box key={idx} sx={{ color: 'error.main', fontSize: '0.9em' }}>
+                            Failed to render: {item.content.substring(0, 50)}...
+                          </Box>
+                        );
+                      }
+                    } else if (item.type === 'text') {
                       return (
-                        <Box
+                        <Typography
                           key={idx}
-                          sx={{ 
-                            my: item.isDisplay ? 2 : 1,
-                            display: item.isDisplay ? 'block' : 'inline-block',
+                          variant="body2"
+                          sx={{
+                            my: 1,
+                            fontStyle: item.isItalic ? 'italic' : 'normal',
+                            fontWeight: item.isItalic ? 'normal' : 'bold',
+                            color: 'text.secondary',
+                            display: 'block',
                           }}
-                          dangerouslySetInnerHTML={{ __html: html }}
-                        />
-                      );
-                    } catch (error) {
-                      return (
-                        <Box key={idx} sx={{ color: 'error.main', fontSize: '0.9em' }}>
-                          Failed to render: {item.formula.substring(0, 50)}...
-                        </Box>
+                        >
+                          {item.content}
+                        </Typography>
                       );
                     }
+                    return null;
                   })}
                 </Box>
                 {/* Copy button for rendered LaTeX */}
