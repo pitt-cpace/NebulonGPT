@@ -1940,6 +1940,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // First, fix common LaTeX errors in \text{} environments
     let processed = content;
     
+    // Fix malformed chemical formulas like \H_2 -> \mathrm{H}_2
+    // This fixes cases where the LLM incorrectly adds backslashes before element symbols
+    // Match: backslash followed by a capital letter, then optional subscripts/superscripts
+    processed = processed.replace(/\\([A-Z])(_\{?[0-9]+\}?|\^\{?[0-9]+\}?|_[0-9]+|\^[0-9]+)*/g, (match, element, subscript) => {
+      // If we have subscripts/superscripts, wrap in \mathrm{}
+      if (subscript) {
+        return `\\mathrm{${element}}${subscript}`;
+      }
+      // Otherwise just the element in \mathrm{}
+      return `\\mathrm{${element}}`;
+    });
+    
     // Fix complex unit expressions like \text{N·m}^2/\text{kg}^2
     // Replace \text{} with \mathrm{} for better handling of units
     processed = processed.replace(/\\text\{/g, '\\mathrm{');
