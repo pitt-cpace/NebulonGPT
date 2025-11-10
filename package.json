@@ -64,7 +64,7 @@
     "server": "node server.js",
     "electron": "npm run build && set NODE_ENV=production && node node_modules\\electron\\cli.js .",
     "start-python-services": "./start-python-services.sh",
-    "build:electron": "npm run build && electron-builder",
+    "build:electron": "npm run build && cp electron.js build/ && cp preload.js build/ && cp server.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && electron-builder",
     "build:docker": "docker build .",
     "dist": "npm run build && electron-builder --publish=never",
     "dist:linux": "npm run build && cp electron.js build/ && cp preload.js build/ && cp server.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && electron-builder --linux"
