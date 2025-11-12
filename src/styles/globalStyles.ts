@@ -1,9 +1,15 @@
 import { Theme } from '@mui/material/styles';
 
+// Get theme mode from localStorage
+const getThemeMode = (): 'light' | 'dark' => {
+  const savedMode = localStorage.getItem('themeMode');
+  return (savedMode === 'light' || savedMode === 'dark') ? savedMode : 'dark';
+};
+
 // Global styles as a JS object that can be used with MUI's sx prop or styled API
 export const globalStyles = {
-  // CSS variables
-  cssVars: {
+  // CSS variables - now theme-aware
+  cssVars: getThemeMode() === 'dark' ? {
     '--primary-color': '#90caf9',
     '--secondary-color': '#f48fb1',
     '--background-color': '#121212',
@@ -21,6 +27,24 @@ export const globalStyles = {
     '--assistant-message-bg': 'rgba(255, 255, 255, 0.05)',
     '--table-header-bg': 'rgba(255, 255, 255, 0.08)',
     '--table-border': 'rgba(255, 255, 255, 0.1)',
+  } : {
+    '--primary-color': '#1976d2',
+    '--secondary-color': '#dc004e',
+    '--background-color': '#fafafa',
+    '--paper-color': '#ffffff',
+    '--text-color': '#000000',
+    '--text-secondary-color': '#666666',
+    '--border-color': '#e0e0e0',
+    '--code-background': '#f5f5f5',
+    '--hover-color': 'rgba(25, 118, 210, 0.08)',
+    '--active-color': 'rgba(25, 118, 210, 0.12)',
+    '--scrollbar-track': '#f5f5f5',
+    '--scrollbar-thumb': '#bdbdbd',
+    '--scrollbar-thumb-hover': '#9e9e9e',
+    '--user-message-bg': 'rgba(25, 118, 210, 0.08)',
+    '--assistant-message-bg': 'rgba(0, 0, 0, 0.03)',
+    '--table-header-bg': 'rgba(0, 0, 0, 0.05)',
+    '--table-border': 'rgba(0, 0, 0, 0.12)',
   },
 
   // Body styles

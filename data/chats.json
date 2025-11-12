@@ -1,9 +1,60 @@
 [
   {
-    "id": "chat-1742819794578",
-    "title": "New Chat",
-    "modelId": "granite3-dense:8b",
-    "messages": [],
-    "createdAt": "2025-03-24T12:36:34.578Z"
+    "id": "chat-1760745698154",
+    "title": "Counting One Two Three",
+    "modelId": "gpt-oss:20b",
+    "messages": [
+      {
+        "id": "msg-1760745773522",
+        "role": "user",
+        "content": "one two three",
+        "timestamp": "2025-10-18T00:02:53.522Z",
+        "tokenCount": 13,
+        "contextTokensUsed": 13
+      },
+      {
+        "id": "msg-1760745773525",
+        "role": "assistant",
+        "content": "Sounds like a countdown! Are we about to launch something, or just having a quick rhythm check? Let me know what’s next on your mind!",
+        "timestamp": "2025-10-18T00:02:53.550Z",
+        "tokenCount": 30
+      }
+    ],
+    "createdAt": "2025-10-18T00:01:38.154Z",
+    "tokenStats": {
+      "totalTokensSent": 46,
+      "totalTokensReceived": 30,
+      "contextLength": 2000,
+      "lastUpdated": "2025-10-18T00:03:04.002Z"
+    }
+  },
+  {
+    "id": "chat-1760745703321",
+    "title": "Unidentified Input String Received",
+    "modelId": "gemma3:27b",
+    "messages": [
+      {
+        "id": "msg-1760745707249",
+        "role": "user",
+        "content": "sdfsfsdf",
+        "timestamp": "2025-10-18T00:01:47.249Z",
+        "tokenCount": 14,
+        "contextTokensUsed": 14
+      },
+      {
+        "id": "msg-1760745707251",
+        "role": "assistant",
+        "content": "It seems like you just typed a random string of characters (\"sdfsfsdf\"). \n\nIs there anything I can help you with? Perhaps you:\n\n* **Accidentally typed that?**  If so, no problem! Just let me know what you *intended* to type.\n* **Are testing if I'm working?**  Yes, I am!\n* **Want me to do something with that string?** (Like repeat it, analyze it, etc.)\n\nJust tell me what you'd like me to do!\n\n\n\n",
+        "timestamp": "2025-10-18T00:01:47.250Z",
+        "tokenCount": 107
+      }
+    ],
+    "createdAt": "2025-10-18T00:01:43.321Z",
+    "tokenStats": {
+      "totalTokensSent": 14,
+      "totalTokensReceived": 107,
+      "contextLength": 4096,
+      "lastUpdated": "2025-10-18T00:02:03.049Z"
+    }
   }
 ]

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Box,
   Drawer,
@@ -16,19 +16,28 @@ import {
   Tooltip,
   Avatar,
   Button,
+  CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Chat as ChatIcon,
   Delete as DeleteIcon,
+  Edit as EditIcon,
   Search as SearchIcon,
   ExpandLess,
   ExpandMore,
   Workspaces as WorkspacesIcon,
   AutoAwesome as AutoAwesomeIcon,
+  ChevronLeft as ChevronLeftIcon,
 } from '@mui/icons-material';
 import { ChatType } from '../types';
 import * as styles from '../styles/components/Sidebar.styles';
+import { RO } from '../hooks/ResizeObserverManager';
 
 interface SidebarProps {
   open: boolean;
@@ -38,6 +47,11 @@ interface SidebarProps {
   onSelectChat: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
   onUpdateChatTitle: (chatId: string, newTitle: string) => void;
+  onLoadMoreChats?: () => void;
+  hasMoreChats?: boolean;
+  isLoadingChats?: boolean;
+  onClose?: () => void;
+  onEditingStateChange?: (isEditing: boolean) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -48,11 +62,28 @@ const Sidebar: React.FC<SidebarProps> = ({
   onSelectChat,
   onDeleteChat,
   onUpdateChatTitle,
+  onLoadMoreChats,
+  hasMoreChats = false,
+  isLoadingChats = false,
+  onClose,
+  onEditingStateChange,
 }) => {
   const [chatsOpen, setChatsOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingChatTitle, setEditingChatTitle] = useState('');
+  const editTextFieldRef = useRef<HTMLInputElement>(null);
+  const pendingChatSelectionRef = useRef<string | null>(null);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const [tooltipContent, setTooltipContent] = useState('');
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [tooltipTimeout, setTooltipTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [chatToDelete, setChatToDelete] = useState<{ id: string; title: string } | null>(null);
+  
+  // Refs for scroll detection
+  const chatListRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef<HTMLLIElement>(null);
 
   const handleToggleChats = () => {
     setChatsOpen(!chatsOpen);
@@ -62,6 +93,10 @@ const Sidebar: React.FC<SidebarProps> = ({
     e.stopPropagation();
     setEditingChatId(chatId);
     setEditingChatTitle(currentTitle);
+    // Notify parent that editing has started
+    if (onEditingStateChange) {
+      onEditingStateChange(true);
+    }
   };
 
   const handleSaveTitle = (chatId: string) => {
@@ -69,6 +104,17 @@ const Sidebar: React.FC<SidebarProps> = ({
       onUpdateChatTitle(chatId, editingChatTitle.trim());
     }
     setEditingChatId(null);
+    // Notify parent that editing has ended
+    if (onEditingStateChange) {
+      onEditingStateChange(false);
+    }
+    
+    // If there's a pending chat selection, execute it after a small delay
+    if (pendingChatSelectionRef.current) {
+      const chatId = pendingChatSelectionRef.current;
+      pendingChatSelectionRef.current = null;
+      setTimeout(() => onSelectChat(chatId), 100);
+    }
   };
 
   const handleTitleKeyDown = (chatId: string, e: React.KeyboardEvent) => {
@@ -76,8 +122,82 @@ const Sidebar: React.FC<SidebarProps> = ({
       handleSaveTitle(chatId);
     } else if (e.key === 'Escape') {
       setEditingChatId(null);
+      // Notify parent that editing has ended (cancelled)
+      if (onEditingStateChange) {
+        onEditingStateChange(false);
+      }
     }
   };
+
+  const handleMouseEnter = (e: React.MouseEvent, title: string) => {
+    // Clear any existing timeout
+    if (tooltipTimeout) {
+      clearTimeout(tooltipTimeout);
+    }
+    
+    setMousePosition({ 
+      x: e.clientX, 
+      y: e.clientY 
+    });
+    setTooltipContent(title);
+    
+    // Set tooltip to show after 2 seconds
+    const timeout = setTimeout(() => {
+      setTooltipOpen(true);
+    }, 1000);
+    
+    setTooltipTimeout(timeout);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    setMousePosition({ 
+      x: e.clientX, 
+      y: e.clientY 
+    });
+  };
+
+  const handleMouseLeave = () => {
+    // Clear timeout if mouse leaves before 2 seconds
+    if (tooltipTimeout) {
+      clearTimeout(tooltipTimeout);
+      setTooltipTimeout(null);
+    }
+    setTooltipOpen(false);
+  };
+
+  // Scroll detection for lazy loading
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100; // Load when 100px from bottom
+    
+    if (isNearBottom && hasMoreChats && !isLoadingChats && onLoadMoreChats) {
+      onLoadMoreChats();
+    }
+  }, [hasMoreChats, isLoadingChats, onLoadMoreChats]);
+
+  // Intersection Observer for loading indicator
+  useEffect(() => {
+    if (!loadingRef.current || !hasMoreChats || !onLoadMoreChats) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && !isLoadingChats) {
+          onLoadMoreChats();
+        }
+      },
+      {
+        threshold: 0.1,
+        rootMargin: '50px',
+      }
+    );
+
+    observer.observe(loadingRef.current);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasMoreChats, isLoadingChats, onLoadMoreChats]);
 
   const filteredChats = chats.filter(chat =>
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
@@ -91,29 +211,64 @@ const Sidebar: React.FC<SidebarProps> = ({
       sx={styles.drawer}
     >
       <Box sx={styles.contentContainer}>
-        {/* Logo and App Name */}
-        <Box sx={styles.logoContainer}>
-          <Avatar sx={styles.logoAvatar}>
-            <AutoAwesomeIcon />
-          </Avatar>
-          <Box>
-            <Typography variant="h6" component="div" sx={styles.appTitle}>
-              Nebulon-GPT
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Your Private AI Assistant
-            </Typography>
-            <Box sx={styles.byLogoContainer}>
-              <Typography variant="caption" color="text.secondary" sx={styles.byText}>
-                BY
+        {/* Logo and App Name with Close button */}
+        <Box sx={{ ...styles.logoContainer, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Avatar sx={styles.logoAvatar}>
+              <AutoAwesomeIcon />
+            </Avatar>
+            <Box>
+              <Typography variant="h6" component="div" sx={styles.appTitle}>
+                Nebulon-GPT
               </Typography>
-              <Box component="img" 
-                src="/cpace-logo.png" 
-                alt="CPACE Logo" 
-                sx={styles.cpaceLogo} 
-              />
+              <Typography variant="caption" color="text.secondary">
+                Your Private AI Assistant
+              </Typography>
+              <Box sx={styles.byLogoContainer}>
+                <Typography variant="caption" color="text.secondary" sx={styles.byText}>
+                  BY
+                </Typography>
+                <Box component="img" 
+                  src="./cpace-logo.png" 
+                  alt="CPACE Logo" 
+                  sx={styles.cpaceLogo} 
+                />
+              </Box>
             </Box>
           </Box>
+          
+          {/* Close button - inline with title */}
+          {onClose && (
+            <Tooltip title="Close sidebar">
+              <IconButton
+                onClick={() => {
+                  // If editing, blur the TextField first, then close after delay
+                  if (editingChatId && editTextFieldRef.current) {
+                    editTextFieldRef.current.blur();
+                    // Suspend for longer to cover TextField unmount + close animation
+                    RO.suspendFor(600);
+                    // Wait for blur event to complete before closing
+                    setTimeout(() => onClose(), 200);
+                  } else {
+                    // Not editing, close normally
+                    RO.suspendFor(400);
+                    onClose();
+                  }
+                }}
+                size="small"
+                sx={{
+                  color: 'text.secondary',
+                  mt: 0.5,
+                  '&:hover': {
+                    color: 'primary.main',
+                    backgroundColor: 'action.hover',
+                  },
+                }}
+              >
+                <ChevronLeftIcon />
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
         
         {/* New Chat Button */}
@@ -169,74 +324,190 @@ const Sidebar: React.FC<SidebarProps> = ({
           {chatsOpen ? <ExpandLess /> : <ExpandMore />}
         </ListItemButton>
         <Collapse in={chatsOpen} timeout="auto" unmountOnExit>
-          <List component="div" disablePadding>
-            {filteredChats.length > 0 ? (
-              filteredChats.map((chat) => (
-                <ListItemButton
-                  key={chat.id}
-                  selected={chat.id === currentChatId}
-                  onClick={() => onSelectChat(chat.id)}
-                  sx={styles.chatListItem}
-                >
-                  <ListItemIcon sx={styles.chatListItemIcon}>
-                    <ChatIcon fontSize="small" />
-                  </ListItemIcon>
-                  {editingChatId === chat.id ? (
-                    <TextField
-                      size="small"
-                      value={editingChatTitle}
-                      onChange={(e) => setEditingChatTitle(e.target.value)}
-                      onKeyDown={(e) => handleTitleKeyDown(chat.id, e)}
-                      onBlur={() => handleSaveTitle(chat.id)}
-                      autoFocus
-                      onClick={(e) => e.stopPropagation()}
-                      sx={styles.editTextField}
-                    />
-                  ) : (
-                    <ListItemText 
-                      primary={chat.title} 
-                      primaryTypographyProps={{
-                        noWrap: true,
-                        sx: { maxWidth: '150px' }
-                      }}
-                      onClick={(e) => {
-                        if (chat.title === 'New Chat') {
-                          handleStartEditing(chat.id, chat.title, e);
+          <Box
+            ref={chatListRef}
+            onScroll={handleScroll}
+            sx={{
+              maxHeight: 'calc(100vh - 400px)', // Adjust based on your layout
+              overflowY: 'auto',
+              overflowX: 'hidden',
+            }}
+          >
+            <List component="div" disablePadding>
+              {filteredChats.length > 0 ? (
+                <>
+                  {filteredChats.map((chat) => (
+                    <ListItemButton
+                      key={chat.id}
+                      selected={chat.id === currentChatId}
+                      onClick={() => {
+                        // If currently editing, queue the selection after save
+                        if (editingChatId) {
+                          pendingChatSelectionRef.current = chat.id;
+                          editTextFieldRef.current?.blur();
+                        } else {
+                          onSelectChat(chat.id);
                         }
                       }}
-                      onDoubleClick={(e) => handleStartEditing(chat.id, chat.title, e)}
-                    />
+                      sx={styles.chatListItem}
+                    >
+                      <ListItemIcon sx={styles.chatListItemIcon}>
+                        <ChatIcon fontSize="small" />
+                      </ListItemIcon>
+                      {editingChatId === chat.id ? (
+                        <TextField
+                          size="small"
+                          value={editingChatTitle}
+                          onChange={(e) => setEditingChatTitle(e.target.value)}
+                          onKeyDown={(e) => handleTitleKeyDown(chat.id, e)}
+                          onBlur={() => handleSaveTitle(chat.id)}
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                          inputRef={editTextFieldRef}
+                          sx={styles.editTextField}
+                        />
+                      ) : (
+                        <ListItemText 
+                          primary={
+                            <Typography
+                              noWrap
+                              sx={{ maxWidth: '150px' }}
+                              onMouseEnter={(e) => handleMouseEnter(e, chat.title)}
+                              onMouseMove={handleMouseMove}
+                              onMouseLeave={handleMouseLeave}
+                            >
+                              {chat.title}
+                            </Typography>
+                          }
+                        />
+                      )}
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        {editingChatId !== chat.id && (
+                          <>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => handleStartEditing(chat.id, chat.title, e)}
+                              sx={styles.editButton}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setChatToDelete({ id: chat.id, title: chat.title });
+                                setDeleteConfirmOpen(true);
+                              }}
+                              sx={styles.deleteButton}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </>
+                        )}
+                      </Box>
+                    </ListItemButton>
+                  ))}
+                  
+                  {/* Loading indicator */}
+                  {hasMoreChats && (
+                    <ListItem
+                      ref={loadingRef}
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        py: 2,
+                      }}
+                    >
+                      {isLoadingChats ? (
+                        <CircularProgress size={20} />
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          Scroll to load more...
+                        </Typography>
+                      )}
+                    </ListItem>
                   )}
-                  <Box sx={{ display: 'flex' }}>
-                    {!editingChatId && (
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteChat(chat.id);
-                        }}
-                        sx={styles.deleteButton}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    )}
-                  </Box>
-                </ListItemButton>
-              ))
-            ) : (
-              <ListItem sx={styles.noChatFound}>
-                <ListItemText 
-                  primary="No chats found" 
-                  primaryTypographyProps={{ 
-                    variant: 'body2',
-                    color: 'text.secondary',
-                  }} 
-                />
-              </ListItem>
-            )}
-          </List>
+                </>
+              ) : (
+                <ListItem sx={styles.noChatFound}>
+                  <ListItemText 
+                    primary="No chats found" 
+                    primaryTypographyProps={{ 
+                      variant: 'body2',
+                      color: 'text.secondary',
+                    }} 
+                  />
+                </ListItem>
+              )}
+            </List>
+          </Box>
         </Collapse>
       </List>
+      
+      {/* Custom Tooltip */}
+      {tooltipOpen && (
+        <Box
+          sx={{
+            position: 'fixed',
+            left: mousePosition.x + 10,
+            top: mousePosition.y + 30,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            color: 'white',
+            padding: '4px 8px',
+            borderRadius: '4px',
+            fontSize: '12px',
+            pointerEvents: 'none',
+            zIndex: 9999,
+            maxWidth: '200px',
+            wordWrap: 'break-word',
+            whiteSpace: 'normal',
+          }}
+        >
+          {tooltipContent}
+        </Box>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteConfirmOpen}
+        onClose={() => setDeleteConfirmOpen(false)}
+        aria-labelledby="delete-dialog-title"
+        aria-describedby="delete-dialog-description"
+      >
+        <DialogTitle id="delete-dialog-title">
+          Delete Chat?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="delete-dialog-description">
+            Are you sure you want to delete "{chatToDelete?.title}"? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => {
+              setDeleteConfirmOpen(false);
+              setChatToDelete(null);
+            }}
+            color="primary"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={() => {
+              if (chatToDelete) {
+                onDeleteChat(chatToDelete.id);
+              }
+              setDeleteConfirmOpen(false);
+              setChatToDelete(null);
+            }}
+            color="error"
+            variant="contained"
+            autoFocus
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Drawer>
   );
 };

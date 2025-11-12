@@ -1,23 +1,35 @@
-version: '3.8'
+name: nebulon-gpt-integrated
+
 
 services:
-  nebulon-gpt:
+  nebulon-gpt-integrated:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: nebulon-gpt
+    image: nebulon-gpt-integrated
+    container_name: nebulon-gpt-integrated
     ports:
       - "3000:80"
     restart: unless-stopped
     networks:
       - ollama-network
     volumes:
-      - ./nginx.conf:/etc/nginx/http.d/default.conf
+      - ./nginx.conf:/etc/nginx/sites-available/default
       - chat-data:/app/data
     environment:
       - NODE_ENV=production
-      # This is used during the build process
+      # Frontend build-time environment variables
       - REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434
+      - REACT_APP_VOSK_SERVER_URL=ws://localhost:3000/vosk
+      - REACT_APP_TTS_SERVER_URL=ws://localhost:3000/tts
+      # Python services environment variables
+      - PYTHONUNBUFFERED=1
+      - HF_HOME=/app/.cache/huggingface
+      - TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
+      - HF_DATASETS_CACHE=/app/.cache/huggingface/datasets
+      - HF_HUB_OFFLINE=0
+      - KOKORO_SERVER_HOST=0.0.0.0
+      - KOKORO_SERVER_PORT=2701
 
 networks:
   ollama-network:

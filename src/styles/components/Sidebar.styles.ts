@@ -10,8 +10,8 @@ export const drawer: SxProps<Theme> = {
   '& .MuiDrawer-paper': {
     width: drawerWidth,
     boxSizing: 'border-box',
-    backgroundColor: '#121212',
-    borderRight: '1px solid #333',
+    backgroundColor: 'background.default',
+    borderRight: (theme) => `1px solid ${theme.palette.mode === 'dark' ? '#333' : '#e0e0e0'}`,
   },
 };
 
@@ -30,8 +30,8 @@ export const logoContainer: SxProps<Theme> = {
 };
 
 export const logoAvatar: SxProps<Theme> = {
-  bgcolor: 'rgba(144, 202, 249, 0.2)',
-  color: '#90caf9',
+  bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.2)' : 'rgba(25, 118, 210, 0.2)',
+  color: 'primary.main',
   width: 40,
   height: 40,
 };
@@ -70,19 +70,19 @@ export const newChatButtonContainer: SxProps<Theme> = {
 };
 
 export const newChatButton: SxProps<Theme> = {
-  backgroundColor: 'rgba(144, 202, 249, 0.1)',
-  color: '#90caf9',
+  backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.1)' : 'rgba(25, 118, 210, 0.1)',
+  color: 'primary.main',
   textTransform: 'none',
   justifyContent: 'flex-start',
   '&:hover': {
-    backgroundColor: 'rgba(144, 202, 249, 0.2)',
+    backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.2)' : 'rgba(25, 118, 210, 0.2)',
   },
   borderRadius: 2,
   py: 1,
 };
 
 export const divider: SxProps<Theme> = {
-  borderColor: '#333',
+  borderColor: (theme) => theme.palette.mode === 'dark' ? '#333' : '#e0e0e0',
 };
 
 export const searchContainer: SxProps<Theme> = {
@@ -93,9 +93,9 @@ export const searchContainer: SxProps<Theme> = {
 export const searchField: SxProps<Theme> = {
   '& .MuiOutlinedInput-root': {
     borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
     '&:hover .MuiOutlinedInput-notchedOutline': {
-      borderColor: 'rgba(255, 255, 255, 0.1)',
+      borderColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
     },
     '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
       borderColor: 'primary.main',
@@ -106,10 +106,10 @@ export const searchField: SxProps<Theme> = {
 export const chatListItem: SxProps<Theme> = {
   pl: 4,
   '&.Mui-selected': {
-    backgroundColor: 'rgba(144, 202, 249, 0.08)',
+    backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.08)' : 'rgba(25, 118, 210, 0.08)',
   },
   '&.Mui-selected:hover': {
-    backgroundColor: 'rgba(144, 202, 249, 0.12)',
+    backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.12)' : 'rgba(25, 118, 210, 0.12)',
   },
 };
 
@@ -122,15 +122,20 @@ export const editTextField: SxProps<Theme> = {
   mr: 1,
   '& .MuiOutlinedInput-root': {
     borderRadius: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
   },
 };
 
-export const deleteButton: SxProps<Theme> = {
-  opacity: 0,
+export const editButton: SxProps<Theme> = {
+  opacity: 0.7,
   transition: 'opacity 0.2s',
   '&:hover': { opacity: 1 },
-  '.MuiListItemButton-root:hover &': { opacity: 0.7 },
+};
+
+export const deleteButton: SxProps<Theme> = {
+  opacity: 0.7,
+  transition: 'opacity 0.2s',
+  '&:hover': { opacity: 1 },
 };
 
 export const noChatFound: SxProps<Theme> = {

@@ -173,4 +173,73 @@ export const parseLlama3Table = (content: string): TableData | null => {
   return { headers, rows };
 };
 
+/**
+ * Helper function to detect and parse MediaWiki format tables
+ */
+export const parseMediaWikiTable = (content: string): TableData | null => {
+  // Check if content contains MediaWiki table syntax
+  if (!content.includes('{|') || !content.includes('|}')) {
+    return null; // Not a MediaWiki table
+  }
+  
+  // Split the content into lines
+  const lines = content.trim().split('\n');
+  
+  // Find the start and end of the table
+  let startIndex = -1;
+  let endIndex = -1;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('{|')) {
+      startIndex = i;
+    } else if (line.startsWith('|}')) {
+      endIndex = i;
+      break;
+    }
+  }
+  
+  if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) {
+    return null; // Invalid table structure
+  }
+  
+  // Extract table lines (excluding the opening and closing braces)
+  const tableLines = lines.slice(startIndex + 1, endIndex);
+  
+  let headers: string[] = [];
+  const rows: string[][] = [];
+  
+  for (let i = 0; i < tableLines.length; i++) {
+    const line = tableLines[i].trim();
+    
+    // Skip empty lines and row separators
+    if (!line || line === '|-') {
+      continue;
+    }
+    
+    // Parse header row (starts with !)
+    if (line.startsWith('!')) {
+      // Split by !! for multiple headers
+      headers = line.substring(1).split('!!').map(h => h.trim());
+      continue;
+    }
+    
+    // Parse data row (starts with |)
+    if (line.startsWith('|')) {
+      // Split by || for multiple cells
+      const cells = line.substring(1).split('||').map(c => c.trim());
+      if (cells.length > 0) {
+        rows.push(cells);
+      }
+    }
+  }
+  
+  // Validate that we have headers and rows
+  if (headers.length === 0 || rows.length === 0) {
+    return null;
+  }
+  
+  return { headers, rows };
+};
+
 export default TableRenderer;

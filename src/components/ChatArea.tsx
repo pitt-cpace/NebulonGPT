@@ -1,6 +1,13 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import { TextItem } from 'pdfjs-dist/types/src/display/api';
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { useTheme } from '@mui/material/styles';
+import katex from 'katex';
+import { useElementHeightVar } from '../hooks/useElementHeightVar';
+import { RO } from '../hooks/ResizeObserverManager';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
+import 'katex/dist/katex.min.css';
 import {
   Box,
   Typography,
@@ -23,6 +30,12 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Chip,
+  Slider,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -36,14 +49,137 @@ import {
   Close as CloseIcon,
   InsertDriveFile as InsertDriveFileIcon,
   Image as ImageIcon,
+  People as PeopleIcon,
+  Settings as SettingsIcon,
+  KeyboardArrowDown as ArrowDownIcon,
+  Refresh as RefreshIcon,
+  Error as ErrorIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon,
+  ContentCopy as ContentCopyIcon,
+  Devices as DevicesIcon,
+  Wifi as WifiIcon,
+  QrCode2 as QrCodeIcon,
+  Computer as ComputerIcon,
+  Loop as LoopIcon,
 } from '@mui/icons-material';
+import { QRCodeSVG } from 'qrcode.react';
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
 import { getSuggestedPrompts } from '../services/api';
+import { VoskRecognitionService } from '../services/vosk';
+import { ttsService } from '../services/ttsService';
+import { electronApi } from '../services/electronApi';
+import { useStickyAutoScroll } from '../hooks/useStickyAutoScroll';
+import { getTextDirectionStyles, analyzeMixedContent } from '../services/rtlDetection';
+import { OllamaStatus } from '../services/ollamaStatus';
+import { takeThinkingThenBody } from '../services/thinkingExtractor';
 import * as styles from '../styles/components/ChatArea.styles';
+import WaveformVisualization from './WaveformVisualization';
+import InputArea from './InputArea';
 
-// Set the worker source path
-GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs';
+// Shared Header Action Button Component
+function HeaderActionButton(props: React.ComponentProps<typeof IconButton>) {
+  return (
+    <IconButton
+      size="small"
+      sx={{
+        color: 'text.primary',
+        bgcolor: 'transparent',
+        border: '1px solid',
+        borderColor: 'divider',
+        position: 'relative',
+        zIndex: 1400, // Above topbar overlay
+        pointerEvents: 'auto',
+        '&:hover': {
+          bgcolor: 'action.hover',
+          borderColor: 'primary.main',
+          color: 'primary.main',
+        },
+        transition: 'all 0.2s',
+        ...props.sx,
+      }}
+      {...props}
+    />
+  );
+}
+
+// Fixed Top Bar Overlay Component using Portal
+function FixedTopbarOverlay({
+  children,
+  sidebarOpen,
+  chatRootEl,
+}: {
+  children: React.ReactNode;
+  sidebarOpen: boolean;
+  chatRootEl: HTMLElement | null;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const theme = useTheme();
+  useElementHeightVar(ref, '--chat-topbar-h', { targetEl: chatRootEl, box: 'border-box' });
+
+  // Match the drawer width from Sidebar
+  const drawerWidth = 280;
+  const leftGutter = sidebarOpen ? drawerWidth : 0;
+  
+  const node = (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: leftGutter,
+        right: 0,
+        width: `calc(100% - ${leftGutter}px)`,
+        zIndex: 1300, // Above all other overlays (input, FABs, etc.)
+        pointerEvents: 'auto', // Ensure clicks work
+        backgroundColor: theme.palette.background.paper, // Use theme background
+        borderBottom: `1px solid ${theme.palette.divider}`,
+        boxShadow: '0px 2px 4px rgba(0,0,0,0.2)',
+        transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms, width 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
+      }}
+    >
+      {children}
+    </div>
+  );
+  return createPortal(node, document.body);
+}
+
+// Fixed Input Overlay Component using Portal
+function FixedInputOverlay({
+  children,
+  sidebarOpen,
+  chatRootEl,
+}: {
+  children: React.ReactNode;
+  sidebarOpen: boolean;
+  chatRootEl: HTMLElement | null;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useElementHeightVar(ref, '--chat-input-h', { targetEl: chatRootEl, box: 'border-box' });
+
+  // Match the drawer width from Sidebar
+  const drawerWidth = 280;
+  const leftGutter = sidebarOpen ? drawerWidth : 0;
+  
+  const node = (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        left: leftGutter,
+        right: 0,
+        bottom: 0,
+        width: `calc(100% - ${leftGutter}px)`, // Explicit width prevents layout nudging
+        zIndex: 1000,
+        transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms, width 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
+      }}
+    >
+      {children}
+    </div>
+  );
+  return createPortal(node, document.body);
+}
 
 interface ChatAreaProps {
   chat: ChatType | null;
@@ -51,10 +187,23 @@ interface ChatAreaProps {
   models: ModelType[];
   loading: boolean;
   onSendMessage: (content: string, attachments?: FileAttachment[]) => void;
-  onStopResponse: () => void;
+  onStopResponse: () => Promise<boolean>;
   onToggleSidebar: () => void;
   onSelectModel: (model: ModelType) => void;
-  sidebarOpen: boolean; // Add sidebarOpen prop
+  sidebarOpen: boolean;
+  voskRecognition?: VoskRecognitionService | null;
+  micStoppedTrigger?: number;
+  onMicStart?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onMicStop?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onListeningStateChange?: (listening: boolean) => void;
+  onClearChatInput?: React.MutableRefObject<(() => void) | null>;
+  onHideLoadingAnimation?: React.MutableRefObject<(() => void) | null>;
+  getCurrentMsgId?: () => string | null;
+  ollamaStatus: OllamaStatus;
+  onRefreshOllamaStatus: () => Promise<OllamaStatus>;
+  onCreateNewChat: () => Promise<void>;
+  onOpenSettings: () => void;
+  isMobile: boolean;
 }
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -66,181 +215,629 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onStopResponse,
   onToggleSidebar,
   onSelectModel,
-  sidebarOpen, // Destructure sidebarOpen
+  sidebarOpen,
+  voskRecognition,
+  micStoppedTrigger,
+  onMicStart,
+  onMicStop,
+  onListeningStateChange,
+  onClearChatInput,
+  onHideLoadingAnimation,
+  ollamaStatus,
+  onRefreshOllamaStatus,
+  onCreateNewChat,
+  onOpenSettings,
+  isMobile,
 }) => {
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
   const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
+  const [contributorsOpen, setContributorsOpen] = useState(false);
+  const [networkAccessOpen, setNetworkAccessOpen] = useState(false);
+  const [networkAddresses, setNetworkAddresses] = useState<{
+    localhost: string;
+    loopback: string;
+    wifi: string[];
+    ethernet: string[];
+  }>({
+    localhost: 'http://localhost:3000',
+    loopback: 'http://127.0.0.1:3000',
+    wifi: [],
+    ethernet: []
+  });
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  const [qrCodeDialogOpen, setQrCodeDialogOpen] = useState(false);
+  const [qrCodeAddress, setQrCodeAddress] = useState<string>('');
   const [isListening, setIsListening] = useState(false);
+  const [isProcessingMic, setIsProcessingMic] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [interimTranscript, setInterimTranscript] = useState('');
+  const [isTurningOff, setIsTurningOff] = useState(false);
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
+  const [detectionSensitivity, setDetectionSensitivity] = useState<number>(100); // Default sensitivity display value
+  const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
+  const onClearInputAreaRef = useRef<(() => void) | null>(null);
+  const onGetAttachmentsRef = useRef<(() => FileAttachment[]) | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef<string>('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const interimTranscriptRef = useRef<string>('');
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const suggestedPrompts = getSuggestedPrompts();
 
-  // Scroll to bottom when messages change
+  // Suspend ResizeObservers during sidebar open/close animation
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [chat?.messages]);
+    // Pause RO during the drawer slide animation (225ms transition + buffer)
+    RO.suspendFor(260);
+  }, [sidebarOpen]);
 
-  // Initialize speech recognition - using browser's built-in local speech recognition
-  useEffect(() => {
-    // Check if the browser supports the Web Speech API
-    // Note: This uses the browser's built-in speech recognition which is processed locally
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // Function to detect "stop stop" command
+  const detectStopCommand = useCallback((text: string): boolean => {
+    if (!text || typeof text !== 'string') return false;
     
-    if (!SpeechRecognition) {
-      console.warn('Local speech recognition is not supported in this browser.');
-      setSpeechError('Local speech recognition not supported in this browser');
+    // Normalize the text: lowercase, remove extra spaces
+    const normalizedText = text.toLowerCase()
+      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+      .trim();
+    
+    // Check for "stop stop" pattern
+    const stopStopPattern = /\bstop\s+stop\b/;
+    
+    if (stopStopPattern.test(normalizedText)) {
+      console.log(`🎯 "Stop stop" command detected in text: "${text}"`);
+      return true;
+    }
+    
+    return false;
+  }, []);
+
+  // Use ref for typing state to avoid re-renders
+  const userTypingRef = useRef(false);
+  
+  // Initialize the battle-tested auto-scroll system
+  const { isPinned, unread, showJumpButton, onNewContent, jumpToLatest, setUserTyping } = useStickyAutoScroll({
+    containerRef: messagesContainerRef,
+    endRef: messagesEndRef,
+    bottomThreshold: 64,
+    smoothBehavior: "smooth",
+    generating: loading,
+    chatId: chat?.id, // Add chatId to trigger re-initialization when chat changes
+  });
+  
+  // Typing timeout ref
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Wrapper to update both ref and hook without causing re-renders
+  const handleUserTyping = useCallback((typing: boolean) => {
+    userTypingRef.current = typing;
+    setUserTyping(typing);
+  }, [setUserTyping]);
+
+  const handleSendMessage = useCallback(async (messageText: string, messageAttachments?: FileAttachment[]) => {
+    // Check Ollama status before sending message
+    // Refresh status to get latest state
+    const status = await onRefreshOllamaStatus();
+    if (!status.isAvailable) {
+      alert('Cannot send message: Ollama is not available. Please check your Ollama connection.');
+      return;
+    }
+    
+    // Check if models are available after refreshing status
+    if (models.length === 0) {
+      alert('Cannot send message: No models are installed. Please install a model first using the commands shown in the model dropdown.');
+      return;
+    }
+    
+    // First scroll to bottom smoothly, then send message
+    jumpToLatest('smooth');
+    
+    // Wait for smooth scroll animation to complete
+    await new Promise(resolve => setTimeout(resolve, 700));
+    
+    // Send message with any attachments
+    onSendMessage(messageText, messageAttachments);
+  }, [models.length, loading, onSendMessage, jumpToLatest, onRefreshOllamaStatus]);
+
+  // Trigger auto-scroll when new assistant messages arrive (not user messages)
+  const prevMessagesLengthRef = useRef(0);
+  useEffect(() => {
+    if (!chat?.messages || chat.messages.length === 0) {
+      prevMessagesLengthRef.current = 0;
+      return;
+    }
+    
+    // Only trigger if message count increased (new message added)
+    // Don't trigger on chat switch (different message array with same or different length)
+    if (chat.messages.length > prevMessagesLengthRef.current) {
+      const lastMessage = chat.messages[chat.messages.length - 1];
+      // Only trigger auto-scroll for assistant messages (LLM responses)
+      if (lastMessage.role === 'assistant') {
+        onNewContent();
+      }
+    }
+    
+    prevMessagesLengthRef.current = chat.messages.length;
+  }, [chat?.messages, onNewContent]);
+
+  // Reset typing state when chat changes and scroll to bottom
+  useEffect(() => {
+    userTypingRef.current = false;
+    
+    // Scroll to bottom when switching chats with multi-line input
+    if (chat?.id && messagesContainerRef.current) {
+      const scrollToBottom = () => {
+        if (messagesContainerRef.current) {
+          const container = messagesContainerRef.current;
+          container.scrollTop = container.scrollHeight;
+        }
+      };
+      
+      // Retry scroll multiple times to ensure layout has stabilized
+      // This accounts for CSS variable updates and input box height changes
+      requestAnimationFrame(() => {
+        scrollToBottom();
+        setTimeout(scrollToBottom, 50);
+        setTimeout(scrollToBottom, 150);
+        setTimeout(scrollToBottom, 300);
+      });
+    }
+  }, [chat?.id]);
+
+  // Load default model ID from localStorage on component mount
+  useEffect(() => {
+    try {
+      const savedDefaultModelId = localStorage.getItem('defaultModelId');
+      setDefaultModelId(savedDefaultModelId);
+    } catch (error) {
+      console.error('Failed to load default model ID from localStorage:', error);
+    }
+  }, []);
+
+  // Initialize detection sensitivity from Vosk service
+  useEffect(() => {
+    if (voskRecognition) {
+      const sensitivity = voskRecognition.getDetectionSensitivity();
+      setDetectionSensitivity(sensitivity);
+    }
+  }, [voskRecognition]);
+
+  // Handle detection sensitivity change
+  const handleDetectionSensitivityChange = useCallback((event: Event, newValue: number | number[]) => {
+    const sensitivity = Array.isArray(newValue) ? newValue[0] : newValue;
+    
+    setDetectionSensitivity(sensitivity);
+    
+    if (voskRecognition) {
+      voskRecognition.updateSettings({ detectionSensitivity: sensitivity });
+      voskRecognition.saveSettings();
+    }
+  }, [voskRecognition]);
+
+  // Function to set detection sensitivity to 100
+  const handleSetSensitivityTo100 = useCallback(() => {
+    const sensitivity = 100;
+    
+    setDetectionSensitivity(sensitivity);
+    
+    if (voskRecognition) {
+      voskRecognition.updateSettings({ detectionSensitivity: sensitivity });
+      voskRecognition.saveSettings();
+      console.log(`🎚️ Detection sensitivity set to 100 (most sensitive)`);
+    }
+  }, [voskRecognition]);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    interimTranscriptRef.current = interimTranscript;
+  }, [interimTranscript]);
+
+  // Initialize Vosk speech recognition event handlers
+  useEffect(() => {
+    if (!voskRecognition) {
+      console.warn('Vosk speech recognition is not available.');
+      setSpeechError('Speech recognition not available');
+      return;
+    }
+
+    // Set up event handlers for the VoskRecognitionService instance
+    voskRecognition.onResult(async (result: { text?: string; partial?: string }) => {
+      if (result.partial) {
+
+        // In full voice mode: if user starts speaking while LLM is generating, stop the LLM and TTS
+        const ttsSettings = ttsService.getSettings();
+        const isFullVoiceMode = ttsSettings.fullVoiceMode;
+
+        // Update interim transcript for real-time display
+        setInterimTranscript(result.partial);   
+        
+        // Check for "stop stop" command in partial results when in full voice mode
+        if (isFullVoiceMode && isListening) {
+          const partialLower = result.partial.toLowerCase().trim();
+          if (detectStopCommand(partialLower)) {
+            console.log('🛑 "Stop stop" command detected in partial result - stopping microphone');
+            await stopMicListening();
+            return;
+          }
+        }
+        
+        ttsService.pause();
+        voskRecognition.clearSilenceTimer();
+        
+        // Wait 1000ms then check if partial result disappeared (filtered out as noise)
+        setTimeout(() => {
+          // Check if interim transcript has been cleared (indicating partial result disappeared)
+          // Use ref to get current value, not closure variable
+          if (interimTranscriptRef.current === '' || interimTranscriptRef.current === undefined) {
+            // Partial result disappeared - resume TTS if in full voice mode and mic is listening
+            const ttsSettings = ttsService.getSettings();
+            if (ttsSettings.fullVoiceMode && isListening) {
+              ttsService.resume();
+              voskRecognition.clearSilenceTimer();
+            }
+            return;
+          }
+        }, 1000);
+        
+        if (isFullVoiceMode && loading && result.partial.trim().length > 0) {
+          await onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
+          //await ttsService.stop();
+        }
+      }
+      
+      if (result.text) {  
+        // Final transcript received
+        finalTranscriptRef.current += result.text + ' ';
+        setMessage(finalTranscriptRef.current);
+        setInterimTranscript(''); // Clear interim transcript
+        
+        const ttsSettings = ttsService.getSettings();
+        const isFullVoiceMode = ttsSettings.fullVoiceMode;
+
+        // Check for "stop stop" command in final results when in full voice mode
+        if (isFullVoiceMode && isListening) {
+          const finalTextLower = finalTranscriptRef.current.toLowerCase().trim();
+          if (detectStopCommand(finalTextLower)) {
+            console.log('🛑 "Stop stop" command detected in final result - stopping microphone');
+            await stopMicListening();
+            return;
+          }
+        }
+
+        ttsService.pause();
+        voskRecognition.clearSilenceTimer();
+        
+        if (isFullVoiceMode && loading && finalTranscriptRef.current.length > 0) {
+          await onStopResponse(); // This will stop LLM and also clear TTS (handled in App.tsx)
+          //await ttsService.stop();
+        }
+      }
+    });
+    
+    voskRecognition.onError((error: string) => {
+      console.error('Vosk speech recognition error:', error);
+      setSpeechError(error);
+      setIsListening(false);
+    });
+    
+    voskRecognition.onEnd(() => {
+      // Check if full voice mode is enabled
+      const ttsSettings = ttsService.getSettings();
+      const isFullVoiceMode = ttsSettings.fullVoiceMode;
+      
+      if (isFullVoiceMode) {
+        // In full voice mode: auto-send message but keep microphone active
+        // Get current attachments from InputArea
+        const currentAttachments = onGetAttachmentsRef.current ? onGetAttachmentsRef.current() : [];
+        
+        if (message.trim() || currentAttachments.length > 0) {
+          // Send the voice-recognized message with any attachments from InputArea
+          handleSendMessage(message.trim(), currentAttachments.length > 0 ? currentAttachments : undefined);
+          
+          // Clear the message and reset transcript for next speech recognition
+          setMessage('');
+          finalTranscriptRef.current = '';
+          
+          // Clear InputArea's attachments via the clear function
+          if (onClearInputAreaRef.current) {
+            onClearInputAreaRef.current();
+          }
+        }
+        // Don't stop listening - keep microphone active for continuous conversation
+        // Only clear interim transcript
+        setInterimTranscript('');
+      } else {
+        // Normal mode: stop listening but DON'T auto-send (user must click send button manually)
+        setIsListening(false);
+        setInterimTranscript('');
+        
+        // No auto-send in normal mode - user must manually click send button
+      }
+    });
+
+    // Clear any previous errors
+    setSpeechError(null);
+
+    // Clean up on component unmount
+    return () => {
+      // Cleanup handled by Vosk service
+    };
+  }, [voskRecognition, message, attachments, handleSendMessage, detectStopCommand, isListening, loading, onStopResponse]);
+
+  // Handle mic stopped from settings - listen for the trigger
+  useEffect(() => {
+    if (micStoppedTrigger && micStoppedTrigger > 0 && voskRecognition && !voskRecognition.isCurrentlyRecording() && isListening) {
+      setIsListening(false);
+      setInterimTranscript('');
+    }
+  }, [micStoppedTrigger, voskRecognition, isListening]);
+
+  // Dedicated function to start mic listening
+  const startMicListening = useCallback(async () => {
+    
+    if (!voskRecognition) {
+      setSpeechError('Speech recognition not available');
+      return;
+    }
+
+    if (isListening) {
       return;
     }
 
     try {
-      // Create a speech recognition instance
-      const recognition = new SpeechRecognition();
+      const modelCheck = await voskRecognition.checkModelAvailability();
+      if (!modelCheck.hasModels) {
+        console.error('❌ Model availability check failed:', modelCheck.errorMessage);
+        setSpeechError(modelCheck.errorMessage || 'Speech recognition not available');
+        throw new Error(modelCheck.errorMessage || 'Speech recognition not available');
+      }
       
-      // Configure speech recognition to use local processing
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
+      // Check user's saved model preference first
+      const availableModels = await voskRecognition.getAvailableModels();
       
-      // Set up event handlers
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
-        
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-          } else {
-            interimTranscript += transcript;
+      if (availableModels.length === 0) {
+        throw new Error('No speech recognition models available');
+      }
+      
+      const savedModel = localStorage.getItem('nebulongpt_vosk_selected_model');
+      
+      // Check if a model is currently loaded on the server
+      const currentModel = await voskRecognition.getServerCurrentModel();
+      
+      // Determine which model to load
+      let modelToLoad = '';
+      
+      if (savedModel && availableModels.includes(savedModel)) {
+        // User has a saved preference
+        if (currentModel !== savedModel) {
+          // Saved model is different from server's current model - load the saved preference
+          modelToLoad = savedModel;
+        }
+      } else if (!savedModel) {
+        // No saved preference - check if server has a model or use defaults
+        if (!currentModel || currentModel === 'none') {
+          // No model on server either, use English defaults
+          const preferredModels = [
+            'vosk-model-small-en-us-0.15',
+            'vosk-model-en-us-0.22',
+            'vosk-model-small-en-us',
+            'vosk-model-en-us'
+          ];
+          
+          for (const preferred of preferredModels) {
+            if (availableModels.includes(preferred)) {
+              modelToLoad = preferred;
+              break;
+            }
+          }
+          
+          if (!modelToLoad) {
+            modelToLoad = availableModels[0];
           }
         }
-        
-        // Update the interim transcript for display
-        setInterimTranscript(interimTranscript);
-        
-        // If we have a final transcript, update the message
-        if (finalTranscript) {
-          finalTranscriptRef.current += finalTranscript;
-          setMessage(finalTranscriptRef.current);
-        }
-      };
-      
-      recognition.onend = () => {
-        setIsListening(false);
-        setInterimTranscript('');
-      };
-      
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error('Speech recognition error', event.error);
-        setSpeechError(`Error: ${event.error}`);
-        setIsListening(false);
-      };
-      
-      // Store the recognition instance in the ref
-      recognitionRef.current = recognition;
-    } catch (error) {
-      console.error('Error initializing speech recognition:', error);
-      setSpeechError('Failed to initialize local speech recognition');
-    }
-    
-    // Clean up on component unmount
-    return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.onresult = null;
-          recognitionRef.current.onend = null;
-          recognitionRef.current.onerror = null;
-          recognitionRef.current.abort();
-        } catch (error) {
-          console.error('Error cleaning up speech recognition:', error);
-        }
       }
-    };
-  }, []);
-
-  // Toggle speech recognition
-  const toggleListening = useCallback(() => {
-    if (!recognitionRef.current) {
-      setSpeechError('Speech recognition not available');
-      return;
+      
+      // Load the model if we determined one needs to be loaded
+      if (modelToLoad) {
+        await voskRecognition.selectModel(modelToLoad);
+      }
+    } catch (error) {
+      console.error('❌ Failed to check/load model for speech recognition:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to prepare speech recognition';
+      setSpeechError(errorMessage);
+      throw error;
     }
     
     setSpeechError(null); // Clear any previous errors
     
-    if (isListening) {
-      try {
-        recognitionRef.current.stop();
-      } catch (error) {
-        console.error('Error stopping speech recognition:', error);
-      }
-      setIsListening(false);
-      setInterimTranscript('');
-    } else {
-      try {
-        // Reset the final transcript when starting a new recognition session
-        finalTranscriptRef.current = message;
-        recognitionRef.current.start();
-        setIsListening(true);
-      } catch (error) {
-        console.error('Error starting speech recognition:', error);
-        setSpeechError('Failed to start speech recognition');
-      }
-    }
-  }, [isListening, message]);
-
-  const handleSendMessage = () => {
-    // Allow sending if there's a message OR attachments
-    if ((message.trim() || attachments.length > 0) && !loading) {
-      let messageText = message.trim();
-      
-      // Check if there are PDF attachments and add a special prompt
-      const hasPdfAttachments = attachments.some(attachment => attachment.type === 'pdf');
-      if (hasPdfAttachments) {
-        // Count PDF attachments with text and images
-        const pdfWithTextCount = attachments.filter(att => att.type === 'pdf' && att.content).length;
-        const pdfWithImagesCount = attachments.filter(att => att.type === 'pdf' && att.images && att.images.length > 0).length;
-        
-        // Create a descriptive prefix for the message
-        let pdfDescription = "I've attached PDF file(s)";
-        if (pdfWithTextCount > 0 && pdfWithImagesCount > 0) {
-          pdfDescription += " containing both text and images";
-        } else if (pdfWithTextCount > 0) {
-          pdfDescription += " containing text";
-        } else if (pdfWithImagesCount > 0) {
-          pdfDescription += " containing images";
-        }
-        
-        // Add the PDF description to the message if there's no existing message
-        if (!messageText) {
-          messageText = pdfDescription + ".";
-        } else {
-          messageText = messageText + pdfDescription + ".";
-        }
-      }
-      
-      // Send message with any attachments
-      onSendMessage(messageText, attachments.length > 0 ? attachments : undefined);
-      
-      // Clear message and attachments
+    try {
+      // Always start with empty transcript to prevent old prompts from reappearing
+      finalTranscriptRef.current = '';
       setMessage('');
-      setAttachments([]);
-    }
-  };
+      
+      // Start recognition
+      await voskRecognition.start();
+      
+      setIsListening(true);
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
+    } catch (error) {
+      console.error('❌ Error starting Vosk speech recognition:', error);
+      setSpeechError('Failed to start Vosk speech recognition');
+      throw error;
     }
-  };
+  }, [isListening, message, voskRecognition]);
+
+  // Dedicated function to stop mic listening
+  const stopMicListening = useCallback(async () => {
+    
+    if (voskRecognition) {
+      if (!isListening) {
+        return;
+      }
+      
+      try {
+        await voskRecognition.stop();
+      } catch (error) {
+        console.error('❌ Error stopping Vosk speech recognition:', error);
+        // Don't throw here, we still want to update UI state
+      }
+    }
+    
+    // Stop TTS playback
+    try {
+      // Stop LLM generation if it's currently running
+      if (loading) {
+        await onStopResponse();
+      }
+      await ttsService.stop();
+    } catch (error) {
+      console.error('❌ Error stopping TTS:', error);
+    }
+    
+    // Update all UI states
+    setIsListening(false);
+    setInterimTranscript('');
+  }, [voskRecognition, isListening, loading, onStopResponse]);
+
+  // Toggle speech recognition with debounce protection
+  const toggleListening = useCallback(async () => {
+
+    
+    // Prevent rapid clicks - debounce protection
+    if (isProcessingMic) {
+      return;
+    }
+    
+    // Set processing state to prevent rapid clicks
+    setIsProcessingMic(true);
+    
+    try {
+      if (isListening) {
+        // Check if we're in Full Voice Mode when stopping
+        const ttsSettings = ttsService.getSettings();
+        const isFullVoiceMode = ttsSettings.fullVoiceMode;
+        
+        if (isFullVoiceMode) {
+          // Start the turning off animation (color change) when stopping mic in Full Voice Mode
+          setIsTurningOff(true);
+        }
+        
+        // Stop listening
+        await stopMicListening();
+      } else {
+        // Start listening
+        await startMicListening();
+      }
+    } catch (error) {
+      console.error('❌ Error in mic toggle operation:', error);
+      // Error handling is already done in individual functions
+    } finally {
+      // Always clear processing state after operation completes
+      setIsProcessingMic(false);
+    }
+  }, [isListening, isProcessingMic, startMicListening, stopMicListening]);
+
+  // Function to clear chat input
+  const clearChatInput = useCallback(() => {
+    setMessage('');
+    setAttachments([]);
+    setInterimTranscript('');
+    finalTranscriptRef.current = '';
+    // Also call InputArea's clear function
+    if (onClearInputAreaRef.current) {
+      onClearInputAreaRef.current();
+    }
+  }, []);
+
+  // Function to hide loading animation
+  const hideLoadingAnimation = useCallback(() => {
+    setShowLoadingAnimation(false);
+    // Clear the timeout as well
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Expose mic functions and clear function to parent components
+  useEffect(() => {
+    if (onMicStart) {
+      onMicStart.current = startMicListening;
+    }
+    if (onMicStop) {
+      onMicStop.current = stopMicListening;
+    }
+    if (onClearChatInput) {
+      onClearChatInput.current = clearChatInput;
+    }
+    if (onHideLoadingAnimation) {
+      onHideLoadingAnimation.current = hideLoadingAnimation;
+    }
+  }, [startMicListening, stopMicListening, clearChatInput, hideLoadingAnimation, onMicStart, onMicStop, onClearChatInput, onHideLoadingAnimation]);
+
+  // Notify parent component when listening state changes
+  useEffect(() => {
+    if (onListeningStateChange) {
+      onListeningStateChange(isListening);
+    }
+  }, [isListening, onListeningStateChange]);
+
+  // Reset turning off state when microphone actually stops (with gradual fade)
+  useEffect(() => {
+    if (!isListening && isTurningOff) {
+      // Add a delay for gradual disappearance when mic stops
+      setTimeout(() => {
+        setIsTurningOff(false);
+      }, 2000); // 2 seconds gradual fade when mic stops
+    }
+  }, [isListening, isTurningOff]);
+
+
+  // Handle 3-second loading animation timeout
+  useEffect(() => {
+    if (loading) {
+      // Start 3-second timeout when loading begins
+      loadingTimeoutRef.current = setTimeout(() => {
+        setShowLoadingAnimation(true);
+      }, 3000);
+    } else {
+      // Clear timeout and hide animation when loading stops (including when user stops LLM)
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+      setShowLoadingAnimation(false);
+    }
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+  }, [loading]);
+
+  // Hide loading animation when first chunk arrives (streaming starts)
+  useEffect(() => {
+    if (chat?.messages && chat.messages.length > 0) {
+      const lastMessage = chat.messages[chat.messages.length - 1];
+      // If the last message is from assistant and has content, streaming has started
+      if (lastMessage.role === 'assistant' && lastMessage.content && lastMessage.content.length > 0) {
+        // Hide the loading animation as soon as we get the first chunk
+        setShowLoadingAnimation(false);
+        // Also clear the timeout since we no longer need it
+        if (loadingTimeoutRef.current) {
+          clearTimeout(loadingTimeoutRef.current);
+          loadingTimeoutRef.current = null;
+        }
+      }
+    }
+  }, [chat?.messages]);
+
+
+
+
 
   const handleOpenModelMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchor(event.currentTarget);
@@ -255,121 +852,59 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     handleCloseModelMenu();
   };
 
-  const handleSuggestedPrompt = (prompt: string) => {
-    onSendMessage(prompt);
+  const handleSuggestedPrompt = async (prompt: string) => {
+    // First call createNewChat
+    await onCreateNewChat();
+    
+    // Then set the prompt in the chatbox (message state)
+    setMessage(prompt);
   };
 
-  // Handle PDF file selection
-  const handlePdfSelect = async (file: File) => {
+  // Check if current model is the default model
+  const isCurrentModelDefault = () => {
+    if (!model) return false;
     try {
-      // Read the file as ArrayBuffer
-      const arrayBuffer = await file.arrayBuffer();
-      
-      // Load the PDF document
-      const loadingTask = getDocument(arrayBuffer);
-      const pdf = await loadingTask.promise;
-      
-      // Extract text from all pages
-      let fullText = '';
-      const numPages = pdf.numPages;
-      const extractedImages: string[] = [];
-      
-      for (let i = 1; i <= numPages; i++) {
-        const page = await pdf.getPage(i);
-        
-        // Extract text content
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items
-          .filter(item => 'str' in item)
-          .map(item => (item as TextItem).str)
-          .join(' ');
-        
-        fullText += `[Page ${i}]\n${pageText}\n\n`;
-        
-        // Extract images from the page
-        try {
-          // Get the operator list which contains all drawing operations
-          const opList = await page.getOperatorList();
-          
-          // Get all image IDs from the operator list
-          const imageIds = new Set<string>();
-          for (let j = 0; j < opList.fnArray.length; j++) {
-            const fnId = opList.fnArray[j];
-            if (fnId === 83) { // 83 is the ID for the "paintImageXObject" operation
-              const imageId = opList.argsArray[j][0];
-              if (typeof imageId === 'string') {
-                imageIds.add(imageId);
-              }
-            }
-          }
-          
-          // Extract each image
-          for (const imageId of Array.from(imageIds)) {
-            try {
-              // Get the image data
-              const img = await page.objs.get(imageId);
-              if (img && img.src) {
-                // If the image has a src property, it's likely a data URL or URL
-                extractedImages.push(img.src);
-              } else if (img && img.data && img.width && img.height) {
-                // Create a canvas to draw the image
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                
-                if (ctx) {
-                  // Create an ImageData object
-                  const imageData = ctx.createImageData(img.width, img.height);
-                  
-                  // Copy the image data to the ImageData object
-                  for (let i = 0; i < img.data.length; i++) {
-                    imageData.data[i] = img.data[i];
-                  }
-                  
-                  // Put the ImageData on the canvas
-                  ctx.putImageData(imageData, 0, 0);
-                  
-                  // Convert the canvas to a data URL
-                  const dataUrl = canvas.toDataURL('image/png');
-                  extractedImages.push(dataUrl);
-                }
-              }
-            } catch (imgError) {
-              console.warn(`Error extracting image ${imageId}:`, imgError);
-            }
-          }
-        } catch (pageError) {
-          console.warn(`Error extracting images from page ${i}:`, pageError);
-        }
-      }
-      
-      // Create a new file attachment
-      const newAttachment: FileAttachment = {
-        id: `pdf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        name: file.name,
-        type: 'pdf',
-        content: fullText, // Store the extracted text
-        images: extractedImages.length > 0 ? extractedImages : undefined, // Store extracted images
-        size: file.size,
-        timestamp: new Date().toISOString(),
-      };
-      
-      // Add the attachment to the state
-      setAttachments(prevAttachments => [...prevAttachments, newAttachment]);
+      const defaultModelId = localStorage.getItem('defaultModelId');
+      return defaultModelId === model.id;
     } catch (error) {
-      console.error('Error processing PDF:', error);
-      alert(`Error processing PDF: ${file.name}`);
+      console.error('Failed to check default model:', error);
+      return false;
     }
   };
 
-  // Handle file selection for all supported file types
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  // Handle setting current model as default
+  const handleSetAsDefault = () => {
+    if (!model) {
+      console.warn('No model selected to set as default');
+      return;
+    }
+
+    // If it's already the default, don't do anything
+    if (isCurrentModelDefault()) {
+      console.log(`${model.name} is already the default model`);
+      return;
+    }
+
+    try {
+      // Store the default model in localStorage
+      localStorage.setItem('defaultModelId', model.id);
+           
+      // Update state to trigger re-render and change button text
+      setDefaultModelId(model.id);
+    } catch (error) {
+      console.error('Failed to set default model:', error);
+    }
+  };
+
+  // Process files from either file input or drag and drop
+  const processFiles = (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
     
+    // Convert FileList to Array if needed
+    const fileArray = Array.from(files);
+    
     // Process each selected file
-    Array.from(files).forEach(file => {
+    fileArray.forEach(file => {
       // Process image files
       if (file.type.startsWith('image/')) {
         const reader = new FileReader();
@@ -400,9 +935,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Read the image as a data URL
         reader.readAsDataURL(file);
       }
-      // Process PDF files
+      // Skip PDF files (PDF support removed)
       else if (file.name.endsWith('.pdf')) {
-        handlePdfSelect(file);
+        alert(`PDF files are not supported. Skipping ${file.name}`);
       }
       // Process text files
       else if (file.name.endsWith('.txt')) {
@@ -479,25 +1014,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       }
       // Skip unsupported files
       else {
-        alert(`Only .txt, .docx, .pdf, and image files are supported. Skipping ${file.name}`);
+        alert(`Only .txt, .docx, and image files are supported. PDF files are not supported. Skipping ${file.name}`);
       }
     });
-    
-    // Reset the file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
   };
-  
-  // Handle attachment removal
-  const handleRemoveAttachment = (attachmentId: string) => {
-    // Simply filter out the attachment with the given ID
-    const updatedAttachments = attachments.filter(
-      (attachment) => attachment.id !== attachmentId
-    );
-    
-    setAttachments(updatedAttachments);
-  };
+
   
   // Format file size for display
   const formatFileSize = (bytes: number): string => {
@@ -506,8 +1027,579 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  // Helper function to parse HTML table to data structure
+  const parseHtmlTable = (htmlString: string): { headers: string[], rows: string[][] } | null => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlString, 'text/html');
+      const table = doc.querySelector('table');
+      
+      if (!table) return null;
+      
+      const headers: string[] = [];
+      const rows: string[][] = [];
+      
+      // Extract headers - use innerHTML to preserve LaTeX delimiters
+      const headerCells = table.querySelectorAll('th');
+      headerCells.forEach(th => headers.push(th.innerHTML?.trim() || ''));
+      
+      // Extract rows - use innerHTML to preserve LaTeX delimiters
+      const tableRows = table.querySelectorAll('tr');
+      tableRows.forEach(tr => {
+        const cells = tr.querySelectorAll('td');
+        if (cells.length > 0) {
+          const rowData: string[] = [];
+          cells.forEach(td => rowData.push(td.innerHTML?.trim() || ''));
+          rows.push(rowData);
+        }
+      });
+      
+      return headers.length > 0 && rows.length > 0 ? { headers, rows } : null;
+    } catch (error) {
+      console.error('Error parsing HTML table:', error);
+      return null;
+    }
+  };
+
+  // Helper function to parse CSV to data structure
+  const parseCsvTable = (csvString: string): { headers: string[], rows: string[][] } | null => {
+    try {
+      const lines = csvString.trim().split('\n');
+      if (lines.length < 2) return null;
+      
+      // Simple CSV parser (handles quoted values)
+      const parseRow = (line: string): string[] => {
+        const result: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            result.push(current.trim().replace(/^"|"$/g, ''));
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        result.push(current.trim().replace(/^"|"$/g, ''));
+        return result;
+      };
+      
+      const headers = parseRow(lines[0]);
+      const rows = lines.slice(1).map(line => parseRow(line));
+      
+      return { headers, rows };
+    } catch (error) {
+      console.error('Error parsing CSV table:', error);
+      return null;
+    }
+  };
+
+  // Helper function to parse JSON array table
+  const parseJsonTable = (jsonString: string): { headers: string[], rows: string[][] } | null => {
+    try {
+      const data = JSON.parse(jsonString);
+      if (!Array.isArray(data) || data.length === 0) return null;
+      
+      // Extract headers from first object keys
+      const headers = Object.keys(data[0]);
+      
+      // Extract rows
+      const rows = data.map(obj => headers.map(key => String(obj[key] || '')));
+      
+      return { headers, rows };
+    } catch (error) {
+      return null;
+    }
+  };
+
+  // Helper function to parse ASCII/Text table
+  const parseTextTable = (textString: string): { headers: string[], rows: string[][] } | null => {
+    try {
+      const lines = textString.trim().split('\n');
+      if (lines.length < 3) return null;
+      
+      // Find header row (typically between two border lines)
+      let headerIndex = -1;
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('|') && !lines[i].match(/^[+\-=|]+$/)) {
+          headerIndex = i;
+          break;
+        }
+      }
+      
+      if (headerIndex === -1) return null;
+      
+      const headerLine = lines[headerIndex];
+      const headers = headerLine.split('|')
+        .filter(cell => cell.trim() && !cell.match(/^[\s+\-=]+$/))
+        .map(cell => cell.trim());
+      
+      // Extract data rows (skip border lines)
+      const rows: string[][] = [];
+      for (let i = headerIndex + 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.match(/^[+\-=|]+$/) && line.includes('|')) {
+          const cells = line.split('|')
+            .filter(cell => cell.trim() && !cell.match(/^[\s+\-=]+$/))
+            .map(cell => cell.trim());
+          if (cells.length > 0) {
+            rows.push(cells);
+          }
+        }
+      }
+      
+      return headers.length > 0 && rows.length > 0 ? { headers, rows } : null;
+    } catch (error) {
+      return null;
+    }
+  };
+
+
+  // Helper function to extract table data as plain text
+  const tableToPlainText = (headers: string[], rows: string[][]): string => {
+    // Create a plain text representation of the table
+    let result = headers.join('\t') + '\n';
+    rows.forEach(row => {
+      result += row.join('\t') + '\n';
+    });
+    return result;
+  };
+
+  // Helper function to render a table with a permanent copy button below it
+  const renderTableWithCopyButton = (tableId: string, headers: string[], rows: string[][], tableElement: React.ReactNode) => {
+    return (
+      <Box key={tableId} sx={{ mb: 2 }}>
+        {tableElement}
+        {/* Enhanced copy button below the table */}
+        <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleCopyTable(tableId, headers, rows);
+            }}
+            sx={{
+              opacity: 0.75,
+              backgroundColor: 'rgba(0, 0, 0, 0.03)',
+              borderRadius: '8px',
+              padding: '6px',
+              border: '1px solid rgba(0, 0, 0, 0.08)',
+              transition: 'all 0.2s ease-in-out',
+              '&:hover': {
+                opacity: 1,
+                backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                borderColor: 'success.main',
+                color: 'success.main',
+                transform: 'scale(1.1)',
+                boxShadow: '0 2px 6px rgba(76, 175, 80, 0.2)',
+              },
+              '&:active': {
+                transform: 'scale(0.95)',
+              },
+            }}
+            title="Copy table data"
+          >
+            <ContentCopyIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+      </Box>
+    );
+  };
+
+  // Helper function to copy table to clipboard
+  const handleCopyTable = useCallback(async (tableId: string, headers: string[], rows: string[][]) => {
+    try {
+      const plainText = tableToPlainText(headers, rows);
+      
+      // Try Electron clipboard API first
+      if (window.electronAPI && window.electronAPI.copyToClipboard) {
+        const result = await window.electronAPI.copyToClipboard(plainText);
+        if (result.success) {
+          console.log('✅ Table copied successfully');
+        } else {
+          throw new Error(result.error || 'Electron clipboard copy failed');
+        }
+      }
+      // Try modern clipboard API
+      else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(plainText);
+        console.log('✅ Table copied successfully');
+      }
+      // Fallback method
+      else {
+        const textArea = document.createElement('textarea');
+        textArea.value = plainText;
+        textArea.style.position = 'absolute';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        console.log('✅ Table copied successfully');
+      }
+    } catch (error) {
+      console.error('❌ Failed to copy table:', error);
+    }
+  }, []);
+
+  // Helper function to copy code block to clipboard
+  const handleCopyCode = useCallback(async (code: string) => {
+    try {
+      // Try Electron clipboard API first
+      if (window.electronAPI && window.electronAPI.copyToClipboard) {
+        const result = await window.electronAPI.copyToClipboard(code);
+        if (result.success) {
+          console.log('✅ Code copied successfully');
+        } else {
+          throw new Error(result.error || 'Electron clipboard copy failed');
+        }
+      }
+      // Try modern clipboard API
+      else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(code);
+        console.log('✅ Code copied successfully');
+      }
+      // Fallback method
+      else {
+        const textArea = document.createElement('textarea');
+        textArea.value = code;
+        textArea.style.position = 'absolute';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        console.log('✅ Code copied successfully');
+      }
+    } catch (error) {
+      console.error('❌ Failed to copy code:', error);
+    }
+  }, []);
+
+  // Helper function to render LaTeX formulas
+  const renderLatex = (text: string): React.ReactNode => {
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    
+    // Match multiple LaTeX notations:
+    // 1. Display math \[...\] - with optional whitespace
+    // 2. Double dollar: $$ block $$
+    // 3. Inline math \(...\)
+    // 4. Single dollar: $ inline $
+    const latexPattern = /\\\[\s*([\s\S]*?)\s*\\\]|\$\$([\s\S]+?)\$\$|\\\(\s*([\s\S]*?)\s*\\\)|\$([^$]+)\$/g;
+    let match;
+    
+    while ((match = latexPattern.exec(text)) !== null) {
+      // Add text before formula
+      if (match.index > lastIndex) {
+        parts.push(<span key={`text-${lastIndex}`}>{text.substring(lastIndex, match.index)}</span>);
+      }
+      
+      // Determine formula and type
+      const formula = (match[1] || match[2] || match[3] || match[4] || '').trim();
+      const isBlock = !!(match[1] !== undefined || match[2] !== undefined); // \[...\] or $$...$$
+      
+      try {
+        const html = katex.renderToString(formula, {
+          displayMode: isBlock,
+          throwOnError: false,
+          output: 'html',
+          strict: false
+        });
+        
+      parts.push(
+        isBlock ? (
+          <Box
+            key={`latex-${match.index}`}
+            component="div"
+            dangerouslySetInnerHTML={{ __html: html }}
+            sx={{ my: 1, display: 'block' }}
+          />
+        ) : (
+          <span
+            key={`latex-${match.index}`}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        )
+      );
+      } catch (error) {
+        // If KaTeX fails, show original text
+        parts.push(<span key={`error-${match.index}`}>{match[0]}</span>);
+      }
+      
+      lastIndex = match.index + match[0].length;
+    }
+    
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(<span key={`text-${lastIndex}-end`}>{text.substring(lastIndex)}</span>);
+    }
+    
+    // Return as a single element instead of an array
+    return parts.length > 0 ? <>{parts}</> : <span>{text}</span>;
+  };
+
+  // Helper function to render markdown within table cells with LaTeX support
+  const renderCellContent = (content: any): React.ReactNode => {
+    // If content is already a React element, return it
+    if (React.isValidElement(content)) {
+      return content;
+    }
+    
+    // Extract text from children if it's an array
+    const extractText = (node: any): string => {
+      if (typeof node === 'string') return node;
+      if (typeof node === 'number') return String(node);
+      if (Array.isArray(node)) return node.map(extractText).join('');
+      if (node?.props?.children) return extractText(node.props.children);
+      return String(node);
+    };
+    
+    // Convert to string - handle arrays and nested structures
+    let textContent = extractText(content);
+    
+    // Don't process empty content
+    if (!textContent || textContent.trim() === '') {
+      return textContent;
+    }
+    
+    // Decode HTML entities that might be in the innerHTML
+    // This ensures LaTeX delimiters like \[ are properly detected
+    const decodeHtmlEntities = (text: string): string => {
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = text;
+      return textarea.value;
+    };
+    
+    textContent = decodeHtmlEntities(textContent);
+    
+    // Check if content is wrapped in backticks (inline code)
+    const inlineCodeMatch = textContent.match(/^`([^`]+)`$/);
+    if (inlineCodeMatch) {
+      // Render as inline code
+      return (
+        <code style={{ 
+          backgroundColor: 'rgba(0, 0, 0, 0.08)',
+          padding: '2px 4px',
+          borderRadius: '3px',
+          fontSize: '0.85em',
+          fontFamily: 'monospace',
+          wordBreak: 'break-word'
+        }}>
+          {inlineCodeMatch[1]}
+        </code>
+      );
+    }
+    
+    // CRITICAL FIX: Check for LaTeX patterns BEFORE other processing
+    // This ensures LaTeX in tables is rendered properly
+    // Check for both backslash delimiters and dollar signs
+    const hasLatexDelimiters = /\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]+?\$\$|\$[^$\n]+\$/.test(textContent);
+    
+    if (hasLatexDelimiters) {
+      // Render with renderLatex which handles all LaTeX delimiters correctly
+      return renderLatex(textContent);
+    }
+    
+    // Handle content with <br> tags by converting them to actual line breaks
+    textContent = textContent.replace(/<br\s*\/?>/gi, '\n');
+    
+    // Clean up incomplete LaTeX tabular syntax that appears as text
+    // Only remove \begin{tabular}{...} if it appears at the start and is followed by nothing or just whitespace
+    // Use nested pattern to handle up to 2 levels of braces like {|p{0.4\textwidth}|}
+    const incompleteTabularPattern = /^\\begin\{tabular\}\{(?:[^{}]|\{(?:[^{}]|\{[^}]*\})*\})*\}\s*$/;
+    if (incompleteTabularPattern.test(textContent.trim())) {
+      // This is ONLY the tabular declaration without any other content - remove it completely
+      return '';
+    }
+    
+    // Also remove if it appears at the very beginning, with or without whitespace after it (including newlines)
+    // This handles cases like "\begin{tabular}{...}\n\nArea of Rectangle"
+    textContent = textContent.replace(/^\\begin\{tabular\}\{(?:[^{}]|\{(?:[^{}]|\{[^}]*\})*\})*\}\s*/, '');
+    
+    
+    // Check for complete LaTeX tabular environment in cell content (nested tables)
+    const hasTabularTable = /\\begin\{tabular\}\{[^}]*\}[\s\S]*(?:\\\\|&)/.test(textContent);
+    if (hasTabularTable) {
+      // Try to extract and render the tabular environment
+      // Make \end{tabular} optional in case it's cut off
+      const tableMatch = textContent.match(/\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)(?:\\end\{tabular\}|$)/);
+      
+      if (tableMatch) {
+        const tableContent = tableMatch[1];
+        // Remove all \hline commands and trim
+        const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+        
+        // Split by \\ or newlines and filter out empty lines
+        const lines = cleanedContent
+          .split(/\\\\|\n/)
+          .map(line => line.trim())
+          .filter(line => line.length > 0);
+        
+        if (lines.length >= 1) {
+          // If we have at least one line, try to parse it as a simple table
+          // Split cells by & or tabs
+          const rows = lines.map(line => 
+            line.split(/[&\t]/).map(cell => cell.trim()).filter(cell => cell.length > 0)
+          );
+          
+          if (rows.length > 0 && rows[0].length > 0) {
+            // Render as a simple nested table
+            return (
+              <Box sx={{ my: 1 }}>
+                <Table size="small" sx={{ border: '1px solid rgba(0,0,0,0.12)' }}>
+                  <TableBody>
+                    {rows.map((row, rowIdx) => (
+                      <TableRow key={rowIdx}>
+                        {row.map((cell, cellIdx) => (
+                          <TableCell 
+                            key={cellIdx}
+                            sx={{ 
+                              fontSize: '0.85em',
+                              p: 0.5,
+                              border: '1px solid rgba(0,0,0,0.12)'
+                            }}
+                          >
+                            {/* Recursively render cell content to handle formulas */}
+                            {/\$[^$]+\$/.test(cell) ? renderCellContent(cell) : cell}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            );
+          }
+        }
+      }
+    }
+    
+    
+    // For content without math, use ReactMarkdown for other markdown features
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkMath]}
+        rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+        components={{
+          p: ({ children }) => <span>{children}</span>,
+          strong: ({ children }) => <strong>{children}</strong>,
+          em: ({ children }) => <em>{children}</em>,
+          code: ({ children, inline, className }) => {
+            let text = String(children);
+            
+            // For non-inline code (code blocks), handle specially
+            if (!inline) {
+              // Convert literal \n to actual newlines in code blocks
+              text = text.replace(/\\n/g, '\n');
+              
+              return (
+                <Box
+                  component="pre"
+                  sx={{
+                    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    fontSize: '0.85em',
+                    overflowX: 'auto',
+                    margin: '4px 0',
+                    whiteSpace: 'pre-wrap',
+                    maxWidth: '100%',
+                    fontFamily: 'monospace'
+                  }}
+                >
+                  <code>{text}</code>
+                </Box>
+              );
+            }
+            
+            // For inline code, try to render as LaTeX if it contains LaTeX-like patterns
+            const hasLatexPattern = /\\[a-zA-Z]+|^\$.*\$$|[\^_{}]/.test(text);
+            
+            if (hasLatexPattern) {
+              try {
+                const html = katex.renderToString(text, {
+                  displayMode: false,
+                  throwOnError: false,
+                  output: 'html',
+                  strict: false
+                });
+                return <span dangerouslySetInnerHTML={{ __html: html }} />;
+              } catch (error) {
+                // Silently fall back to regular code rendering
+              }
+            }
+            
+            // Regular inline code
+            return (
+              <code style={{ 
+                backgroundColor: 'rgba(0, 0, 0, 0.08)',
+                padding: '2px 4px',
+                borderRadius: '3px',
+                fontSize: '0.85em',
+                fontFamily: 'monospace',
+                wordBreak: 'break-word'
+              }}>
+                {text}
+              </code>
+            );
+          },
+          ul: ({ children }) => (
+            <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
+              {children}
+            </ul>
+          ),
+          ol: ({ children }) => (
+            <ol style={{ margin: '4px 0', paddingLeft: '20px' }}>
+              {children}
+            </ol>
+          ),
+          li: ({ children }) => (
+            <li style={{ margin: '2px 0' }}>
+              {children}
+            </li>
+          ),
+          br: () => <br />
+        }}
+      >
+        {textContent}
+      </ReactMarkdown>
+    );
+  };
+
   // Custom renderers for ReactMarkdown
   const markdownComponents = {
+    // Override paragraph renderer to use inline span instead of block-level p
+    p: ({ node, children, ...props }: any) => <span {...props}>{children}</span>,
+    // Override the default link renderer
+    a: ({ node, children, href, ...props }: any) => (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => {
+          e.preventDefault();
+          // Use electronApi to open in external browser
+          electronApi.openExternal(href);
+        }}
+        style={{
+          color: '#2196f3',
+          textDecoration: 'underline',
+          cursor: 'pointer',
+        }}
+        {...props}
+      >
+        {children}
+      </a>
+    ),
     // Override the default table renderer
     table: ({ node, children, ...props }: any) => (
       <TableContainer 
@@ -536,51 +1628,339 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       </TableBody>
     ),
     // Override the default tr renderer
-    tr: ({ node, children, isHeader, ...props }: any) => {
-      const isOdd = props.index % 2 === 1;
+    tr: ({ node, children, isHeader, index, ...restProps }: any) => {
+      // Filter out any non-DOM props before spreading
+      const { isheader, ...domProps } = restProps;
+      const isOdd = index % 2 === 1;
       return (
         <TableRow 
           sx={isOdd ? styles.tableRowOdd : styles.tableRowEven} 
-          {...props}
+          {...domProps}
         >
           {children}
         </TableRow>
       );
     },
-    // Override the default th renderer
-    th: ({ node, children, ...props }: any) => (
+    // Override the default th renderer with markdown support
+    th: ({ node, children, isHeader, ...props }: any) => (
       <TableCell 
         component="th"
         align="left"
         sx={styles.tableHeaderCell} 
         {...props}
       >
-        {children}
+        {renderCellContent(children)}
       </TableCell>
     ),
-    // Override the default td renderer
-    td: ({ node, children, ...props }: any) => (
+    // Override the default td renderer with markdown support
+    td: ({ node, children, isHeader, ...props }: any) => (
       <TableCell 
         align="left"
         sx={styles.tableCell} 
         {...props}
       >
-        {children}
+        {renderCellContent(children)}
       </TableCell>
     ),
-    // Improve code blocks
+    // Improve code blocks - extract and render formulas and tables from code blocks with copy button
     code: ({ node, inline, className, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(className || '');
+      const content = String(children).replace(/\n$/, '');
+      
+      // For non-inline code blocks, check if they contain LaTeX tables or formulas
+      if (!inline) {
+        // Check for LaTeX table (tabular environment)
+        const hasTabularTable = /\\begin\{tabular\}[\s\S]*?\\end\{tabular\}/.test(content);
+        
+        // Parse LaTeX tables from any code block, not just those marked as latex/tex
+        if (hasTabularTable) {
+          // Parse the LaTeX table - extract the tabular environment with better regex
+          // Handle nested braces in column spec like {|c|l|l|p{8cm}|}
+          const tableMatch = content.match(/\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/);
+          
+          if (tableMatch) {
+            const tableContent = tableMatch[1];
+            // Remove all \hline commands and trim
+            const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+            
+            // Split by \\ and filter out empty lines
+            const lines = cleanedContent
+              .split('\\\\')
+              .map(line => line.trim())
+              .filter(line => line.length > 0);
+            
+            if (lines.length >= 2) {
+              // First line is headers
+              const headerLine = lines[0];
+              const headers = headerLine.split('&').map(h => h.trim()).filter(h => h.length > 0);
+              
+              // Rest are data rows
+              const dataRows = lines.slice(1);
+              const rows = dataRows.map(row => 
+                row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
+              );
+              
+              // Render as Material-UI table with copy button - use stable ID based on content
+              const tableId = `latex-table-${headers.join('-').substring(0, 20)}-${rows.length}`;
+              return renderTableWithCopyButton(
+                tableId,
+                headers,
+                rows,
+                <TableContainer 
+                  component={Paper} 
+                  sx={styles.tableContainer}
+                >
+                  <Table>
+                    <TableHead sx={styles.tableHead}>
+                      <TableRow>
+                        {headers.map((header, idx) => (
+                          <TableCell 
+                            key={idx}
+                            sx={styles.tableHeaderCell}
+                          >
+                            {renderCellContent(header)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {rows.map((row, rowIdx) => (
+                        <TableRow 
+                          key={rowIdx}
+                          sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                        >
+                          {row.map((cell, cellIdx) => (
+                            <TableCell 
+                              key={cellIdx}
+                              sx={{
+                                ...styles.tableCell,
+                                userSelect: 'text',
+                                WebkitUserSelect: 'text',
+                                MozUserSelect: 'text',
+                                msUserSelect: 'text',
+                              }}
+                            >
+                              {renderCellContent(cell)}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              );
+            }
+          }
+        }
+        
+        const hasDocumentCommands = /\\documentclass|\\begin\{document\}|\\usepackage/.test(content);
+        const hasLatexFormulas = /\$[^\$]+\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\\frac|\\int|\\sum/.test(content);
+        
+        // If it's a LaTeX code block OR any code block with formulas, extract and render
+        if (hasLatexFormulas || className === 'language-latex' || className === 'language-tex') {
+          // Extract ALL content elements (formulas AND text) in order
+          const contentElements: Array<{ 
+            type: 'formula' | 'text'; 
+            content: string; 
+            isDisplay?: boolean;
+            isItalic?: boolean;
+          }> = [];
+          
+          // First, remove LaTeX comments (lines starting with %) and document structure
+          let contentWithoutComments = content
+            .split('\n')
+            .filter(line => !line.trim().startsWith('%'))
+            .join('\n');
+          
+          // Remove document structure commands
+          contentWithoutComments = contentWithoutComments
+            .replace(/\\documentclass\{[^}]*\}/g, '')
+            .replace(/\\begin\{document\}/g, '')
+            .replace(/\\end\{document\}/g, '')
+            .replace(/\\usepackage\{[^}]*\}/g, '')
+            .replace(/\\section\{[^}]*\}/g, '');
+          
+          // Process content sequentially to preserve order
+          let processedContent = contentWithoutComments;
+          let lastIndex = 0;
+          
+          // Create a combined pattern that matches formulas and text formatting
+          const combinedPattern = /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$[^\$\n]+\$|\\textit\{[^}]*\}|\\textbf\{[^}]*\})/g;
+          let match;
+          
+          while ((match = combinedPattern.exec(processedContent)) !== null) {
+            const matchedText = match[0];
+            
+            // Check if it's a formula
+            if (matchedText.startsWith('$$') || matchedText.startsWith('\\[')) {
+              // Display formula
+              const formula = matchedText
+                .replace(/^\$\$/, '').replace(/\$\$$/, '')
+                .replace(/^\\\[/, '').replace(/\\\]$/, '')
+                .trim();
+              if (formula) {
+                contentElements.push({ type: 'formula', content: formula, isDisplay: true });
+              }
+            } else if (matchedText.startsWith('\\(') || matchedText.startsWith('$')) {
+              // Inline formula
+              const formula = matchedText
+                .replace(/^\\\(/, '').replace(/\\\)$/, '')
+                .replace(/^\$/, '').replace(/\$$/, '')
+                .trim();
+              if (formula) {
+                contentElements.push({ type: 'formula', content: formula, isDisplay: false });
+              }
+            } else if (matchedText.startsWith('\\textit{')) {
+              // Italic text
+              const text = matchedText.replace(/^\\textit\{/, '').replace(/\}$/, '').trim();
+              if (text) {
+                contentElements.push({ type: 'text', content: text, isItalic: true });
+              }
+            } else if (matchedText.startsWith('\\textbf{')) {
+              // Bold text (bonus support)
+              const text = matchedText.replace(/^\\textbf\{/, '').replace(/\}$/, '').trim();
+              if (text) {
+                contentElements.push({ type: 'text', content: text, isItalic: false });
+              }
+            }
+          }
+          
+          // Render extracted content elements
+          if (contentElements.length > 0) {
+            return (
+              <Box sx={{ position: 'relative' }}>
+                <Box sx={{ my: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+                  {contentElements.map((item, idx) => {
+                    if (item.type === 'formula') {
+                      try {
+                        const html = katex.renderToString(item.content, {
+                          displayMode: item.isDisplay,
+                          throwOnError: false,
+                          output: 'html',
+                          strict: false
+                        });
+                        
+                        return (
+                          <Box
+                            key={idx}
+                            sx={{ 
+                              my: item.isDisplay ? 2 : 1,
+                              display: item.isDisplay ? 'block' : 'inline-block',
+                            }}
+                            dangerouslySetInnerHTML={{ __html: html }}
+                          />
+                        );
+                      } catch (error) {
+                        return (
+                          <Box key={idx} sx={{ color: 'error.main', fontSize: '0.9em' }}>
+                            Failed to render: {item.content.substring(0, 50)}...
+                          </Box>
+                        );
+                      }
+                    } else if (item.type === 'text') {
+                      return (
+                        <Typography
+                          key={idx}
+                          variant="body2"
+                          sx={{
+                            my: 1,
+                            fontStyle: item.isItalic ? 'italic' : 'normal',
+                            fontWeight: item.isItalic ? 'normal' : 'bold',
+                            color: 'text.secondary',
+                            display: 'block',
+                          }}
+                        >
+                          {item.content}
+                        </Typography>
+                      );
+                    }
+                    return null;
+                  })}
+                </Box>
+                {/* Copy button for rendered LaTeX */}
+                <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleCopyCode(content);
+                    }}
+                    sx={{
+                      opacity: 0.75,
+                      backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                      borderRadius: '8px',
+                      padding: '6px',
+                      border: '1px solid rgba(0, 0, 0, 0.08)',
+                      transition: 'all 0.2s ease-in-out',
+                      '&:hover': {
+                        opacity: 1,
+                        backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                        borderColor: 'secondary.main',
+                        color: 'secondary.main',
+                        transform: 'scale(1.1)',
+                        boxShadow: '0 2px 6px rgba(156, 39, 176, 0.2)',
+                      },
+                      '&:active': {
+                        transform: 'scale(0.95)',
+                      },
+                    }}
+                    title="Copy LaTeX code"
+                  >
+                    <ContentCopyIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Box>
+              </Box>
+            );
+          }
+        }
+      }
+      
       return !inline ? (
-        <Box
-          component="pre"
-          sx={styles.codeBlock}
-          className={className}
-          {...props}
-        >
-          <code className={className} {...props}>
-            {children}
-          </code>
+        <Box sx={{ position: 'relative', mb: 2 }}>
+          <Box
+            component="pre"
+            sx={styles.codeBlock}
+            className={className}
+            {...props}
+          >
+            <code className={className} {...props}>
+              {children}
+            </code>
+          </Box>
+          {/* Enhanced copy button for code blocks */}
+          <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleCopyCode(content);
+              }}
+              sx={{
+                opacity: 0.75,
+                backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                borderRadius: '8px',
+                padding: '6px',
+                border: '1px solid rgba(0, 0, 0, 0.08)',
+                transition: 'all 0.2s ease-in-out',
+                '&:hover': {
+                  opacity: 1,
+                  backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                  borderColor: 'secondary.main',
+                  color: 'secondary.main',
+                  transform: 'scale(1.1)',
+                  boxShadow: '0 2px 6px rgba(156, 39, 176, 0.2)',
+                },
+                '&:active': {
+                  transform: 'scale(0.95)',
+                },
+              }}
+              title="Copy code"
+            >
+              <ContentCopyIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Box>
         </Box>
       ) : (
         <code
@@ -594,25 +1974,673 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     },
   };
 
-  // Function to preprocess content to fix Llama3-3 table format
+  // Function to preprocess LaTeX delimiters for proper rendering
+  const preprocessLatexDelimiters = (content: string): string => {
+    // First, fix common LaTeX errors in \text{} environments
+    let processed = content;
+    
+    // Fix malformed chemical formulas like \H_2 -> \mathrm{H}_2
+    // This fixes cases where the LLM incorrectly adds backslashes before element symbols
+    // Match: backslash followed by a capital letter, then optional subscripts/superscripts
+    processed = processed.replace(/\\([A-Z])(_\{?[0-9]+\}?|\^\{?[0-9]+\}?|_[0-9]+|\^[0-9]+)*/g, (match, element, subscript) => {
+      // If we have subscripts/superscripts, wrap in \mathrm{}
+      if (subscript) {
+        return `\\mathrm{${element}}${subscript}`;
+      }
+      // Otherwise just the element in \mathrm{}
+      return `\\mathrm{${element}}`;
+    });
+    
+    // Fix complex unit expressions like \text{N·m}^2/\text{kg}^2
+    // Replace \text{} with \mathrm{} for better handling of units
+    processed = processed.replace(/\\text\{/g, '\\mathrm{');
+    
+    // Convert \( \) to $ $ for inline math (remark-math standard)
+    // Use non-greedy match to handle nested parentheses correctly
+    processed = processed.replace(/\\\(([\s\S]+?)\\\)/g, (match, p1) => `$${p1}$`);
+    // Convert \[ \] to $$ $$ for display math (remark-math standard)
+    // Use non-greedy match to handle nested brackets correctly
+    processed = processed.replace(/\\\[([\s\S]+?)\\\]/g, (match, p1) => `$$${p1}$$`);
+    
+    return processed;
+  };
+
+  // ============================================================================
+  // STRUCTURAL CONTENT DETECTION AND RENDERING SYSTEM
+  // ============================================================================
+
+  // Content type enumeration
+  enum ContentType {
+    HTML_TABLE = 'HTML_TABLE',
+    LATEX_TABLE = 'LATEX_TABLE',
+    MARKDOWN_TABLE = 'MARKDOWN_TABLE',
+    WIKI_TABLE = 'WIKI_TABLE',
+    CSV_TABLE = 'CSV_TABLE',
+    JSON_TABLE = 'JSON_TABLE',
+    TEXT_TABLE = 'TEXT_TABLE',
+    CODE_BLOCK = 'CODE_BLOCK',
+    PLAIN_TEXT = 'PLAIN_TEXT'
+  }
+
+  // Content block interface
+  interface ContentBlock {
+    type: ContentType;
+    content: string;
+    startIndex: number;
+    endIndex: number;
+    data?: {
+      headers?: string[];
+      rows?: string[][];
+      language?: string;
+    };
+  }
+
+  // 1. TABLE TYPE DETECTORS
+  const detectHtmlTable = (content: string, startIndex: number = 0): ContentBlock | null => {
+    const htmlTableRegex = /<table[\s\S]*?<\/table>/i;
+    const match = content.substring(startIndex).match(htmlTableRegex);
+    
+    if (match && match.index !== undefined) {
+      const tableContent = match[0];
+      const tableData = parseHtmlTable(tableContent);
+      
+      if (tableData) {
+        return {
+          type: ContentType.HTML_TABLE,
+          content: tableContent,
+          startIndex: startIndex + match.index,
+          endIndex: startIndex + match.index + tableContent.length,
+          data: tableData
+        };
+      }
+    }
+    return null;
+  };
+
+  const detectLatexTable = (content: string, startIndex: number = 0): ContentBlock | null => {
+    const latexTableRegex = /\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/;
+    const match = content.substring(startIndex).match(latexTableRegex);
+    
+    if (match && match.index !== undefined) {
+      const tableContent = match[1];
+      const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+      const lines = cleanedContent.split('\\\\').map(line => line.trim()).filter(line => line.length > 0);
+      
+      if (lines.length >= 1) {
+        const headers = lines[0].split('&').map(h => h.trim()).filter(h => h.length > 0);
+        const rows = lines.slice(1).map(row => 
+          row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
+        );
+        
+        return {
+          type: ContentType.LATEX_TABLE,
+          content: match[0],
+          startIndex: startIndex + match.index,
+          endIndex: startIndex + match.index + match[0].length,
+          data: { headers, rows }
+        };
+      }
+    }
+    return null;
+  };
+
+  const detectMarkdownTable = (content: string, startIndex: number = 0): ContentBlock | null => {
+    // Flexible regex that matches markdown tables with or without leading/trailing pipes
+    // Removed ^ anchor to allow tables anywhere in the content, not just at line start
+    const markdownTableRegex = /[^\n]*\|[^\n]+\n[^\n]*[-:]+\|[-:\s|]+[^\n]*\n(?:[^\n]*\|[^\n]+\n?)+/;
+    const searchContent = content.substring(startIndex);
+    const match = searchContent.match(markdownTableRegex);
+    
+    if (match && match.index !== undefined) {
+      let tableContent = match[0];
+      
+      // Remove trailing newline if present for cleaner processing
+      tableContent = tableContent.replace(/\n$/, '');
+      
+      const lines = tableContent.split('\n').filter(line => line.trim());
+      
+      if (lines.length >= 3) {
+        const smartSplit = (line: string): string[] => {
+          const cells: string[] = [];
+          let current = '';
+          let inBackticks = false;
+          let inDollarSigns = false;
+          let inLatexParens = false; // Track \(...\) delimiters
+          
+          // Remove leading/trailing pipes if present
+          let processLine = line.trim();
+          if (processLine.startsWith('|')) processLine = processLine.substring(1);
+          if (processLine.endsWith('|')) processLine = processLine.substring(0, processLine.length - 1);
+          
+          for (let i = 0; i < processLine.length; i++) {
+            const char = processLine[i];
+            const prevChar = i > 0 ? processLine[i - 1] : '';
+            const nextChar = i < processLine.length - 1 ? processLine[i + 1] : '';
+            
+            // Track \(...\) LaTeX inline math delimiters
+            if (char === '\\' && nextChar === '(' && !inBackticks && !inDollarSigns) {
+              inLatexParens = true;
+              current += char;
+              continue;
+            } else if (char === '\\' && nextChar === ')' && inLatexParens && !inBackticks && !inDollarSigns) {
+              inLatexParens = false;
+              current += char + nextChar;
+              i++; // Skip the next character since we already added it
+              continue;
+            }
+            
+            // Track backticks
+            if (char === '`' && !inDollarSigns && !inLatexParens) {
+              inBackticks = !inBackticks;
+              current += char;
+            }
+            // Track dollar signs
+            else if (char === '$' && !inBackticks && !inLatexParens) {
+              inDollarSigns = !inDollarSigns;
+              current += char;
+            }
+            // Split on pipe only when not inside backticks, dollar signs, or LaTeX parens
+            // Also check if pipe is escaped with backslash (\|)
+            else if (char === '|' && !inBackticks && !inDollarSigns && !inLatexParens && prevChar !== '\\') {
+              cells.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          cells.push(current);
+          return cells.filter(cell => cell.trim() !== '').map(cell => cell.trim());
+        };
+        
+        const headers = smartSplit(lines[0]);
+        const rows = lines.slice(2).map(row => smartSplit(row));
+        
+        // Validate we have valid headers and rows
+        if (headers.length > 0 && rows.length > 0) {
+          return {
+            type: ContentType.MARKDOWN_TABLE,
+            content: tableContent,
+            startIndex: startIndex + match.index,
+            endIndex: startIndex + match.index + tableContent.length,
+            data: { headers, rows }
+          };
+        }
+      }
+    }
+    return null;
+  };
+
+  const detectWikiTable = (content: string, startIndex: number = 0): ContentBlock | null => {
+    const wikiTableRegex = /\{\|[^\n]*\n[\s\S]*?\|\}/;
+    const match = content.substring(startIndex).match(wikiTableRegex);
+    
+    if (match && match.index !== undefined) {
+      const tableContent = match[0];
+      const { parseMediaWikiTable } = require('./TableRenderer');
+      const tableData = parseMediaWikiTable(tableContent);
+      
+      if (tableData) {
+        return {
+          type: ContentType.WIKI_TABLE,
+          content: tableContent,
+          startIndex: startIndex + match.index,
+          endIndex: startIndex + match.index + tableContent.length,
+          data: tableData
+        };
+      }
+    }
+    return null;
+  };
+
+  const detectCodeBlock = (content: string, startIndex: number = 0): ContentBlock | null => {
+    const codeBlockRegex = /```([a-z]*)\s*([\s\S]*?)```/i;
+    const match = content.substring(startIndex).match(codeBlockRegex);
+    
+    if (match && match.index !== undefined) {
+      const language = match[1] || '';
+      const code = match[2] || '';
+      
+      return {
+        type: ContentType.CODE_BLOCK,
+        content: match[0],
+        startIndex: startIndex + match.index,
+        endIndex: startIndex + match.index + match[0].length,
+        data: { language }
+      };
+    }
+    return null;
+  };
+
+  // 2. LATEX DETECTOR
+  const detectLatex = (text: string): boolean => {
+    // Check for LaTeX delimiters: $...$, $$...$$, \[...\], \(...\)
+    return /\$|\\\[|\\\(|\\frac|\\sqrt|\\int|\\sum/.test(text);
+  };
+
+  // 3. CONTENT BLOCK DETECTOR (Main detector that finds all content blocks)
+  const detectContentBlocks = (content: string): ContentBlock[] => {
+    const blocks: ContentBlock[] = [];
+    let currentIndex = 0;
+    
+    while (currentIndex < content.length) {
+      // Try to detect structured content in priority order
+      // Code blocks should be detected before tables to avoid conflicts
+      let detected = 
+        detectCodeBlock(content, currentIndex) ||
+        detectHtmlTable(content, currentIndex) ||
+        detectLatexTable(content, currentIndex) ||
+        detectWikiTable(content, currentIndex) ||
+        detectMarkdownTable(content, currentIndex);
+      
+      if (detected) {
+        // Add any plain text before this block
+        if (detected.startIndex > currentIndex) {
+          blocks.push({
+            type: ContentType.PLAIN_TEXT,
+            content: content.substring(currentIndex, detected.startIndex),
+            startIndex: currentIndex,
+            endIndex: detected.startIndex
+          });
+        }
+        
+        // Add the detected block
+        blocks.push(detected);
+        currentIndex = detected.endIndex;
+      } else {
+        // No more structured content, rest is plain text
+        if (currentIndex < content.length) {
+          blocks.push({
+            type: ContentType.PLAIN_TEXT,
+            content: content.substring(currentIndex),
+            startIndex: currentIndex,
+            endIndex: content.length
+          });
+        }
+        break;
+      }
+    }
+    
+    return blocks;
+  };
+
+  // 4. CONTENT RENDERERS
+  const renderTableBlock = (block: ContentBlock): React.ReactNode => {
+    if (!block.data?.headers || !block.data?.rows) return null;
+    
+    const tableId = `${block.type}-${block.startIndex}`;
+    
+    return renderTableWithCopyButton(
+      tableId,
+      block.data.headers,
+      block.data.rows,
+      <TableContainer component={Paper} sx={styles.tableContainer}>
+        <Table>
+          <TableHead sx={styles.tableHead}>
+            <TableRow>
+              {block.data.headers.map((header: string, idx: number) => (
+                <TableCell key={idx} sx={styles.tableHeaderCell}>
+                  {renderCellContent(header)}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {block.data.rows.map((row: string[], rowIdx: number) => (
+              <TableRow 
+                key={rowIdx}
+                sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+              >
+                {row.map((cell: string, cellIdx: number) => (
+                  <TableCell key={cellIdx} sx={styles.tableCell}>
+                    {renderCellContent(cell)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    );
+  };
+
+  const renderContentBlock = (block: ContentBlock, key: number): React.ReactNode => {
+    switch (block.type) {
+      case ContentType.HTML_TABLE:
+      case ContentType.LATEX_TABLE:
+      case ContentType.WIKI_TABLE:
+      case ContentType.MARKDOWN_TABLE:
+        return <Box key={key} sx={{ mb: 2 }}>{renderTableBlock(block)}</Box>;
+      
+      case ContentType.CODE_BLOCK:
+        // Render code blocks using ReactMarkdown
+        return (
+          <Box key={key}>
+            <ReactMarkdown 
+              remarkPlugins={[remarkMath]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+              components={markdownComponents}
+            >
+              {block.content}
+            </ReactMarkdown>
+          </Box>
+        );
+      
+      case ContentType.PLAIN_TEXT:
+        // Always use ReactMarkdown for plain text (LaTeX delimiters already preprocessed)
+        // ReactMarkdown with remark-math and rehype-katex handles both markdown and LaTeX
+        return (
+          <React.Fragment key={key}>
+            <ReactMarkdown 
+              remarkPlugins={[remarkMath]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+              components={markdownComponents}
+            >
+              {block.content}
+            </ReactMarkdown>
+          </React.Fragment>
+        );
+      
+      default:
+        return null;
+    }
+  };
+
+  // 5. MAIN RENDERING FUNCTION (Structural approach)
+  const renderContentStructurally = (content: string): React.ReactNode => {
+    // This is the main entry point for rendering any content
+    // It uses a hierarchical detection system:
+    // 1. First, detect structured content (tables) - they take priority
+    // 2. Then, plain text is passed to ReactMarkdown which handles:
+    //    - LaTeX (via remark-math and rehype-katex)
+    //    - Code blocks (via markdown code fence syntax)
+    //    - Regular markdown formatting
+    // 3. Within tables, renderCellContent handles nested content:
+    //    - LaTeX formulas (via renderLatex)
+    //    - Nested tables (via recursive table parsing)
+    //    - Inline code and markdown
+    
+    // IMPORTANT: Preprocess LaTeX delimiters BEFORE detecting blocks
+    // This converts \[...\] to $$...$$ and \(...\) to $...$
+    // so ReactMarkdown can handle them properly
+    const preprocessedContent = preprocessLatexDelimiters(content);
+    
+    // Detect all content blocks (tables and text) from preprocessed content
+    const blocks = detectContentBlocks(preprocessedContent);
+    
+    // Render each block with its appropriate renderer
+    // Tables → renderTableBlock (which uses renderCellContent for cells)
+    // Plain text → ReactMarkdown (which handles LaTeX, code, markdown)
+    // The nesting is automatic:
+    // - renderCellContent is called for each table cell and handles LaTeX
+    // - ReactMarkdown processes LaTeX in plain text
+    // - Both can handle nested structures recursively
+    
+    return (
+      <div>
+        {blocks.map((block, index) => renderContentBlock(block, index))}
+      </div>
+    );
+  };
+
+  // ============================================================================
+  // END OF STRUCTURAL SYSTEM
+  // ============================================================================
+
+  // Function to preprocess content to fix Llama3-3 table format and single-line tables
   const preprocessLlama3TableFormat = (content: string): string => {
+    // Note: LaTeX delimiters are already preprocessed before this function is called
+    let processed = content;
+    
     // Look for the specific Llama3-3 table pattern
     const llama3TablePattern = /\| [^|]+ \| [^|]+ \| [^|]+ \| \| --- \| --- \| --- \|/;
     
-    if (llama3TablePattern.test(content)) {
+    if (llama3TablePattern.test(processed)) {
       // This is likely a Llama3-3 table format
       // Fix the format by adding line breaks and removing extra pipes
-      return content.replace(/\| ([^|]+) \| ([^|]+) \| ([^|]+) \| \|/g, '| $1 | $2 | $3 |\n|')
+      return processed.replace(/\| ([^|]+) \| ([^|]+) \| ([^|]+) \| \|/g, '| $1 | $2 | $3 |\n|')
                    .replace(/\| --- \| --- \| --- \| \|/g, '| --- | --- | --- |\n|');
     }
     
-    return content;
+    // Fix single-line tables (all on one line)
+    // Pattern: | header | header | ... | |----|----| ... | | data | data | ... |
+    const singleLineTablePattern = /\|[^|\n]+\|[^|\n]+\|[^|\n]*\|\s*\|[-\s]+\|[-\s]+\|[-\s]*\|\s*\|[^|\n]+\|[^|\n]+\|/g;
+    
+    if (singleLineTablePattern.test(processed)) {
+      
+      // Split table by separator pattern
+      processed = processed.replace(
+        /(\|[^|\n]+(?:\|[^|\n]+)*\|)\s*(\|[-\s]+(?:\|[-\s]+)*\|)\s*(\|[^|\n]+(?:\|[^|\n]+)*\|)/g,
+        (match, header, separator, dataRows) => {
+          // Add line breaks between header, separator, and data rows
+          let result = header.trim() + '\n' + separator.trim() + '\n';
+          
+          // Split remaining data rows if they're concatenated
+          // Look for patterns like | data | data | immediately followed by | data | data |
+          const remainingText = match.substring(header.length + separator.length).trim();
+          const rows = [];
+          let currentRow = '';
+          let pipeCount = 0;
+          
+          for (let i = 0; i < remainingText.length; i++) {
+            const char = remainingText[i];
+            currentRow += char;
+            
+            if (char === '|') {
+              pipeCount++;
+              // If we've seen enough pipes for a complete row, check if next char starts a new row
+              if (pipeCount >= 4 && i < remainingText.length - 1 && remainingText[i + 1] === ' ') {
+                // Look ahead to see if we're starting a new row
+                const ahead = remainingText.substring(i + 1).trim();
+                if (ahead.startsWith('|')) {
+                  rows.push(currentRow.trim());
+                  currentRow = '';
+                  pipeCount = 0;
+                }
+              }
+            }
+          }
+          
+          // Add the last row
+          if (currentRow.trim()) {
+            rows.push(currentRow.trim());
+          }
+          
+          result += rows.join('\n');
+          return result;
+        }
+      );
+      
+      return processed;
+    }
+    
+    return processed;
   };
 
   // Function to detect and render tables from markdown
   const renderMarkdownWithTables = (content: string) => {
-    // Preprocess content to fix Llama3-3 table format
-    const processedContent = preprocessLlama3TableFormat(content);
+    // FIRST: Extract and protect LaTeX tabular environments BEFORE any other processing
+    // This prevents markdown from breaking up the table syntax
+    const tabularRegexEarly = /\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/g;
+    const earlyTabularMatches: Array<{match: string, headers: string[], rows: string[][], placeholder: string}> = [];
+    let tabularMatchEarly;
+    let earlyMatchIndex = 0;
+    
+    let processedContent = content;
+    
+    while ((tabularMatchEarly = tabularRegexEarly.exec(content)) !== null) {
+      const tableContent = tabularMatchEarly[1];
+      const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+      const lines = cleanedContent
+        .split('\\\\')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+      
+      if (lines.length >= 1) {
+        const placeholder = `__EARLY_LATEX_TABLE_${earlyMatchIndex}__`;
+        
+        // Parse headers and rows
+        const headers = lines[0].split('&').map(h => h.trim()).filter(h => h.length > 0);
+        const dataRows = lines.slice(1);
+        const rows = dataRows.map(row => 
+          row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
+        );
+        
+        earlyTabularMatches.push({
+          match: tabularMatchEarly[0],
+          headers,
+          rows,
+          placeholder
+        });
+        
+        // Replace the entire tabular block with placeholder
+        processedContent = processedContent.replace(tabularMatchEarly[0], placeholder);
+        earlyMatchIndex++;
+      }
+    }
+    
+    // Now strip LaTeX table environment metadata (table, centering, caption, label)
+    processedContent = processedContent
+      // Remove \begin{table}[...] and \end{table}
+      .replace(/\\begin\{table\}(?:\[[^\]]*\])?\s*/g, '')
+      .replace(/\\end\{table\}\s*/g, '')
+      // Remove \centering
+      .replace(/\\centering\s*/g, '')
+      // Remove \caption{...}
+      .replace(/\\caption\{[^}]*\}\s*/g, '')
+      // Remove \label{...}
+      .replace(/\\label\{[^}]*\}\s*/g, '')
+      // Remove \hline commands
+      .replace(/\\hline\s*/g, '')
+      // Clean up orphaned LaTeX table fragments
+      // Remove & followed by text and ending with \ (incomplete table row)
+      .replace(/&\s*([^&\n]+?)\s*\\/g, '$1')
+      // Remove orphaned \end{tabular} 
+      .replace(/\\end\{tabular\}/g, '');
+    
+    // Note: remark-math handles \[...\] and \(...\) natively when configured properly
+    const displayMathBlocks: Array<{ placeholder: string, html: string }> = [];
+    
+    // Check for LaTeX tabular environments in plain text and store them for rendering
+    const tabularRegex = /\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/g;
+    const tabularMatches: Array<{match: string, headers: string[], rows: string[][], index: number}> = [];
+    let tabularMatch;
+    
+    // Store all matches first, then replace from end to beginning to preserve indices
+    const tempMatches: Array<{match: string, headers: string[], rows: string[][], index: number}> = [];
+    
+    while ((tabularMatch = tabularRegex.exec(processedContent)) !== null) {
+      const tableContent = tabularMatch[1];
+      // Remove all \hline commands and trim
+      const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+      
+      // Split by \\ and filter out empty lines
+      const lines = cleanedContent
+        .split('\\\\')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+      
+      if (lines.length >= 2) {
+        // First line is headers
+        const headerLine = lines[0];
+        const headers = headerLine.split('&').map(h => h.trim()).filter(h => h.length > 0);
+        
+        // Rest are data rows
+        const dataRows = lines.slice(1);
+        const rows = dataRows.map(row => 
+          row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
+        );
+        
+        tempMatches.push({
+          match: tabularMatch[0],
+          headers,
+          rows,
+          index: tabularMatch.index
+        });
+      }
+    }
+    
+    // Replace from end to beginning to preserve indices
+    for (let i = tempMatches.length - 1; i >= 0; i--) {
+      const tableInfo = tempMatches[i];
+      const placeholder = `__LATEX_TABLE_${i}__`;
+      const before = processedContent.substring(0, tableInfo.index);
+      const after = processedContent.substring(tableInfo.index + tableInfo.match.length);
+      processedContent = before + placeholder + after;
+    }
+    
+    // Add all matches to tabularMatches in the correct order (same as tempMatches)
+    tabularMatches.push(...tempMatches);
+    
+    // Note: We've already converted \[...\] to $$...$$ in preprocessing, 
+    // so remark-math and rehype-katex will handle all math rendering
+    
+    // Convert HTML sub/sup tags to LaTeX notation wrapped in $ delimiters
+    processedContent = processedContent
+      .replace(/<sub>([^<]+)<\/sub>/g, '$_{$1}$')
+      .replace(/<sup>([^<]+)<\/sup>/g, '$^{$1}$');
+    
+    // Preprocess content to fix Llama3-3 table format (which also applies LaTeX preprocessing)
+    processedContent = preprocessLlama3TableFormat(processedContent);
+    
+    // Detect and replace HTML tables
+    const htmlTableRegex = /<table[\s\S]*?<\/table>/gi;
+    const htmlTables = processedContent.match(htmlTableRegex) || [];
+    const htmlTableData: Array<{ index: number, data: { headers: string[], rows: string[][] } | null }> = [];
+    
+    htmlTables.forEach((htmlTable, idx) => {
+      const tableData = parseHtmlTable(htmlTable);
+      if (tableData) {
+        const placeholder = `__HTML_TABLE_${idx}__`;
+        const index = processedContent.indexOf(htmlTable);
+        htmlTableData.push({ index, data: tableData });
+        processedContent = processedContent.replace(htmlTable, placeholder);
+      }
+    });
+    
+    // Detect and replace CSV tables (quoted values with commas)
+    const csvTableRegex = /"[^"]+","[^"]+(?:","[^"]+)*"\n(?:"[^"]+","[^"]+(?:","[^"]+)*"\n)+/g;
+    const csvTables = processedContent.match(csvTableRegex) || [];
+    const csvTableData: Array<{ index: number, data: { headers: string[], rows: string[][] } | null }> = [];
+    
+    csvTables.forEach((csvTable, idx) => {
+      const tableData = parseCsvTable(csvTable);
+      if (tableData) {
+        const placeholder = `__CSV_TABLE_${idx}__`;
+        const index = processedContent.indexOf(csvTable);
+        csvTableData.push({ index, data: tableData });
+        processedContent = processedContent.replace(csvTable, placeholder);
+      }
+    });
+    
+    // Detect and replace JSON array tables
+    const jsonTableRegex = /\[\s*\{[^}]+\}(?:\s*,\s*\{[^}]+\})*\s*\]/g;
+    const jsonTables = processedContent.match(jsonTableRegex) || [];
+    const jsonTableData: Array<{ index: number, data: { headers: string[], rows: string[][] } | null }> = [];
+    
+    jsonTables.forEach((jsonTable, idx) => {
+      const tableData = parseJsonTable(jsonTable);
+      if (tableData) {
+        const placeholder = `__JSON_TABLE_${idx}__`;
+        const index = processedContent.indexOf(jsonTable);
+        jsonTableData.push({ index, data: tableData });
+        processedContent = processedContent.replace(jsonTable, placeholder);
+      }
+    });
+    
+    // Detect and replace ASCII/Text tables
+    const textTableRegex = /\+[-+]+\+\n\|[^\n]+\|\n\+[=+]+\+\n(?:\|[^\n]+\|\n)+\+[-+]+\+/g;
+    const textTables = processedContent.match(textTableRegex) || [];
+    const textTableData: Array<{ index: number, data: { headers: string[], rows: string[][] } | null }> = [];
+    
+    textTables.forEach((textTable, idx) => {
+      const tableData = parseTextTable(textTable);
+      if (tableData) {
+        const placeholder = `__TEXT_TABLE_${idx}__`;
+        const index = processedContent.indexOf(textTable);
+        textTableData.push({ index, data: tableData });
+        processedContent = processedContent.replace(textTable, placeholder);
+      }
+    });
     
     // Detect if content contains a table in Llama3-3 format
     const llama3TableRegex = /\|[^\n]*\|[^\n]*\|\n\|[\s-]*\|[\s-]*\|[\s-]*\|\n(\|[^\n]*\|[^\n]*\|[^\n]*\|\n)+/g;
@@ -622,22 +2650,165 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     // Detect if content contains a general markdown table
     // This pattern matches tables with any number of columns
-    const markdownTableRegex = /\|[^\n]*\|\n\|[\s-:]*\|[\s-:]*(\|[\s-:]*)*\n(\|[^\n]*\|\n)+/g;
+    const markdownTableRegex = /\|.+\|\n\|[-:\s|]+\|\n(?:\|.+\|\n)+/g;
+    
+    // Detect if content contains a MediaWiki table
+    const mediaWikiTableRegex = /\{\|[^\n]*\n[\s\S]*?\|\}/g;
     
     // Check if content contains any table patterns
     const hasLlama3Table = llama3TableRegex.test(processedContent);
     const hasTabTable = tabTableRegex.test(processedContent);
     const hasMarkdownTable = markdownTableRegex.test(processedContent);
+    const hasMediaWikiTable = mediaWikiTableRegex.test(processedContent);
+    const hasAnySpecialTable = htmlTableData.length > 0 || csvTableData.length > 0 || jsonTableData.length > 0 || textTableData.length > 0 || tabularMatches.length > 0 || earlyTabularMatches.length > 0;
     
     // Reset regex states
     llama3TableRegex.lastIndex = 0;
     tabTableRegex.lastIndex = 0;
     markdownTableRegex.lastIndex = 0;
+    mediaWikiTableRegex.lastIndex = 0;
     
-    // If no tables detected, just render with ReactMarkdown
-    if (!hasLlama3Table && !hasTabTable && !hasMarkdownTable) {
+    // Helper function to replace KaTeX placeholders in any text content
+    const replaceKatexPlaceholders = (text: string): React.ReactNode => {
+      const hasKatexPlaceholder = /\{\{KATEX_DISPLAY_\d+\}\}/.test(text);
+      
+      if (!hasKatexPlaceholder) {
+        return text;
+      }
+      
+      // Replace placeholders with rendered HTML
+      const parts: React.ReactNode[] = [];
+      let remaining = text;
+      let partKey = 0;
+      
+      displayMathBlocks.forEach((block) => {
+        const index = remaining.indexOf(block.placeholder);
+        if (index !== -1) {
+          // Add text before placeholder
+          if (index > 0) {
+            parts.push(<span key={`text-${partKey++}`}>{remaining.substring(0, index)}</span>);
+          }
+          // Add rendered math
+          parts.push(
+            <Box
+              key={`math-${partKey++}`}
+              sx={{ my: 2, display: 'block' }}
+              dangerouslySetInnerHTML={{ __html: block.html }}
+            />
+          );
+          remaining = remaining.substring(index + block.placeholder.length);
+        }
+      });
+      
+      // Add any remaining text
+      if (remaining) {
+        parts.push(<span key={`text-${partKey++}`}>{remaining}</span>);
+      }
+      
+      return parts.length > 0 ? <>{parts}</> : text;
+    };
+    
+    // Create enhanced markdown components that restore KaTeX display math
+    const customMarkdownComponents = {
+      ...markdownComponents,
+      // Override paragraph renderer to check for KaTeX placeholders
+      p: ({ node, children, ...props }: any) => {
+        const childText = String(children);
+        const replaced = replaceKatexPlaceholders(childText);
+        
+        if (replaced !== childText) {
+          return <div>{replaced}</div>;
+        }
+        
+        // Default paragraph rendering
+        return <p {...props}>{children}</p>;
+      },
+      // Override list item renderer to check for KaTeX placeholders
+      li: ({ node, children, ...props }: any) => {
+        // Extract text from children recursively
+        const extractText = (node: any): string => {
+          if (typeof node === 'string') return node;
+          if (Array.isArray(node)) return node.map(extractText).join('');
+          if (node?.props?.children) return extractText(node.props.children);
+          return '';
+        };
+        
+        const childText = extractText(children);
+        const hasPlaceholder = /\{\{KATEX_DISPLAY_\d+\}\}/.test(childText);
+        
+        if (hasPlaceholder) {
+          const replaced = replaceKatexPlaceholders(childText);
+          return <li style={{ margin: '2px 0' }}>{replaced}</li>;
+        }
+        
+        // Default list item rendering from markdownComponents
+        return <li style={{ margin: '2px 0' }}>{children}</li>;
+      },
+    };
+    
+    // If no tables detected, render content with KaTeX display math restoration
+    if (!hasLlama3Table && !hasTabTable && !hasMarkdownTable && !hasMediaWikiTable && !hasAnySpecialTable) {
+      // Check if there are KaTeX display math blocks to restore
+      if (displayMathBlocks.length > 0) {
+        const parts: React.ReactNode[] = [];
+        let remaining = processedContent;
+        let key = 0;
+        
+        displayMathBlocks.forEach((block) => {
+          const index = remaining.indexOf(block.placeholder);
+          if (index !== -1) {
+            // Add text before placeholder through ReactMarkdown
+            const beforeText = remaining.substring(0, index);
+            if (beforeText.trim()) {
+              parts.push(
+                <Box key={`text-${key++}`}>
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                    components={customMarkdownComponents}
+                  >
+                    {beforeText}
+                  </ReactMarkdown>
+                </Box>
+              );
+            }
+            // Add rendered math
+            parts.push(
+              <Box
+                key={`math-${key++}`}
+                sx={{ my: 2, display: 'block' }}
+                dangerouslySetInnerHTML={{ __html: block.html }}
+              />
+            );
+            remaining = remaining.substring(index + block.placeholder.length);
+          }
+        });
+        
+        // Add any remaining text
+        if (remaining.trim()) {
+          parts.push(
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[remarkMath]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {remaining}
+              </ReactMarkdown>
+            </Box>
+          );
+        }
+        
+        return <div>{parts}</div>;
+      }
+      
+      // No display math blocks, just render normally
       return (
-        <ReactMarkdown components={markdownComponents}>
+        <ReactMarkdown 
+          remarkPlugins={[remarkMath]}
+          rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+          components={markdownComponents}
+        >
           {processedContent}
         </ReactMarkdown>
       );
@@ -649,6 +2820,85 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     let match;
     let key = 0;
     
+    // Process MediaWiki tables first (highest priority)
+    if (hasMediaWikiTable) {
+      while ((match = mediaWikiTableRegex.exec(processedContent)) !== null) {
+        // Add text before the table
+        const beforeTable = processedContent.substring(lastIndex, match.index);
+        if (beforeTable.trim()) {
+          result.push(
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[remarkMath]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {beforeTable}
+              </ReactMarkdown>
+            </Box>
+          );
+        }
+        
+        // Process the MediaWiki table using the parser from TableRenderer
+        const tableContent = match[0];
+        // Import the parser function synchronously since it's already available
+        const { parseMediaWikiTable } = require('./TableRenderer');
+        const tableData = parseMediaWikiTable(tableContent);
+        
+        if (tableData) {
+          // Render Material-UI table with markdown support in cells and copy button
+          const tableId = `mediawiki-table-${key}`;
+          result.push(
+            renderTableWithCopyButton(
+              tableId,
+              tableData.headers,
+              tableData.rows,
+              <TableContainer 
+                key={`table-${key++}`}
+                component={Paper} 
+                sx={styles.tableContainer}
+              >
+                <Table>
+                  <TableHead sx={styles.tableHead}>
+                    <TableRow>
+                      {tableData.headers.map((header: string, idx: number) => (
+                        <TableCell 
+                          key={idx}
+                          sx={styles.tableHeaderCell}
+                        >
+                          {renderCellContent(header)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {tableData.rows.map((row: string[], rowIdx: number) => (
+                      <TableRow 
+                        key={rowIdx}
+                        sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                      >
+                        {row.map((cell: string, cellIdx: number) => (
+                          <TableCell 
+                            key={cellIdx}
+                            sx={styles.tableCell}
+                          >
+                            {renderCellContent(cell)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )
+          );
+        }
+        
+        // Update lastIndex to after this table
+        lastIndex = match.index + match[0].length;
+      }
+    }
+    
     // Process Llama3-3 tables
     if (hasLlama3Table) {
       while ((match = llama3TableRegex.exec(processedContent)) !== null) {
@@ -656,9 +2906,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const beforeTable = processedContent.substring(lastIndex, match.index);
         if (beforeTable.trim()) {
           result.push(
-            <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
-              {beforeTable}
-            </ReactMarkdown>
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[remarkMath]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {beforeTable}
+              </ReactMarkdown>
+            </Box>
           );
         }
         
@@ -669,62 +2925,124 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const lines = tableMatch.trim().split('\n');
         const headerLine = lines[0];
         
+        // Helper function to split by | but not inside backticks or LaTeX delimiters
+        const smartSplit = (line: string): string[] => {
+          const cells: string[] = [];
+          let current = '';
+          let inBackticks = false;
+          let backticksCount = 0;
+          let inDollarSigns = false;
+          let inLatexParens = false;
+          
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const prevChar = i > 0 ? line[i - 1] : '';
+            const nextChar = i < line.length - 1 ? line[i + 1] : '';
+            
+            // Track \(...\) LaTeX inline math delimiters
+            if (char === '\\' && nextChar === '(' && !inBackticks && !inDollarSigns) {
+              inLatexParens = true;
+              current += char;
+              continue;
+            } else if (char === '\\' && nextChar === ')' && inLatexParens && !inBackticks && !inDollarSigns) {
+              inLatexParens = false;
+              current += char + nextChar;
+              i++; // Skip the next character since we already added it
+              continue;
+            }
+            
+            // Check for backticks
+            if (char === '`') {
+              current += char;
+              // Count consecutive backticks
+              let count = 1;
+              while (i + 1 < line.length && line[i + 1] === '`') {
+                current += '`';
+                i++;
+                count++;
+              }
+              
+              // Toggle state based on backtick count
+              if (inBackticks && count === backticksCount) {
+                inBackticks = false;
+                backticksCount = 0;
+              } else if (!inBackticks) {
+                inBackticks = true;
+                backticksCount = count;
+              }
+            }
+            // Track dollar signs
+            else if (char === '$' && !inBackticks && !inLatexParens) {
+              inDollarSigns = !inDollarSigns;
+              current += char;
+            }
+            // Split on pipe only when not inside backticks, dollar signs, or LaTeX parens
+            // Also check if pipe is escaped with backslash (\|)
+            else if (char === '|' && !inBackticks && !inDollarSigns && !inLatexParens && prevChar !== '\\') {
+              cells.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          cells.push(current);
+          return cells.filter(cell => cell.trim() !== '').map(cell => cell.trim());
+        };
+        
         // Extract headers
-        const headers = headerLine
-          .split('|')
-          .filter(cell => cell.trim() !== '')
-          .map(cell => cell.trim());
+        const headers = smartSplit(headerLine);
         
         // Skip the separator line (line with |---|---|)
         const dataRows = lines.slice(2);
         
         // Extract rows
-        const rows = dataRows.map(row => 
-          row
-            .split('|')
-            .filter(cell => cell.trim() !== '')
-            .map(cell => cell.trim())
-        );
+        const rows = dataRows.map(row => smartSplit(row));
         
-        // Render Material-UI table
+        // Render Material-UI table with markdown support in cells and copy button
+        const tableId = `llama3-table-${key}`;
         result.push(
-          <TableContainer 
-            key={`table-${key++}`}
-            component={Paper} 
-            sx={styles.tableContainer}
-          >
-            <Table>
-              <TableHead sx={styles.tableHead}>
-                <TableRow>
-                  {headers.map((header, idx) => (
-                    <TableCell 
-                      key={idx}
-                      sx={styles.tableHeaderCell}
-                    >
-                      {header}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, rowIdx) => (
-                  <TableRow 
-                    key={rowIdx}
-                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                  >
-                    {row.map((cell, cellIdx) => (
+          renderTableWithCopyButton(
+            tableId,
+            headers,
+            rows,
+            <TableContainer 
+              key={`table-${key++}`}
+              component={Paper} 
+              sx={styles.tableContainer}
+            >
+              <Table>
+                <TableHead sx={styles.tableHead}>
+                  <TableRow>
+                    {headers.map((header, idx) => (
                       <TableCell 
-                        key={cellIdx}
-                        sx={styles.tableCell}
+                        key={idx}
+                        sx={styles.tableHeaderCell}
                       >
-                        {cell}
+                        {renderCellContent(header)}
                       </TableCell>
                     ))}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                </TableHead>
+                <TableBody>
+                  {rows.map((row, rowIdx) => (
+                    <TableRow 
+                      key={rowIdx}
+                      sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                    >
+                      {row.map((cell, cellIdx) => (
+                        <TableCell 
+                          key={cellIdx}
+                          sx={styles.tableCell}
+                        >
+                          {renderCellContent(cell)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )
         );
         
         // Update lastIndex to after this table
@@ -744,9 +3062,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const beforeTable = processedContent.substring(lastIndex, match.index);
         if (beforeTable.trim()) {
           result.push(
-            <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
-              {beforeTable}
-            </ReactMarkdown>
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[remarkMath]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {beforeTable}
+              </ReactMarkdown>
+            </Box>
           );
         }
         
@@ -769,45 +3093,51 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           })
         );
         
-        // Render Material-UI table
+        // Render Material-UI table with markdown support in cells and copy button
+        const tableId = `tab-table-${key}`;
         result.push(
-          <TableContainer 
-            key={`table-${key++}`}
-            component={Paper} 
-            sx={styles.tableContainer}
-          >
-            <Table>
-              <TableHead sx={styles.tableHead}>
-                <TableRow>
-                  {headers.map((header, idx) => (
-                    <TableCell 
-                      key={idx}
-                      sx={styles.tableHeaderCell}
-                    >
-                      {header.replace(/^\*\*(.*)\*\*$/, '$1')} {/* Remove markdown bold formatting */}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, rowIdx) => (
-                  <TableRow 
-                    key={rowIdx}
-                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                  >
-                    {row.map((cell, cellIdx) => (
+          renderTableWithCopyButton(
+            tableId,
+            headers,
+            rows,
+            <TableContainer 
+              key={`table-${key++}`}
+              component={Paper} 
+              sx={styles.tableContainer}
+            >
+              <Table>
+                <TableHead sx={styles.tableHead}>
+                  <TableRow>
+                    {headers.map((header, idx) => (
                       <TableCell 
-                        key={cellIdx}
-                        sx={styles.tableCell}
+                        key={idx}
+                        sx={styles.tableHeaderCell}
                       >
-                        {cell}
+                        {renderCellContent(header)}
                       </TableCell>
                     ))}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                </TableHead>
+                <TableBody>
+                  {rows.map((row, rowIdx) => (
+                    <TableRow 
+                      key={rowIdx}
+                      sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                    >
+                      {row.map((cell, cellIdx) => (
+                        <TableCell 
+                          key={cellIdx}
+                          sx={styles.tableCell}
+                        >
+                          {renderCellContent(cell)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )
         );
         
         // Update lastIndex to after this table
@@ -821,15 +3151,23 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       while ((match = markdownTableRegex.exec(processedContent)) !== null) {
         // Skip if this section was already processed as part of another table
-        if (match.index < lastIndex) continue;
+        if (match.index < lastIndex) {
+          continue;
+        }
         
         // Add text before the table
         const beforeTable = processedContent.substring(lastIndex, match.index);
         if (beforeTable.trim()) {
           result.push(
-            <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
-              {beforeTable}
-            </ReactMarkdown>
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[remarkMath]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {beforeTable}
+              </ReactMarkdown>
+            </Box>
           );
         }
         
@@ -840,80 +3178,287 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         const lines = tableMatch.trim().split('\n');
         const headerLine = lines[0];
         
-        // Extract headers
-        const headers = headerLine
-          .split('|')
-          .filter(cell => cell.trim() !== '')
-          .map(cell => cell.trim());
+        // Helper function to split by | but not inside backticks
+        const smartSplit = (line: string): string[] => {
+          const cells: string[] = [];
+          let current = '';
+          let inBackticks = false;
+          let backticksCount = 0;
+          
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            
+            // Check for backticks
+            if (char === '`') {
+              current += char;
+              // Count consecutive backticks
+              let count = 1;
+              while (i + 1 < line.length && line[i + 1] === '`') {
+                current += '`';
+                i++;
+                count++;
+              }
+              
+              // Toggle state based on backtick count
+              if (inBackticks && count === backticksCount) {
+                inBackticks = false;
+                backticksCount = 0;
+              } else if (!inBackticks) {
+                inBackticks = true;
+                backticksCount = count;
+              }
+            } else if (char === '|' && !inBackticks) {
+              cells.push(current);
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          cells.push(current);
+          return cells.filter(cell => cell.trim() !== '').map(cell => cell.trim());
+        };
+        
+        // Extract headers using smart split
+        const headers = smartSplit(headerLine);
         
         // Skip the separator line (line with |---|---|)
         const dataRows = lines.slice(2);
         
-        // Extract rows
-        const rows = dataRows.map(row => 
-          row
-            .split('|')
-            .filter(cell => cell.trim() !== '')
-            .map(cell => cell.trim().replace(/^\*\*(.*)\*\*$/, '$1')) // Remove markdown bold formatting
-        );
+        // Extract rows using smart split
+        const rows = dataRows.map(row => smartSplit(row));
         
-        // Render Material-UI table
+        // Render Material-UI table with markdown support in cells and copy button
+        const tableId = `markdown-table-${key}`;
         result.push(
-          <TableContainer 
-            key={`table-${key++}`}
-            component={Paper} 
-            sx={styles.tableContainer}
-          >
-            <Table>
-              <TableHead sx={styles.tableHead}>
-                <TableRow>
-                  {headers.map((header, idx) => (
-                    <TableCell 
-                      key={idx}
-                      sx={styles.tableHeaderCell}
-                    >
-                      {header.replace(/^\*\*(.*)\*\*$/, '$1')} {/* Remove markdown bold formatting */}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row, rowIdx) => (
-                  <TableRow 
-                    key={rowIdx}
-                    sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
-                  >
-                    {row.map((cell, cellIdx) => (
+          renderTableWithCopyButton(
+            tableId,
+            headers,
+            rows,
+            <TableContainer 
+              key={`table-${key++}`}
+              component={Paper} 
+              sx={styles.tableContainer}
+            >
+              <Table>
+                <TableHead sx={styles.tableHead}>
+                  <TableRow>
+                    {headers.map((header, idx) => (
                       <TableCell 
-                        key={cellIdx}
-                        sx={styles.tableCell}
+                        key={idx}
+                        sx={styles.tableHeaderCell}
                       >
-                        {cell}
+                        {renderCellContent(header)}
                       </TableCell>
                     ))}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                </TableHead>
+                <TableBody>
+                  {rows.map((row, rowIdx) => (
+                    <TableRow 
+                      key={rowIdx}
+                      sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                    >
+                      {row.map((cell, cellIdx) => (
+                        <TableCell 
+                          key={cellIdx}
+                          sx={styles.tableCell}
+                        >
+                          {renderCellContent(cell)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )
         );
         
         // Update lastIndex to after this table
         lastIndex = match.index + match[0].length;
       }
+      
+      // Add any remaining content after markdown tables
+      const afterMarkdownTables = processedContent.substring(lastIndex);
+      if (afterMarkdownTables.trim()) {
+        result.push(
+          <Box key={`text-${key++}`}>
+            <ReactMarkdown 
+              remarkPlugins={[remarkMath]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+              components={customMarkdownComponents}
+            >
+              {afterMarkdownTables}
+            </ReactMarkdown>
+          </Box>
+        );
+      }
+      
+      // Return early - we've processed all content
+      return <div>{result}</div>;
     }
     
-    // Add any remaining content after the last table
+    // Add any remaining content after all table processing
     const afterLastTable = processedContent.substring(lastIndex);
     if (afterLastTable.trim()) {
-      result.push(
-        <ReactMarkdown key={`text-${key++}`} components={markdownComponents}>
-          {afterLastTable}
-        </ReactMarkdown>
-      );
+      // Check for special table placeholders and render them
+      let finalContent = afterLastTable;
+      const specialTableMatches: Array<{ type: string, index: number, data: any }> = [];
+      
+      // Find ALL table placeholders by searching the entire content
+      // Use a global regex to find all placeholders (including early extracted ones)
+      const placeholderRegex = /__(?:EARLY_LATEX|HTML|CSV|JSON|TEXT|LATEX)_TABLE_(\d+)__/g;
+      let placeholderMatch;
+      
+      while ((placeholderMatch = placeholderRegex.exec(finalContent)) !== null) {
+        const fullPlaceholder = placeholderMatch[0];
+        const typeMatch = fullPlaceholder.match(/__([A-Z_]+)_TABLE_(\d+)__/);
+        
+        if (typeMatch) {
+          const type = typeMatch[1]; // EARLY_LATEX, HTML, CSV, JSON, TEXT, or LATEX
+          const tableIndex = parseInt(typeMatch[2], 10);
+          
+          let tableData = null;
+          
+          // Get the table data based on type
+          if (type === 'EARLY_LATEX' && earlyTabularMatches[tableIndex]) {
+            tableData = {
+              headers: earlyTabularMatches[tableIndex].headers,
+              rows: earlyTabularMatches[tableIndex].rows
+            };
+          } else if (type === 'HTML' && htmlTableData[tableIndex]) {
+            tableData = htmlTableData[tableIndex].data;
+          } else if (type === 'CSV' && csvTableData[tableIndex]) {
+            tableData = csvTableData[tableIndex].data;
+          } else if (type === 'JSON' && jsonTableData[tableIndex]) {
+            tableData = jsonTableData[tableIndex].data;
+          } else if (type === 'TEXT' && textTableData[tableIndex]) {
+            tableData = textTableData[tableIndex].data;
+          } else if (type === 'LATEX' && tabularMatches[tableIndex]) {
+            tableData = {
+              headers: tabularMatches[tableIndex].headers,
+              rows: tabularMatches[tableIndex].rows
+            };
+          }
+          
+          if (tableData) {
+            specialTableMatches.push({
+              type: fullPlaceholder,
+              index: placeholderMatch.index,
+              data: tableData
+            });
+          }
+        }
+      }
+      
+      // Sort by index to process in order
+      specialTableMatches.sort((a, b) => a.index - b.index);
+      
+      // If there are special tables, process them
+      if (specialTableMatches.length > 0) {
+        let currentIndex = 0;
+        
+        specialTableMatches.forEach((tableMatch, idx) => {
+          // Add text before this table
+          const beforeTable = finalContent.substring(currentIndex, tableMatch.index);
+          if (beforeTable.trim()) {
+            result.push(
+              <Box key={`text-${key++}`}>
+                <ReactMarkdown 
+                  remarkPlugins={[remarkMath]}
+                  rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                  components={customMarkdownComponents}
+                >
+                  {beforeTable}
+                </ReactMarkdown>
+              </Box>
+            );
+          }
+          
+          // Render the special table with markdown support in cells and copy button
+          if (tableMatch.data) {
+            const tableId = `special-table-${tableMatch.type}-${key}`;
+            result.push(
+              renderTableWithCopyButton(
+                tableId,
+                tableMatch.data.headers,
+                tableMatch.data.rows,
+                <TableContainer 
+                  key={`table-${key++}`}
+                  component={Paper} 
+                  sx={styles.tableContainer}
+                >
+                  <Table>
+                    <TableHead sx={styles.tableHead}>
+                      <TableRow>
+                        {tableMatch.data.headers.map((header: string, idx: number) => (
+                          <TableCell 
+                            key={idx}
+                            sx={styles.tableHeaderCell}
+                          >
+                            {renderCellContent(header)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {tableMatch.data.rows.map((row: string[], rowIdx: number) => (
+                        <TableRow 
+                          key={rowIdx}
+                          sx={rowIdx % 2 === 1 ? styles.tableRowOdd : styles.tableRowEven}
+                        >
+                          {row.map((cell: string, cellIdx: number) => (
+                            <TableCell 
+                              key={cellIdx}
+                              sx={styles.tableCell}
+                            >
+                              {renderCellContent(cell)}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )
+            );
+          }
+          
+          // Move past this table
+          currentIndex = tableMatch.index + tableMatch.type.length;
+        });
+        
+        // Add any remaining content
+        const remaining = finalContent.substring(currentIndex);
+        if (remaining.trim() && !remaining.match(/__(?:EARLY_LATEX|HTML|CSV|JSON|TEXT|LATEX)_TABLE_\d+__/)) {
+          result.push(
+            <Box key={`text-${key++}`}>
+              <ReactMarkdown 
+                remarkPlugins={[remarkMath]}
+                rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+                components={customMarkdownComponents}
+              >
+                {remaining}
+              </ReactMarkdown>
+            </Box>
+          );
+        }
+      } else {
+        result.push(
+          <Box key={`text-${key++}`}>
+            <ReactMarkdown 
+              remarkPlugins={[remarkMath]}
+              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
+              components={customMarkdownComponents}
+            >
+              {afterLastTable}
+            </ReactMarkdown>
+          </Box>
+        );
+      }
     }
     
-    return <>{result}</>;
+    return <div>{result}</div>;
   };
 
   // Direct table detection and rendering for Llama3-3 format
@@ -990,8 +3535,53 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     );
   };
 
-  const renderMessage = (message: MessageType) => {
+  // Function to copy message content to clipboard
+  const handleCopyMessage = useCallback(async (messageId: string, content: string) => {
+    try {
+      // Try Electron clipboard API first (if in Electron environment)
+      if (window.electronAPI && window.electronAPI.copyToClipboard) {
+        const result = await window.electronAPI.copyToClipboard(content);
+        if (result.success) {
+          console.log('✅ Message copied successfully');
+        } else {
+          throw new Error(result.error || 'Electron clipboard copy failed');
+        }
+      }
+      // Try modern clipboard API for browsers
+      else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(content);
+        console.log('✅ Message copied successfully');
+      }
+      // Fallback for older browsers
+      else {
+        const textArea = document.createElement('textarea');
+        textArea.value = content;
+        textArea.style.position = 'absolute';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        console.log('✅ Message copied successfully');
+      }
+    } catch (error) {
+      console.error('❌ Failed to copy message:', error);
+    }
+  }, []);
+
+
+  // Memoized message component to prevent re-renders during streaming
+  const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean }>(({ message, chatMessages, isStreaming }) => {
     const isUser = message.role === 'user';
+    
+    // Extract thinking and body from assistant messages
+    const { thinking, body } = isUser ? { thinking: null, body: message.content } : takeThinkingThenBody(message.content);
+    const displayContent = body;
+    
+    // Auto-detect RTL/LTR for both user and assistant messages
+    const textDirectionStyles = getTextDirectionStyles(displayContent);
+    const mixedContentAnalysis = analyzeMixedContent(displayContent);
     
     return (
       <Box
@@ -1002,25 +3592,131 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           sx={isUser ? styles.userMessage : styles.assistantMessage}
         >
           <Box sx={{ width: '100%' }}>
-            {/* Render message content */}
+            {/* Render message content with RTL/LTR support */}
             <Typography
               variant="body1"
               component="div"
               className="markdown-content"
-              sx={styles.messageContent}
+              sx={{
+                ...styles.messageContent,
+                // Apply RTL/LTR styling for assistant messages
+                ...(textDirectionStyles && {
+                  direction: textDirectionStyles.direction,
+                  textAlign: textDirectionStyles.textAlign,
+                  unicodeBidi: mixedContentAnalysis?.shouldUseBidi ? 'bidi-override' : textDirectionStyles.unicodeBidi,
+                }),
+                // Let KaTeX handle its own display modes - only hide MathML
+                '& .katex-mathml': {
+                  display: 'none !important',
+                },
+              }}
             >
               {isUser ? (
-                message.content
+                displayContent
               ) : (
                 <>
-                  {/* Try direct Llama3-3 table detection first */}
-                  {detectAndRenderLlama3Table(message.content) || renderMarkdownWithTables(message.content)}
-                  {loading && message.id === chat?.messages[chat.messages.length - 1]?.id && (
+                  {/* Use structural rendering system */}
+                  {renderContentStructurally(displayContent)}
+                  {isStreaming && (
                     <span className="streaming-cursor"></span>
                   )}
                 </>
               )}
             </Typography>
+
+            {/* Thinking chunk display - streaming tape animation */}
+            {!isUser && thinking && (
+              <Box
+                sx={{
+                  mt: 1,
+                  p: 1.5,
+                  backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                  borderRadius: '8px',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  overflow: 'hidden',
+                  position: 'relative',
+                }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: 'text.secondary',
+                    fontStyle: 'italic',
+                    fontSize: '0.85rem',
+                    opacity: 0.7,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    animation: 'streamingTape 8s linear infinite',
+                    '@keyframes streamingTape': {
+                      '0%': {
+                        transform: 'translateX(0%)',
+                      },
+                      '100%': {
+                        transform: 'translateX(-50%)',
+                      },
+                    },
+                  }}
+                >
+                  {thinking} {thinking}
+                </Typography>
+              </Box>
+            )}
+
+            {/* Token count display - always on right side for both user and AI messages */}
+            {(() => {
+              // Get current context length from settings (localStorage)
+              let currentContextLength = 4096; // Default fallback
+              try {
+                const savedContextLength = localStorage.getItem('contextLength');
+                if (savedContextLength) {
+                  const parsed = parseInt(savedContextLength, 10);
+                  if (!isNaN(parsed) && parsed >= 2000) {
+                    currentContextLength = parsed;
+                  }
+                }
+              } catch (error) {
+                console.error('Error reading context length from settings:', error);
+              }
+
+              return (
+                <Box sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'flex-end', // Always on right side
+                  mt: 0.5 
+                }}>
+                  {isUser && message.contextTokensUsed && message.contextTokensUsed > 0 ? (
+                    // User messages: Show total context sent to LLM
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: '9px',
+                        color: 'text.disabled',
+                        opacity: 0.4,
+                        fontFamily: 'monospace',
+                        userSelect: 'none',
+                      }}
+                    >
+                      ~{message.contextTokensUsed}/{currentContextLength}
+                    </Typography>
+                  ) : !isUser && message.tokenCount && message.tokenCount > 0 ? (
+                    // AI messages: Show only tokens received in this response
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: '9px',
+                        color: 'text.disabled',
+                        opacity: 0.4,
+                        fontFamily: 'monospace',
+                        userSelect: 'none',
+                      }}
+                    >
+                      ~{message.tokenCount}/{currentContextLength}
+                    </Typography>
+                  ) : null}
+                </Box>
+              );
+            })()}
             
             {/* Render file attachments if present */}
             {message.attachments && message.attachments.length > 0 && (
@@ -1166,73 +3862,433 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             )}
           </Box>
         </Box>
+        
+        {/* Copy message button - visually distinct from table/code copy buttons */}
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'flex-start',
+            mt: 1,
+            ml: 1,
+          }}
+        >
+          <Button
+            size="small"
+            startIcon={<ContentCopyIcon sx={{ fontSize: 16 }} />}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleCopyMessage(message.id, displayContent);
+            }}
+            sx={{
+              opacity: 0.7,
+              fontSize: '0.75rem',
+              textTransform: 'none',
+              color: 'text.secondary',
+              borderRadius: '12px',
+              px: 1.5,
+              py: 0.5,
+              minWidth: 'auto',
+              transition: 'all 0.2s',
+              border: '1px solid',
+              borderColor: 'divider',
+              backgroundColor: 'transparent',
+              '&:hover': {
+                opacity: 1,
+                backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                borderColor: 'primary.main',
+                color: 'primary.main',
+                transform: 'translateY(-1px)',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+              },
+            }}
+          >
+            Copy Message
+          </Button>
+        </Box>
       </Box>
     );
-  };
+  }, (prevProps, nextProps) => {
+    // Only re-render if the message content changed or streaming status changed
+    return prevProps.message.content === nextProps.message.content && 
+           prevProps.isStreaming === nextProps.isStreaming;
+  });
+
+  // Create a stable renderMessage that doesn't depend on loading
+  const renderMessage = useCallback((message: MessageType, chatMessages?: MessageType[], currentlyLoading?: boolean) => {
+    const isLastMessage = !!(chatMessages && message.id === chatMessages[chatMessages.length - 1]?.id);
+    const isStreaming = currentlyLoading === true && isLastMessage;
+    
+    return <MessageComponent message={message} chatMessages={chatMessages} isStreaming={isStreaming} />;
+  }, []);
+
+  // Split messages into completed and streaming for better performance
+  const { completedMessages, streamingMessage } = React.useMemo(() => {
+    if (!chat?.messages || chat.messages.length === 0) {
+      return { completedMessages: [], streamingMessage: null };
+    }
+    
+    if (loading) {
+      // Last message is streaming
+      const completed = chat.messages.slice(0, -1);
+      const streaming = chat.messages[chat.messages.length - 1];
+      return { completedMessages: completed, streamingMessage: streaming };
+    } else {
+      // All messages are completed
+      return { completedMessages: chat.messages, streamingMessage: null };
+    }
+  }, [chat?.messages, loading]);
+  
+  // Memoize completed messages - these NEVER re-render during streaming
+  const renderedCompletedMessages = React.useMemo(() =>
+    completedMessages.map(msg => (
+      <React.Fragment key={msg.id}>
+        {renderMessage(msg, completedMessages, false)}
+      </React.Fragment>
+    )),
+    [completedMessages, renderMessage]
+  );
 
   return (
     <Box
       component="main"
       sx={styles.container(sidebarOpen)}
     >
-      <AppBar
-        position="static"
-        color="transparent"
-        elevation={0}
-        sx={styles.appBar}
-      >
+      <FixedTopbarOverlay sidebarOpen={sidebarOpen} chatRootEl={messagesContainerRef.current}>
+        <AppBar
+          position="static"
+          color="default"
+          elevation={0}
+          sx={{
+            ...styles.appBar,
+            bgcolor: 'background.paper', // Opaque background
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}
+        >
         <Toolbar>
-          <IconButton
-            edge="start"
-            color="inherit"
-            aria-label="menu"
-            onClick={onToggleSidebar}
-            sx={{ mr: 2 }}
-          >
-            <MenuIcon />
-          </IconButton>
+          {!sidebarOpen && (
+            <IconButton
+              edge="start"
+              color="inherit"
+              aria-label="menu"
+              onClick={onToggleSidebar}
+              sx={{ mr: 2 }}
+            >
+              <MenuIcon />
+            </IconButton>
+          )}
 
           <Button
             onClick={handleOpenModelMenu}
             endIcon={<KeyboardArrowDownIcon />}
-            sx={styles.modelSelector}
+            sx={{
+              ...styles.modelSelector,
+              // Change to red background with white text when Ollama has an error
+              ...((!ollamaStatus.isAvailable && ollamaStatus.error) && {
+                backgroundColor: 'error.main',
+                color: 'white',
+                borderColor: 'error.main',
+                '&:hover': {
+                  backgroundColor: 'error.dark',
+                  borderColor: 'error.dark',
+                },
+              }),
+            }}
           >
-            {model?.name || 'Select Model'}
+            {(!ollamaStatus.isAvailable && ollamaStatus.error) 
+              ? 'Error' 
+              : (model?.name || 'Select Model')
+            }
           </Button>
           <Menu
             anchorEl={modelMenuAnchor}
             open={Boolean(modelMenuAnchor)}
             onClose={handleCloseModelMenu}
           >
-            {models.map((m) => (
-              <MenuItem
-                key={m.id}
-                selected={m.id === model?.id}
-                onClick={() => handleSelectModel(m)}
-              >
-                {m.name}
+            {/* Show Ollama status error if there's an issue */}
+            {!ollamaStatus.isAvailable && ollamaStatus.error && (
+              <>
+                <MenuItem
+                  disabled
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    color: 'error.main',
+                    backgroundColor: 'rgba(244, 67, 54, 0.08)',
+                    '&.Mui-disabled': {
+                      opacity: 1,
+                    },
+                  }}
+                >
+                  <ErrorIcon sx={{ fontSize: 18, color: 'error.main' }} />
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                      Ollama Connection Error
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Make sure Ollama is installed and running properly.
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <MenuItem
+                  onClick={async () => {
+                    handleCloseModelMenu();
+                    await onRefreshOllamaStatus();
+                  }}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    color: 'primary.main',
+                  }}
+                >
+                  <RefreshIcon sx={{ fontSize: 18 }} />
+                  <Typography variant="body2">
+                    Retry Connection
+                  </Typography>
+                </MenuItem>
+                <Divider sx={{ my: 1 }} />
+              </>
+            )}
+            
+            {/* Show warning if Ollama is available but there are no models */}
+            {ollamaStatus.isAvailable && models.length === 0 && (
+              <>
+                <MenuItem
+                  disabled
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    color: 'warning.main',
+                    backgroundColor: 'rgba(255, 152, 0, 0.08)',
+                    '&.Mui-disabled': {
+                      opacity: 1,
+                    },
+                  }}
+                >
+                  <WarningIcon sx={{ fontSize: 18, color: 'warning.main' }} />
+                  <Box>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
+                      No Models Available
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Ollama is running but no models are installed
+                    </Typography>
+                  </Box>
+                </MenuItem>
+                <Divider sx={{ my: 1 }} />
+                
+                {/* Model installation suggestions */}
+                <Box sx={{ px: 2, py: 2 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 1 }}>
+                    📥 Suggested Models to Install:
+                  </Typography>
+                  
+                  {/* High-performance model suggestion */}
+                  <Box sx={{ 
+                    width: '100%', 
+                    p: 1.5, 
+                    borderRadius: 1, 
+                    bgcolor: 'rgba(76, 175, 80, 0.08)',
+                    border: '1px solid rgba(76, 175, 80, 0.2)',
+                    mb: 1
+                  }}>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'success.main' }}>
+                      🚀 For High-Performance Computers(More Than 16GB RAM):
+                    </Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                      ollama pull gpt-oss:20b
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      Advanced 20B parameter model - requires 16GB+ RAM
+                    </Typography>
+                    <Typography 
+                      variant="caption" 
+                      component="a"
+                      href="https://ollama.com/library/gpt-oss"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ 
+                        color: 'primary.main', 
+                        textDecoration: 'underline',
+                        cursor: 'pointer',
+                        display: 'inline-block',
+                        mt: 0.5,
+                        '&:hover': { color: 'primary.dark' }
+                      }}
+                    >
+                      📖 View Documentation
+                    </Typography>
+                  </Box>
+                  
+                  {/* Light-weight model suggestion */}
+                  <Box sx={{ 
+                    width: '100%', 
+                    p: 1.5, 
+                    borderRadius: 1, 
+                    bgcolor: 'rgba(33, 150, 243, 0.08)',
+                    border: '1px solid rgba(33, 150, 243, 0.2)'
+                  }}>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold', color: 'info.main' }}>
+                      💻 For Light Computers(Less Than 16GB RAM):
+                    </Typography>
+                    <Typography variant="body2" sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                      ollama pull mistral:7b
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      Efficient 7B parameter model - requires 4GB+ RAM
+                    </Typography>
+                    <Typography 
+                      variant="caption" 
+                      component="a"
+                      href="https://ollama.com/library/mistral"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ 
+                        color: 'primary.main', 
+                        textDecoration: 'underline',
+                        cursor: 'pointer',
+                        display: 'inline-block',
+                        mt: 0.5,
+                        '&:hover': { color: 'primary.dark' }
+                      }}
+                    >
+                      📖 View Documentation
+                    </Typography>
+                  </Box>
+                  
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, fontStyle: 'italic', display: 'block' }}>
+                    💡 Run these commands in your terminal to install models
+                  </Typography>
+                </Box>
+                <Divider sx={{ my: 1 }} />
+              </>
+            )}
+            
+            
+            {/* Model list */}
+            {models
+              .filter((m) => !m.name.toLowerCase().startsWith('nomic'))
+              .map((m) => (
+                <MenuItem
+                  key={m.id}
+                  selected={m.id === model?.id}
+                  onClick={() => handleSelectModel(m)}
+                  disabled={!ollamaStatus.isAvailable}
+                >
+                  {m.name}
+                </MenuItem>
+              ))}
+            
+            {/* Show message when no models and Ollama is offline */}
+            {!ollamaStatus.isAvailable && models.length === 0 && (
+                <MenuItem disabled>
+                <Typography variant="body2" color="text.secondary">
+                  {ollamaStatus.error}
+                </Typography>
               </MenuItem>
-            ))}
+            )}
           </Menu>
 
           <Typography
             variant="body2"
             color="text.secondary"
             sx={{ ml: 1, cursor: 'pointer' }}
+            onClick={handleSetAsDefault}
           >
-            Set as default
+            {isCurrentModelDefault() ? 'Default' : 'Set as default'}
           </Typography>
 
           <Box sx={{ flexGrow: 1 }} />
+          
+          {/* Header Action Buttons */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <HeaderActionButton
+              aria-label="network access"
+              title="Network Access"
+              onClick={async () => {
+                setNetworkAccessOpen(true);
+                // Fetch network addresses when opening dialog
+                if (window.electronAPI?.getNetworkAddresses) {
+                  // Electron mode - use IPC to get addresses
+                  try {
+                    const addresses = await window.electronAPI.getNetworkAddresses();
+                    setNetworkAddresses(addresses);
+                  } catch (error) {
+                    console.error('Failed to get network addresses:', error);
+                  }
+                } else {
+                  // Browser mode - detect from current URL with dynamic port
+                  try {
+                    const currentPort = window.location.port || '80';
+                    const protocol = window.location.protocol;
+                    
+                    const addresses = {
+                      localhost: `${protocol}//localhost:${currentPort}`,
+                      loopback: `${protocol}//127.0.0.1:${currentPort}`,
+                      wifi: [] as string[],
+                      ethernet: [] as string[]
+                    };
+                    
+                    // Fetch network addresses from server (server returns full HTTPS URLs)
+                    try {
+                      const response = await fetch('/api/network-info');
+                      if (response.ok) {
+                        const data = await response.json();
+                        // Use WiFi and Ethernet arrays from server
+                        if (data.wifiIPs && Array.isArray(data.wifiIPs)) {
+                          addresses.wifi = data.wifiIPs;
+                        }
+                        if (data.ethernetIPs && Array.isArray(data.ethernetIPs)) {
+                          addresses.ethernet = data.ethernetIPs;
+                        }
+                      }
+                    } catch (error) {
+                      console.log('Could not fetch network IPs from server:', error);
+                    }
+                    
+                    setNetworkAddresses(addresses);
+                  } catch (error) {
+                    console.error('Failed to detect network addresses in browser:', error);
+                  }
+                }
+              }}
+            >
+              <DevicesIcon fontSize="small" />
+            </HeaderActionButton>
+
+            <HeaderActionButton
+              aria-label="contributors"
+              title="Contributors"
+              onClick={() => setContributorsOpen(true)}
+            >
+              <PeopleIcon fontSize="small" />
+            </HeaderActionButton>
+
+            <HeaderActionButton
+              aria-label="settings"
+              title="Settings"
+              onClick={onOpenSettings}
+            >
+              <SettingsIcon fontSize="small" />
+            </HeaderActionButton>
+          </Box>
         </Toolbar>
       </AppBar>
-
-      {!chat ? (
+      </FixedTopbarOverlay>
+      
+      {!chat || !chat.id ? (
         <Box
-          sx={styles.welcomeContainer}
+          sx={{
+            ...styles.welcomeContainer,
+            bgcolor: 'background.default', // Theme-aware background
+          }}
         >
           <Box sx={styles.welcomeHeader}>
-            <Typography variant="h4" gutterBottom>
+            <Typography variant="h4" gutterBottom color="text.primary">
               {model?.name || 'Nebulon-GPT'}
             </Typography>
             <Typography variant="body1" color="text.secondary">
@@ -1243,7 +4299,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             </Typography>
           </Box>
 
-          <Typography variant="h6" gutterBottom sx={styles.suggestedPromptsHeader}>
+          <Typography variant="h6" gutterBottom color="text.primary" sx={styles.suggestedPromptsHeader}>
             <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Box component="span" sx={styles.sparkleIcon}>✨</Box> Suggested
             </Box>
@@ -1272,167 +4328,1083 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       ) : (
         <>
           <Box
-            sx={styles.messagesContainer}
+            key={chat.id}
+            ref={messagesContainerRef}
+            sx={{
+              ...styles.messagesContainer,
+              position: 'relative',
+              top: 'var(--chat-topbar-h, 64px)',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 0,
+              bgcolor: 'background.default', // Theme-aware background color
+              // Responsive paddingTop: mobile gets 130px, desktop gets 60px
+            paddingTop: {
+              xs: 'calc(var(--chat-topbar-h, 0px) + 160px)', // Mobile
+              sm: 'calc(var(--chat-topbar-h, 0px) + 60px)',  // Desktop
+            },
+            paddingLeft: '16px',
+            paddingRight: '16px',
+            paddingBottom: 'calc(var(--chat-input-h, 88px) + 80px)',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
+              WebkitOverflowScrolling: 'touch',
+              '& > *:first-of-type': {
+                marginTop: '16px',
+              },
+            }}
           >
-            {chat.messages.map(renderMessage)}
+            {renderedCompletedMessages}
+            {streamingMessage && renderMessage(streamingMessage, chat?.messages, loading)}
+            
+            {/* Loading Animation - appears after 3 seconds of loading */}
+            {showLoadingAnimation && loading && (
+              <Box
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'flex-start',
+                  mb: 2,
+                  px: 2,
+                }}
+              >
+                <Box
+                  sx={{
+                    maxWidth: '70%',
+                    backgroundColor: 'background.paper',
+                    borderRadius: '18px 18px 18px 4px',
+                    p: 3,
+                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    animation: 'fadeInUp 0.3s ease-out',
+                    '@keyframes fadeInUp': {
+                      '0%': {
+                        opacity: 0,
+                        transform: 'translateY(10px)',
+                      },
+                      '100%': {
+                        opacity: 1,
+                        transform: 'translateY(0)',
+                      },
+                    },
+                  }}
+                >
+                  {/* Animated thinking dots */}
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.5,
+                    }}
+                  >
+                    {[0, 1, 2].map((index) => (
+                      <Box
+                        key={index}
+                        sx={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          backgroundColor: 'primary.main',
+                          animation: `bounce 1.4s infinite ease-in-out`,
+                          animationDelay: `${index * 0.16}s`,
+                          '@keyframes bounce': {
+                            '0%, 80%, 100%': {
+                              transform: 'scale(0)',
+                              opacity: 0.5,
+                            },
+                            '40%': {
+                              transform: 'scale(1)',
+                              opacity: 1,
+                            },
+                          },
+                        }}
+                      />
+                    ))}
+                  </Box>
+                  
+                  {/* Loading/Thinking message */}
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{
+                      fontStyle: 'italic',
+                      animation: 'pulse 2s infinite',
+                      '@keyframes pulse': {
+                        '0%': { opacity: 0.2 },
+                        '50%': { opacity: 1 },
+                        '100%': { opacity: 0.2 },
+                      },
+                    }}
+                  >
+                    {model?.name || 'AI'} is loading/thinking...
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+            
             <div ref={messagesEndRef} />
           </Box>
 
-          <Box
-            component={Paper}
-            elevation={0}
-            sx={styles.inputContainer}
-          >
-            <Box sx={styles.inputBox}>
-              <Box sx={{ position: 'relative' }}>
-                <IconButton 
-                  size="small" 
-                  sx={isListening ? styles.micButtonActive : (speechError ? styles.micButtonError : styles.micButton)}
-                  onClick={toggleListening}
-                  disabled={loading || !recognitionRef.current}
-                  title={speechError || (isListening ? 'Stop dictation' : 'Start dictation')}
+          {/* Full Voice Mode Indicator - Fixed above input box, outside scroll container */}
+          {(() => {
+            const ttsSettings = ttsService.getSettings();
+            const isFullVoiceMode = ttsSettings.fullVoiceMode;
+            const ttsQueueStatus = ttsService.getQueueStatus();
+            const isTTSPaused = ttsService.isPausedState();
+            
+            // Show indicator if Full Voice Mode is active OR if we're in the process of turning off
+            if ((isFullVoiceMode && isListening) || (isTurningOff && isListening)) {
+              return (
+                <Box
+                  sx={{
+                    position: 'fixed',
+                    bottom: 'calc(var(--chat-input-h, 88px) + 20px)', // Position above input overlay
+                    right: '20px',
+                    zIndex: 1100, // Above input (1000) but below topbar (1300)
+                    backgroundColor: isTurningOff ? 'rgba(158, 158, 158, 0.95)' : 'rgba(244, 67, 54, 0.95)',
+                    color: 'white',
+                    padding: '20px',
+                    borderRadius: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 2,
+                    boxShadow: isTurningOff 
+                      ? '0 8px 32px rgba(158, 158, 158, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)'
+                      : '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                    backdropFilter: 'blur(20px)',
+                    border: isTurningOff ? '2px solid rgba(158, 158, 158, 0.8)' : '2px solid rgba(244, 67, 54, 0.8)',
+                    minWidth: '200px',
+                    animation: isTurningOff ? 'none' : 'pulseRed 2s infinite',
+                    transition: 'all 0.5s ease-in-out',
+                    '@keyframes pulseRed': {
+                      '0%': {
+                        boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(244, 67, 54, 0.7)',
+                      },
+                      '70%': {
+                        boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 15px rgba(244, 67, 54, 0)',
+                      },
+                      '100%': {
+                        boxShadow: '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 0 0 rgba(244, 67, 54, 0)',
+                      },
+                    },
+                  }}
                 >
-                  <MicIcon />
-                </IconButton>
-                {speechError && (
-                  <Typography 
-                    variant="caption" 
-                    color="warning.main" 
-                    sx={styles.micErrorText}
-                  >
-                    {speechError}
-                  </Typography>
-                )}
-              </Box>
-              {/* Hidden unified file input */}
-              <input
-                type="file"
-                ref={fileInputRef}
-                style={{ display: 'none' }}
-                accept=".txt,.docx,.pdf,image/*"
-                multiple
-                onChange={handleFileSelect}
-              />
-              
-              {/* Add attachment button - direct file browser */}
-              <Box sx={{ position: 'relative' }}>
-                <IconButton
-                  size="small"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={loading}
-                  title="Add attachment"
-                  sx={styles.fileUploadButton}
-                >
-                  <AddIcon fontSize="small" />
-                </IconButton>
-              </Box>
-              
-              <Box sx={{ width: '100%' }}>
-                {/* File attachment chips displayed above the text field */}
-                {attachments.length > 0 && (
-                  <Box 
-                    sx={{ 
+                  {/* Main indicator content */}
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
+                    {/* Large animated microphone icon */}
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '60px',
+                        height: '60px',
+                        borderRadius: '50%',
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        animation: 'bounce 1.5s infinite',
+                        '@keyframes bounce': {
+                          '0%, 20%, 50%, 80%, 100%': {
+                            transform: 'translateY(0)',
+                          },
+                          '40%': {
+                            transform: 'translateY(-5px)',
+                          },
+                          '60%': {
+                            transform: 'translateY(-2px)',
+                          },
+                        },
+                      }}
+                    >
+                      <MicIcon sx={{ fontSize: 32, color: 'white' }} />
+                    </Box>
+                    
+                    {/* Title */}
+                    <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.1rem', textAlign: 'center' }}>
+                      Full Voice Mode
+                    </Typography>
+                    
+                    {/* Status text - changes based on TTS state */}
+                    <Typography variant="body2" sx={{ fontSize: '0.9rem', opacity: 0.9, textAlign: 'center' }}>
+                      {isTTSPaused ? (
+                        '⏸️ Audio Paused - Listening...'
+                      ) : ttsQueueStatus.isPlaying ? (
+                        '🔊 Playing Audio - Listening...'
+                      ) : (
+                        '🎙️ Listening for your voice...'
+                      )}
+                    </Typography>
+                    
+                    {/* Helpful tip about "stop stop" command */}
+                    <Typography variant="caption" sx={{ 
+                      fontSize: '0.75rem', 
+                      opacity: 0.8, 
+                      textAlign: 'center',
+                      fontStyle: 'italic',
+                      mt: 0.5
+                    }}>
+                      💡 Say "stop stop" to stop listening
+                    </Typography>
+                    
+                    {/* Real-time audio waveform visualization */}
+                    <WaveformVisualization 
+                      voskRecognition={voskRecognition}
+                      isListening={isListening}
+                    />
+                  </Box>
+                  
+                  {/* Detection Sensitivity Control */}
+                  <Box sx={{ width: '100%', px: 1, pb: 1 }}>
+                    <Box sx={{ 
                       display: 'flex', 
-                      flexWrap: 'wrap', 
-                      gap: 0.5, 
-                      p: 1, 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
                       mb: 1,
-                      borderRadius: 1,
-                      bgcolor: 'rgba(255, 255, 255, 0.05)',
-                      border: '1px solid rgba(255, 255, 255, 0.1)',
-                      width: '100%'
-                    }}
-                  >
-                    {attachments.map((attachment) => (
-                      <Box 
-                        key={attachment.id} 
+                      gap: 1
+                    }}>
+                      <Typography variant="caption" sx={{ 
+                        fontSize: '0.75rem',
+                        opacity: 0.8 
+                      }}>
+                        Detection Sensitivity: {detectionSensitivity}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        onClick={handleSetSensitivityTo100}
+                        title="Reset detection sensitivity to optimal level (100)"
                         sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          bgcolor: 'action.hover',
-                          borderRadius: 1,
-                          p: 0.5,
-                          maxWidth: '100%',
-                          overflow: 'hidden'
+                          color: 'white',
+                          backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                          width: 20,
+                          height: 20,
+                          '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                            transform: 'scale(1.1)',
+                          },
+                          '&:active': {
+                            transform: 'scale(0.95)',
+                          },
+                          transition: 'all 0.2s ease-in-out',
                         }}
                       >
-                        {attachment.type === 'image' ? (
-                          <ImageIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
-                        ) : (
-                          <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
-                        )}
-                        <Typography 
-                          variant="caption" 
-                          sx={{ 
-                            maxWidth: '150px', 
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {attachment.name}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveAttachment(attachment.id);
-                          }}
-                          sx={{ 
-                            ml: 0.5, 
-                            p: 0.25,
-                            '&:hover': { bgcolor: 'action.selected' }
-                          }}
-                        >
-                          <CloseIcon sx={{ fontSize: 14 }} />
-                        </IconButton>
-                      </Box>
-                    ))}
+                        <RefreshIcon sx={{ fontSize: 12 }} />
+                      </IconButton>
+                    </Box>
+                    <Box sx={{ px: 1, pb: 1 }}>
+                      <Slider
+                        value={detectionSensitivity}
+                        onChange={handleDetectionSensitivityChange}
+                        min={0}
+                        max={100}
+                        step={1}
+                        size="small"
+                        sx={{
+                          color: 'white',
+                          '& .MuiSlider-thumb': {
+                            backgroundColor: 'white',
+                            border: '3px solid rgba(255, 255, 255, 0.9)',
+                            width: 24,
+                            height: 16,
+                            borderRadius: '50px',
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                            transition: 'all 0.2s ease-in-out',
+                            '&:hover': {
+                              boxShadow: '0 0 0 12px rgba(255, 255, 255, 0.12), 0 4px 12px rgba(0, 0, 0, 0.4)',
+                              transform: 'scale(1.1)',
+                              border: '3px solid rgba(255, 255, 255, 1)',
+                            },
+                            '&:active': {
+                              boxShadow: '0 0 0 16px rgba(255, 255, 255, 0.2), 0 2px 6px rgba(0, 0, 0, 0.5)',
+                              transform: 'scale(1.05)',
+                            },
+                            '&::before': {
+                              content: '""',
+                              position: 'absolute',
+                              top: '50%',
+                              left: '50%',
+                              transform: 'translate(-50%, -50%)',
+                              width: '8px',
+                              height: '4px',
+                              backgroundColor: 'rgba(244, 67, 54, 0.8)',
+                              borderRadius: '50px',
+                              transition: 'all 0.2s ease-in-out',
+                            },
+                          },
+                          '& .MuiSlider-track': {
+                            backgroundColor: 'white',
+                            border: 'none',
+                            height: 16,
+                            borderRadius: '1px 12px 12px 1px',
+                            boxShadow: '0 3px 8px rgba(0, 0, 0, 0.4)',
+                            background: 'linear-gradient(to right, white 0%, white 100%)',
+                            clipPath: 'polygon(0% 45%, 100% 0%, 100% 100%, 0% 55%)',
+                          },
+                          '& .MuiSlider-rail': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                            height: 16,
+                            borderRadius: '1px 12px 12px 1px',
+                            boxShadow: 'inset 0 3px 6px rgba(0, 0, 0, 0.3)',
+                            clipPath: 'polygon(0% 45%, 100% 0%, 100% 100%, 0% 55%)',
+                          },
+                          '& .MuiSlider-mark': {
+                            display: 'none',
+                          },
+                          '& .MuiSlider-markLabel': {
+                            display: 'none',
+                          },
+                        }}
+                      />
+                    </Box>
+                    {/* Custom labels row */}
+                    <Box sx={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      px: 2,
+                      mt: -0.5
+                    }}>
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>0</Typography>
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>25</Typography>
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>50</Typography>
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>75</Typography>
+                      <Typography variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7 }}>100</Typography>
+                    </Box>
                   </Box>
-                )}
-                
-                <TextField
-                  fullWidth
-                  placeholder="How can I help you today?"
-                  multiline
-                  maxRows={4}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  disabled={loading}
-                  InputProps={{
-                    sx: styles.textField,
-                    endAdornment: isListening && interimTranscript ? (
-                      <Box sx={styles.interimTranscript}>
-                        {interimTranscript}
-                      </Box>
-                    ) : null,
-                  }}
-                  variant="outlined"
-                />
-              </Box>
-              {loading ? (
-                <IconButton
-                  color="error"
-                  onClick={onStopResponse}
-                  sx={{ ml: 1 }}
-                >
-                  <StopIcon />
-                </IconButton>
-              ) : (
-                <IconButton
-                  color="primary"
-                  onClick={handleSendMessage}
-                  disabled={!message.trim() && attachments.length === 0}
-                  sx={{ ml: 1 }}
-                >
-                  <SendIcon />
-                </IconButton>
-              )}
+                  
+                  {/* Separator line */}
+                  <Box
+                    sx={{
+                      width: '100%',
+                      height: '1px',
+                      backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                      my: 1,
+                    }}
+                  />
+                  
+                  {/* Disable button at the bottom */}
+                  <Button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      console.log('🔇 User clicked to disable full voice mode');
+                      
+                      // Start the turning off animation immediately
+                      setIsTurningOff(true);
+                      
+                      // Disable full voice mode and stop mic immediately (but keep animation running)
+                      ttsService.updateSettings({ fullVoiceMode: false });
+                      ttsService.saveSettings();
+                      
+                      // Stop mic listening when disabling full voice mode
+                      if (onMicStop && onMicStop.current) {
+                        await onMicStop.current();
+                      }
+                      
+                      // The turning off state will be reset when isListening becomes false
+                      // This happens automatically when the mic stops
+                    }}
+                    variant="contained"
+                    size="small"
+                    sx={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                      color: 'white',
+                      borderRadius: '20px',
+                      textTransform: 'none',
+                      fontSize: '0.85rem',
+                      fontWeight: 'bold',
+                      px: 3,
+                      py: 1,
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                        transform: 'scale(1.05)',
+                        transition: 'all 0.2s ease-in-out',
+                      },
+                      '&:active': {
+                        transform: 'scale(0.95)',
+                      },
+                    }}
+                  >
+                    🔇 Turn Off
+                  </Button>
+                </Box>
+              );
+            }
+            
+            return null;
+          })()}
+
+          {/* Jump to bottom button - shows when scrolled up, hides when at bottom */}
+          {showJumpButton && (
+            <Box
+              sx={{
+                position: 'fixed',
+                bottom: '100px',
+                left: sidebarOpen ? 'calc(140px + 50%)' : '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 1050, // Below top bar (1300), above input (1000)
+                transition: 'left 225ms cubic-bezier(0.0, 0, 0.2, 1) 0ms',
+              }}
+            >
+              <IconButton
+                onClick={() => jumpToLatest('smooth')}
+                sx={(theme) => ({
+                  backgroundColor: theme.palette.mode === 'dark' 
+                    ? 'rgba(66, 66, 66, 0.95)' 
+                    : 'primary.main',
+                  color: 'white',
+                  boxShadow: theme.palette.mode === 'dark'
+                    ? '0 4px 8px rgba(0,0,0,0.6)'
+                    : '0 4px 8px rgba(0,0,0,0.3)',
+                  border: theme.palette.mode === 'dark' 
+                    ? '1px solid rgba(255,255,255,0.1)'
+                    : 'none',
+                  '&:hover': {
+                    backgroundColor: theme.palette.mode === 'dark'
+                      ? 'rgba(88, 88, 88, 0.95)'
+                      : 'primary.dark',
+                    transform: 'scale(1.1)',
+                  },
+                  transition: 'all 0.2s',
+                })}
+                size="large"
+              >
+                <ArrowDownIcon />
+              </IconButton>
             </Box>
-          </Box>
+          )}
+
+          <FixedInputOverlay sidebarOpen={sidebarOpen} chatRootEl={messagesContainerRef.current}>
+            <InputArea
+              loading={loading}
+              onSendMessage={handleSendMessage}
+              onStopResponse={onStopResponse}
+              voskRecognition={voskRecognition}
+              isListening={isListening}
+              isProcessingMic={isProcessingMic}
+              speechError={speechError}
+              interimTranscript={interimTranscript}
+              onToggleListening={toggleListening}
+              initialMessage={message}
+              chat={chat}
+              voiceText={message}
+              onClearInput={onClearInputAreaRef}
+              onGetAttachments={onGetAttachmentsRef}
+              isMobile={isMobile}
+            />
+          </FixedInputOverlay>
         </>
       )}
+      
+      {/* Contributors Dialog */}
+      <Dialog
+        open={contributorsOpen}
+        onClose={() => setContributorsOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <PeopleIcon color="primary" />
+              <Typography variant="h6">Contributors</Typography>
+            </Box>
+            <IconButton
+              edge="end"
+              color="inherit"
+              onClick={() => setContributorsOpen(false)}
+              aria-label="close"
+              sx={{ p: 1 }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            This project was developed at{' '}
+            <Typography
+              component="a"
+              href="https://cpace.pitt.edu/"
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{
+                color: 'primary.main',
+                textDecoration: 'none',
+                fontWeight: 'bold',
+                '&:hover': {
+                  textDecoration: 'underline',
+                },
+              }}
+            >
+              CPACE (Computational Pathology & AI Center of Excellence)
+            </Typography>
+            .
+          </Typography>
+          
+          <Typography variant="body1" sx={{ mb: 3 }}>
+            This project was made possible by the contributions of the following individuals:
+          </Typography>
+          
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {[
+              'Prof. Hooman H. Rashidi',
+              'Prof. Liron Pantanowitz',
+              'Dr. Quincy Gu',
+              'Dr. Matthew Hanna',
+              'Dr. Yanshan Wang',
+              'Parth Sanghani',
+              'Mohammadreza Moradi'
+            ].map((contributor, index) => (
+              <Box
+                key={index}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  p: 2,
+                  borderRadius: 2,
+                  bgcolor: 'action.hover',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: '50%',
+                    bgcolor: 'primary.main',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontWeight: 'bold',
+                    fontSize: '1.2rem',
+                  }}
+                >
+                  {contributor.split(' ').map(name => name.charAt(0)).join('').slice(0, 2)}
+                </Box>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  {contributor}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+          
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 3, textAlign: 'center' }}>
+            Thank you for your valuable contributions to this project!
+          </Typography>
+          
+          <Typography variant="body2" sx={{ mt: 2, textAlign: 'center' }}>
+            <Typography
+              component="a"
+              href="https://cpace.pitt.edu/"
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{
+                color: 'primary.main',
+                textDecoration: 'none',
+                '&:hover': {
+                  textDecoration: 'underline',
+                },
+              }}
+            >
+              cpace.pitt.edu
+            </Typography>
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setContributorsOpen(false)} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Network Access Dialog */}
+      <Dialog
+        open={networkAccessOpen}
+        onClose={() => setNetworkAccessOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <DevicesIcon color="primary" />
+              <Typography variant="h6">Network Access</Typography>
+            </Box>
+            <IconButton
+              edge="end"
+              color="inherit"
+              onClick={() => setNetworkAccessOpen(false)}
+              aria-label="close"
+              sx={{ p: 1 }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Access this application from other devices on the same network. Use any of the following addresses in your browser:
+          </Typography>
+
+          {/* Localhost address */}
+          <Box sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <ComputerIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                Local (this computer only):
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5 }}>
+              <Box
+                sx={{ 
+                  backgroundColor: 'action.hover',
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  flex: 1,
+                }}
+              >
+                <Typography 
+                  component="a"
+                  href={networkAddresses.localhost}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="body2" 
+                  sx={{ 
+                    fontFamily: 'monospace', 
+                    fontSize: '0.95rem',
+                    color: 'primary.main',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    '&:hover': {
+                      color: 'primary.dark',
+                    }
+                  }}
+                >
+                  {networkAddresses.localhost}
+                </Typography>
+              </Box>
+              <IconButton
+                size="small"
+                onClick={async () => {
+                  try {
+                    if (window.electronAPI?.copyToClipboard) {
+                      await window.electronAPI.copyToClipboard(networkAddresses.localhost);
+                    } else {
+                      await navigator.clipboard.writeText(networkAddresses.localhost);
+                    }
+                    setCopiedAddress(networkAddresses.localhost);
+                    setTimeout(() => setCopiedAddress(null), 2000);
+                  } catch (error) {
+                    console.error('Failed to copy address:', error);
+                  }
+                }}
+                sx={{ 
+                  color: copiedAddress === networkAddresses.localhost ? 'success.main' : 'text.secondary',
+                  '&:hover': {
+                    backgroundColor: 'action.hover',
+                  }
+                }}
+              >
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  setQrCodeAddress(networkAddresses.localhost);
+                  setQrCodeDialogOpen(true);
+                }}
+                sx={{ 
+                  color: 'text.secondary',
+                  '&:hover': {
+                    backgroundColor: 'action.hover',
+                    color: 'primary.main',
+                  }
+                }}
+              >
+                <QrCodeIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Box>
+
+          {/* Loopback address */}
+          <Box sx={{ mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <LoopIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                Loopback (this computer only):
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5 }}>
+              <Box
+                sx={{ 
+                  backgroundColor: 'action.hover',
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  flex: 1,
+                }}
+              >
+                <Typography 
+                  component="a"
+                  href={networkAddresses.loopback}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  variant="body2"
+                  sx={{ 
+                    fontFamily: 'monospace', 
+                    fontSize: '0.95rem',
+                    color: 'primary.main',
+                    textDecoration: 'underline',
+                    cursor: 'pointer',
+                    '&:hover': {
+                      color: 'primary.dark',
+                    }
+                  }}
+                >
+                  {networkAddresses.loopback}
+                </Typography>
+              </Box>
+              <IconButton
+                size="small"
+                onClick={async () => {
+                  try {
+                    if (window.electronAPI?.copyToClipboard) {
+                      await window.electronAPI.copyToClipboard(networkAddresses.loopback);
+                    } else {
+                      await navigator.clipboard.writeText(networkAddresses.loopback);
+                    }
+                    setCopiedAddress(networkAddresses.loopback);
+                    setTimeout(() => setCopiedAddress(null), 2000);
+                  } catch (error) {
+                    console.error('Failed to copy address:', error);
+                  }
+                }}
+                sx={{ 
+                  color: copiedAddress === networkAddresses.loopback ? 'success.main' : 'text.secondary',
+                  '&:hover': {
+                    backgroundColor: 'action.hover',
+                  }
+                }}
+              >
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={() => {
+                  setQrCodeAddress(networkAddresses.loopback);
+                  setQrCodeDialogOpen(true);
+                }}
+                sx={{ 
+                  color: 'text.secondary',
+                  '&:hover': {
+                    backgroundColor: 'action.hover',
+                    color: 'primary.main',
+                  }
+                }}
+              >
+                <QrCodeIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Box>
+
+          {/* WiFi / Hotspot addresses */}
+          {networkAddresses.wifi.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <WifiIcon sx={{ fontSize: 18, color: 'success.main' }} />
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                  WiFi / Hotspot (accessible from other devices):
+                </Typography>
+              </Box>
+              {networkAddresses.wifi.map((address: string, index: number) => (
+                <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5, mb: 1 }}>
+                  <Box
+                    sx={{ 
+                      backgroundColor: 'action.hover',
+                      px: 1.5,
+                      py: 1,
+                      borderRadius: 1,
+                      flex: 1,
+                    }}
+                  >
+                    <Typography 
+                      component="a"
+                      href={address}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="body2"
+                      sx={{ 
+                        fontFamily: 'monospace', 
+                        fontSize: '0.95rem',
+                        color: 'success.main',
+                        textDecoration: 'underline',
+                        cursor: 'pointer',
+                        '&:hover': {
+                          color: 'success.dark',
+                        }
+                      }}
+                    >
+                      {address}
+                    </Typography>
+                  </Box>
+                  <IconButton
+                    size="small"
+                    onClick={async () => {
+                      try {
+                        if (window.electronAPI?.copyToClipboard) {
+                          await window.electronAPI.copyToClipboard(address);
+                        } else {
+                          await navigator.clipboard.writeText(address);
+                        }
+                        setCopiedAddress(address);
+                        setTimeout(() => setCopiedAddress(null), 2000);
+                      } catch (error) {
+                        console.error('Failed to copy address:', error);
+                      }
+                    }}
+                    sx={{ 
+                      color: copiedAddress === address ? 'success.main' : 'text.secondary',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                      }
+                    }}
+                  >
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      setQrCodeAddress(address);
+                      setQrCodeDialogOpen(true);
+                    }}
+                    sx={{ 
+                      color: 'text.secondary',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                        color: 'success.main',
+                      }
+                    }}
+                  >
+                    <QrCodeIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          {/* Ethernet / Cable addresses */}
+          {networkAddresses.ethernet.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                <Box
+                  component="span"
+                  sx={{
+                    fontSize: 18,
+                    color: 'warning.main',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  🔌
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                  Ethernet / Cable (accessible from other devices):
+                </Typography>
+              </Box>
+              {networkAddresses.ethernet.map((address: string, index: number) => (
+                <Box key={index} sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5, mb: 1 }}>
+                  <Box
+                    sx={{ 
+                      backgroundColor: 'action.hover',
+                      px: 1.5,
+                      py: 1,
+                      borderRadius: 1,
+                      flex: 1,
+                    }}
+                  >
+                    <Typography 
+                      component="a"
+                      href={address}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      variant="body2"
+                      sx={{ 
+                        fontFamily: 'monospace', 
+                        fontSize: '0.95rem',
+                        color: 'warning.main',
+                        textDecoration: 'underline',
+                        cursor: 'pointer',
+                        '&:hover': {
+                          color: 'warning.dark',
+                        }
+                      }}
+                    >
+                      {address}
+                    </Typography>
+                  </Box>
+                  <IconButton
+                    size="small"
+                    onClick={async () => {
+                      try {
+                        if (window.electronAPI?.copyToClipboard) {
+                          await window.electronAPI.copyToClipboard(address);
+                        } else {
+                          await navigator.clipboard.writeText(address);
+                        }
+                        setCopiedAddress(address);
+                        setTimeout(() => setCopiedAddress(null), 2000);
+                      } catch (error) {
+                        console.error('Failed to copy address:', error);
+                      }
+                    }}
+                    sx={{ 
+                      color: copiedAddress === address ? 'success.main' : 'text.secondary',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                      }
+                    }}
+                  >
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      setQrCodeAddress(address);
+                      setQrCodeDialogOpen(true);
+                    }}
+                    sx={{ 
+                      color: 'text.secondary',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                        color: 'warning.main',
+                      }
+                    }}
+                  >
+                    <QrCodeIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              ))}
+            </Box>
+          )}
+
+          <Box sx={{ 
+            mt: 3, 
+            p: 2, 
+            backgroundColor: 'action.hover',
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider'
+          }}>
+            <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
+              💡 How to connect from another device:
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              1. Ensure both devices are on the same network (e.g., connected to the same WiFi or mobile hotspot)
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              2. Open a browser on the other device (phone, tablet, or laptop)
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              3. Enter one of the <strong>network addresses</strong> shown above
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              4. <strong>Accept the security warning</strong> - Your browser will show a "Not Secure" or "Your connection is not private" warning because we use a self-signed SSL certificate. This is normal and safe - click "Advanced" and then "Proceed" (or similar) to continue.
+            </Typography>
+            
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, fontStyle: 'italic', backgroundColor: 'rgba(33, 150, 243, 0.08)', p: 1, borderRadius: 1 }}>
+              🔒 <strong>Why HTTPS & Self-Signed Certificate?</strong> Network addresses use HTTPS with a self-signed certificate to enable secure connections and allow microphone access for voice features. The certificate warning is expected and safe to accept.
+            </Typography>
+            
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, fontStyle: 'italic' }}>
+              📱 <strong>Quick Access with QR Code:</strong> Click the QR code icon next to any address to generate a scannable code. Simply open your mobile device's camera app and point it at the QR code to instantly access the application - no typing required!
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNetworkAccessOpen(false)} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* QR Code Dialog */}
+      <Dialog
+        open={qrCodeDialogOpen}
+        onClose={() => setQrCodeDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <QrCodeIcon color="primary" />
+              <Typography variant="h6">Scan QR Code</Typography>
+            </Box>
+            <IconButton
+              edge="end"
+              color="inherit"
+              onClick={() => setQrCodeDialogOpen(false)}
+              aria-label="close"
+              sx={{ p: 1 }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center',
+            gap: 2,
+            py: 2
+          }}>
+            <Box sx={{ 
+              p: 2, 
+              backgroundColor: 'white',
+              borderRadius: 2,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            }}>
+              <QRCodeSVG 
+                value={qrCodeAddress}
+                size={256}
+                level="H"
+                includeMargin={true}
+              />
+            </Box>
+            
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                fontFamily: 'monospace', 
+                color: 'text.secondary',
+                textAlign: 'center',
+                wordBreak: 'break-all',
+                px: 2
+              }}
+            >
+              {qrCodeAddress}
+            </Typography>
+            
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', px: 2 }}>
+              📱 Scan this QR code with your mobile device camera to quickly access the application
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setQrCodeDialogOpen(false)} color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

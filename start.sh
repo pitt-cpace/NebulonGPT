@@ -1,55 +1,61 @@
 #!/bin/bash
 
-# Check if Docker is installed
-if ! command -v docker &> /dev/null; then
-    echo "Docker is not installed. Please install Docker first."
-    echo "Visit: https://www.docker.com/products/docker-desktop/"
+echo "🚀 Building NebulonGPT Container..."
+echo "===================================="
+
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Docker is not running. Please start Docker first."
     exit 1
 fi
 
-# Check if Ollama is running
-if ! curl -s http://localhost:11434/api/tags &> /dev/null; then
-    echo "Ollama doesn't seem to be running on port 11434."
-    echo "Please start Ollama with 'ollama serve' before running this application."
+# Check if docker-compose is available
+if ! command -v docker-compose &> /dev/null; then
+    echo "❌ docker-compose is not installed. Please install docker-compose first."
     exit 1
 fi
 
-# Try to use docker compose (newer Docker versions)
-if docker compose version &> /dev/null; then
-    echo "Starting Nebulon-GPT with docker compose..."
-    docker compose up -d
-# Fall back to docker-compose if available
-elif command -v docker-compose &> /dev/null; then
-    echo "Starting Nebulon-GPT with docker-compose..."
-    docker-compose up -d
-# If neither is available, use plain docker commands
-else
-    echo "Docker Compose not found. Using plain Docker commands..."
-    
-    # Build the image
-    echo "Building Docker image..."
-    docker build -t nebulon-gpt .
-    
-    # Run the container
-    echo "Starting container..."
-    docker run -d --name nebulon-gpt \
-        -p 3000:80 \
-        # --add-host=host.docker.internal:host-gateway \
-        -v "$(pwd)/nginx.conf:/etc/nginx/http.d/default.conf" \
-        -v nebulon-gpt-data:/app/data \
-        -e NODE_ENV=production \
-        -e REACT_APP_OLLAMA_API_URL=http://localhost:11434 \
-        nebulon-gpt
-fi
+echo "✅ Docker and docker-compose are available"
 
-# Wait for the container to start
-sleep 3
+# Stop any existing containers
+echo "🛑 Stopping existing containers..."
+docker-compose down
 
-# Check if the container is running
-if docker ps | grep -q nebulon-gpt; then
-    echo "Nebulon-GPT is now running!"
-    echo "Open your browser and navigate to: http://localhost:3000"
-else
-    echo "Failed to start Nebulon-GPT. Please check the logs with 'docker logs nebulon-gpt'."
-    exit 1
-fi
+# Remove old images (optional - uncomment if you want to force rebuild)
+# echo "🗑️  Removing old images..."
+# docker-compose down --rmi all
+
+# Build and start the container
+echo "🔨 Building container..."
+docker-compose up --build -d
+
+# Wait a moment for services to start
+echo "⏳ Waiting for services to start..."
+sleep 10
+
+# Check container status
+echo "📊 Container Status:"
+docker-compose ps
+
+# Check if container is running
+echo "🔍 Checking container status..."
+docker exec nebulon-gpt-integrated ps aux | grep -E "(node|python|nginx)" | grep -v grep || echo "Services starting..."
+
+# Show recent logs
+echo "📝 Recent logs:"
+docker-compose logs --tail=20
+
+echo ""
+echo "🎉 Build complete!"
+echo "================================================"
+echo "🌐 Web Interface: http://localhost:3000"
+echo "🎤 Vosk ASR Server: ws://localhost:3000/vosk"
+echo "🔊 Kokoro TTS Server: ws://localhost:3000/tts"
+echo ""
+echo "📋 Useful commands:"
+echo "  View logs: docker-compose logs -f"
+echo "  Stop services: docker-compose down"
+echo "  Restart services: docker-compose restart"
+echo "  Check processes: docker exec nebulon-gpt-integrated ps aux"
+echo ""
+echo "📖 For more information, see INTEGRATED_SETUP.md"
