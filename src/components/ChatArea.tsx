@@ -2085,9 +2085,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   };
 
   const detectMarkdownTable = (content: string, startIndex: number = 0): ContentBlock | null => {
-    // Flexible regex that matches markdown tables with or without leading/trailing pipes
-    // Removed ^ anchor to allow tables anywhere in the content, not just at line start
-    const markdownTableRegex = /[^\n]*\|[^\n]+\n[^\n]*[-:]+\|[-:\s|]+[^\n]*\n(?:[^\n]*\|[^\n]+\n?)+/;
+    // Simplified regex that reliably matches markdown tables
+    const markdownTableRegex = /\|.+\|\n\|[-:\s|]+\|\n(?:\|.+\|\n?)+/;
     const searchContent = content.substring(startIndex);
     const match = searchContent.match(markdownTableRegex);
     
