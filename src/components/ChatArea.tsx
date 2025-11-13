@@ -2085,8 +2085,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   };
 
   const detectMarkdownTable = (content: string, startIndex: number = 0): ContentBlock | null => {
-    // Simplified regex that reliably matches markdown tables
-    const markdownTableRegex = /\|.+\|\n\|[-:\s|]+\|\n(?:\|.+\|\n?)+/;
+    // Regex that matches markdown tables with both hyphens and em/en dashes in separators
+    const markdownTableRegex = /\|.+\|\n\|[\-–—:\s|]+\|\n(?:\|.+\|\n?)+/;
     const searchContent = content.substring(startIndex);
     const match = searchContent.match(markdownTableRegex);
     
