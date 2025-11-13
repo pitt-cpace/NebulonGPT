@@ -259,6 +259,10 @@ const StartupLoader: React.FC<StartupLoaderProps> = ({ onComplete }) => {
             <br />
             <strong>Ctrl+F5</strong> (Windows) or <strong>Cmd+Shift+R</strong> (Mac)
           </Typography>
+          
+          <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.7rem', lineHeight: 1.4, mt: 1.5, display: 'block', fontStyle: 'italic' }}>
+            Note: The first time may take 5~10 minutes while models are being extracted and fully set up.
+          </Typography>
         </Box>
       </Box>
     </Fade>
