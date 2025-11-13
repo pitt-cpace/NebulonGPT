@@ -4951,8 +4951,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             Access this application from other devices on the same network. Use any of the following addresses in your browser:
           </Typography>
 
-          {/* Localhost address */}
-          <Box sx={{ mb: 2 }}>
+          {/* Localhost address - COMMENTED OUT */}
+          {/* <Box sx={{ mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
               <ComputerIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
@@ -5030,10 +5030,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 <QrCodeIcon fontSize="small" />
               </IconButton>
             </Box>
-          </Box>
+          </Box> */}
 
-          {/* Loopback address */}
-          <Box sx={{ mb: 2 }}>
+          {/* Loopback address - COMMENTED OUT */}
+          {/* <Box sx={{ mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
               <LoopIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
               <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
@@ -5111,7 +5111,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 <QrCodeIcon fontSize="small" />
               </IconButton>
             </Box>
-          </Box>
+          </Box> */}
 
           {/* WiFi / Hotspot addresses */}
           {networkAddresses.wifi.length > 0 && (
