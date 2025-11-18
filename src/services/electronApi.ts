@@ -1,3 +1,5 @@
+import { getAllVoskModels, deleteVoskModel as deleteVoskModelBackend, extractVoskModel as extractVoskModelBackend } from './backendApi';
+
 // Electron API adapter to replace Node.js server calls
 declare global {
   interface Window {
@@ -157,46 +159,34 @@ export const electronApi = {
     if (isElectron() && window.electronAPI) {
       return await window.electronAPI.getVoskModels();
     }
-    // Fallback to HTTP API for web/Docker version
-    const response = await fetch('/api/vosk/models/all');
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    return await response.json();
+    // Fallback to backendApi service for web/Docker version
+    return await getAllVoskModels();
   },
 
   async deleteVoskModel(modelName: string): Promise<{ success: boolean; error?: string }> {
     if (isElectron() && window.electronAPI) {
       return await window.electronAPI.deleteVoskModel(modelName);
     }
-    // Fallback to HTTP API for web/Docker version
-    const response = await fetch(`/api/vosk/models/${encodeURIComponent(modelName)}`, {
-      method: 'DELETE',
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      return { success: false, error: errorData.error || 'Failed to delete model' };
+    // Fallback to backendApi service for web/Docker version
+    try {
+      await deleteVoskModelBackend(modelName);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to delete model' };
     }
-    
-    return { success: true };
   },
 
   async extractVoskModel(modelName: string): Promise<{ success: boolean; error?: string }> {
     if (isElectron() && window.electronAPI) {
       return await window.electronAPI.extractVoskModel(modelName);
     }
-    // Fallback to HTTP API for web/Docker version
-    const response = await fetch(`/api/vosk/models/${encodeURIComponent(modelName)}/extract`, {
-      method: 'POST',
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      return { success: false, error: errorData.error || 'Failed to extract model' };
+    // Fallback to backendApi service for web/Docker version
+    try {
+      await extractVoskModelBackend(modelName);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to extract model' };
     }
-    
-    return { success: true };
   },
 
   async copyFileToModels(fileName: string, fileData: Uint8Array): Promise<{ success: boolean; error?: string }> {
@@ -269,8 +259,8 @@ export const getWebSocketUrls = () => {
     const hostname = window.location.hostname;
     console.log(`⚡ Electron detected - using direct WebSocket connections on ${hostname}`);
     return {
-      vosk: `ws://${hostname}:2700`,  // Direct connection to Vosk server
-      tts: `ws://${hostname}:2701`    // Direct connection to TTS server
+      vosk: `ws://${hostname}:3001/vosk`,  // Direct connection to unified backend
+      tts: `ws://${hostname}:3001/tts`     // Direct connection to unified backend
     };
   }
   
@@ -306,23 +296,23 @@ export const getWebSocketUrls = () => {
   // Combine development indicators - must have webpack dev server OR be on port 3000 with dev assets
   const isDevelopmentMode = hasWebpackDevServer || (isReactDevServer && hasDevAssets);
   
-  // Scenario 3: Development mode (React dev server) - use direct connections to Python services
+  // Scenario 3: Development mode (React dev server) - use direct connections to unified backend
   if (isDevelopmentMode) {
     // Use current hostname to support IP address access (127.0.0.1, 10.211.33.32, etc.)
     const hostname = window.location.hostname;
-    console.log(`🔧 Development environment detected (React dev server) on ${hostname} - using direct WebSocket connections`);
-    console.log(`🔧 Development indicators: webpack=${hasWebpackDevServer}, reactDev=${isReactDevServer}, devAssets=${hasDevAssets}`);
+    console.log(`Development environment detected (React dev server) on ${hostname} - using direct WebSocket connections to unified backend`);
+    console.log(`Development indicators: webpack=${hasWebpackDevServer}, reactDev=${isReactDevServer}, devAssets=${hasDevAssets}`);
     return {
-      vosk: `ws://${hostname}:2700`,
-      tts: `ws://${hostname}:2701`
+      vosk: `ws://${hostname}:3001/vosk`,
+      tts: `ws://${hostname}:3001/tts`
     };
   }
   
   // Scenario 4: Docker/production (nginx proxy) - use proxy paths with current host/port
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host; // Includes hostname:port (e.g., localhost:8080, myapp.com:443)
-  console.log(`🐳 Docker/production detected on ${host} - using nginx proxy paths`);
-  console.log(`🐳 Environment indicators: webpack=${hasWebpackDevServer}, port=${window.location.port}, hostname=${window.location.hostname}`);
+  console.log(`Docker/production detected on ${host} - using nginx proxy paths`);
+  console.log(`Environment indicators: webpack=${hasWebpackDevServer}, port=${window.location.port}, hostname=${window.location.hostname}`);
   return {
     vosk: `${protocol}//${host}/vosk`,
     tts: `${protocol}//${host}/tts`

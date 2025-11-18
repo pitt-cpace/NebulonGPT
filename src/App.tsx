@@ -143,12 +143,6 @@ const App: React.FC = () => {
     return true; // Success when not in full voice mode or not listening
   }, [isListening]);
 
-  // Function to determine the chat API URL based on environment
-  const getChatApiUrl = useCallback(() => {
-    const isProduction = process.env.NODE_ENV === 'production';
-    return isProduction ? '/api/chats' : 'http://localhost:3001/api/chats';
-  }, []);
-
   // Function to save a specific chat by ID to the server
   const saveChatToServer = useCallback(async (chat: ChatType) => {
     try {

@@ -1,0 +1,32 @@
+# NebulonGPT Unified Backend Requirements
+# Python 3.9+ required
+
+# FastAPI REST API Server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+aiofiles==23.2.1
+
+# Vosk ASR
+vosk>=0.3.44
+
+# Kokoro TTS - Core Dependencies
+kokoro>=0.7.16
+torch>=2.1.0
+soundfile>=0.12.1
+numpy
+huggingface_hub
+
+# Kokoro TTS - English Language Support
+misaki[en]
+spacy>=3.7.0
+phonemizer-fork
+spacy-curated-transformers
+num2words
+espeakng-loader
+
+# spaCy English language model
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
+# Network interface detection
+netifaces==0.11.0

@@ -304,7 +304,7 @@ async function extractKokoroCache() {
       } else {
         console.log('📦 Kokoro TTS source not found at:', kokoroModelsSource);
         // Try alternative path for development
-        const devKokoroSource = getResourcePath('Kokoro-TTS-Server');
+        const devKokoroSource = getResourcePath('backend/models/kokoro');
         if (fs.existsSync(devKokoroSource)) {
           console.log('📦 Found Kokoro TTS at dev path, extracting...');
           kokoroModelsDir = devKokoroSource;
@@ -549,7 +549,7 @@ async function extractVoskModels() {
       } else {
         console.log('📦 Vosk models source not found at:', voskModelsSource);
         // Try alternative path for development
-        const devVoskModelsSource = getResourcePath('Vosk-Server/websocket/models');
+        const devVoskModelsSource = getResourcePath('backend/models/vosk');
         if (fs.existsSync(devVoskModelsSource)) {
           console.log('📦 Found Vosk models at dev path, extracting...');
           voskModelsDir = devVoskModelsSource;
@@ -916,7 +916,7 @@ function startVoskServer() {
 
     // Dynamically determine server script path after extraction
     const extractedVoskServer = path.join(PATHS.pythonBundleDir, 'python-env/vosk-server/asr_server_with_models.py');
-    const devVoskServer = getResourcePath('Vosk-Server/websocket/asr_server_with_models.py');
+    const devVoskServer = getResourcePath('legacy/Vosk-Server/websocket/asr_server_with_models.py');
     
     const voskServerScript = fs.existsSync(extractedVoskServer) ? extractedVoskServer : devVoskServer;
     
@@ -1028,7 +1028,7 @@ function startTTSServer() {
 
     // Dynamically determine TTS server script path after extraction
     const extractedTTSServer = path.join(PATHS.pythonBundleDir, 'python-env/kokoro-tts/browser_tts_server.py');
-    const devTTSServer = getResourcePath('Kokoro-TTS-Server/websocket/browser_tts_server.py');
+    const devTTSServer = getResourcePath('legacy/Kokoro-TTS-Server/websocket/browser_tts_server.py');
     
     const ttsServerScript = fs.existsSync(extractedTTSServer) ? extractedTTSServer : devTTSServer;
     

@@ -1,4 +1,4 @@
-# Multi-stage build for integrated NebulonGPT with Vosk and Kokoro TTS
+# Multi-stage build for NebulonGPT with Unified FastAPI Backend
 # Stage 1: Build the React frontend
 FROM node:18-alpine AS frontend-build
 
@@ -38,61 +38,54 @@ RUN apt-get update && apt-get install -y \
     git curl nginx pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs
-
 # Set environment early
 ENV HF_HOME=/app/.cache/huggingface \
     TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers \
     HF_DATASETS_CACHE=/app/.cache/huggingface/datasets \
     HF_HUB_OFFLINE=1 \
-    NODE_ENV=production \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
 
 RUN mkdir -p $HF_HOME
 
-# ----- Better pip caching setup -----
-# Copy only requirements first to preserve layer cache
-COPY Vosk-Server/websocket/requirements.txt /app/vosk-requirements.txt
-COPY Kokoro-TTS-Server/websocket/requirements.txt /app/kokoro-requirements.txt
-
-# Install all Python dependencies first (with BuildKit cache mount if available)
+# Copy and install Python requirements
+COPY backend/requirements.txt /app/backend/requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir -v -r vosk-requirements.txt && \
-    pip install --no-cache-dir -v -r kokoro-requirements.txt
+    pip install --no-cache-dir -v -r /app/backend/requirements.txt
 
-# ---- Node server install ----
-COPY package*.json ./
-RUN npm install --production
-
-# ---- Copy application files ----
-COPY server.js ./
+# Copy backend application code
+COPY backend/ /app/backend/
 
 # Copy built frontend files and verify they exist
 COPY --from=frontend-build /app/build ./build
 RUN ls -la /app/build && echo "Build files copied successfully" || echo "ERROR: Build files not found"
 
-# Vosk
-COPY Vosk-Server/ /app/vosk-server/
+# Copy nginx config
+COPY nginx.conf /etc/nginx/sites-available/default
+
+# Copy Vosk models (for extraction at runtime)
+COPY backend/models/vosk /app/vosk-models-source/
 RUN mkdir -p /app/vosk-server/models
 
-
-# Kokoro - Copy everything including the zip files
-COPY Kokoro-TTS-Server/ /app/kokoro-tts/
+# Copy Kokoro TTS cache (for extraction at runtime)
+COPY backend/models/kokoro/huggingface-cache.zip.* /app/kokoro-cache/
 
 # Create Hugging Face cache directory (extraction will happen at runtime)
 RUN mkdir -p /app/.cache/huggingface && \
     chown -R root:root /app/.cache && \
     chmod -R 755 /app/.cache
 
-# Data & nginx
+# Create data directory
 RUN mkdir -p /app/data
-COPY nginx.conf /etc/nginx/sites-available/default
+
+# Copy and prepare startup script
 COPY start-services.sh /app/start-services.sh
 RUN tr -d '\r' < /app/start-services.sh > /tmp/start-services-fixed.sh && \
     mv /tmp/start-services-fixed.sh /app/start-services.sh && \
     chmod +x /app/start-services.sh
+
+# Copy SSL certificates
+COPY Certification/ /app/Certification/
 
 # Expose ports
 EXPOSE 80

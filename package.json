@@ -115,14 +115,14 @@
     "npmRebuild": false,
     "extraResources": [
       {
-        "from": "Vosk-Server/websocket/models",
+        "from": "backend/models/vosk",
         "to": "models/vosk",
         "filter": [
           "**/*.zip*"
         ]
       },
       {
-        "from": "Kokoro-TTS-Server",
+        "from": "backend/models/kokoro",
         "to": "models/kokoro",
         "filter": [
           "huggingface-cache.zip.*"

@@ -36,9 +36,10 @@ import {
   InsertDriveFile as FileIcon,
   PictureAsPdf as PdfIcon
 } from '@mui/icons-material';
-import axios from 'axios';
 import { VoskRecognitionService } from '../services/vosk';
 import { electronApi, isElectron } from '../services/electronApi';
+import { getAllVoskModels, uploadVoskModel, extractVoskModel, deleteVoskModel } from '../services/backendApi';
+import backendApi from '../services/backendApi';
 
 // Helper function to update Vosk models checksum in Electron mode
 const updateVoskModelsChecksum = async () => {
@@ -103,9 +104,9 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
         setModels(response.models);
         setUsingVoskServer(false);
       } else {
-        // Use HTTP API for web/Docker version
-        const response = await axios.get(`${API_BASE}/api/vosk/models/all`);
-        setModels(response.data.models);
+        // Use backendApi service
+        const response = await getAllVoskModels();
+        setModels(response.models);
         setUsingVoskServer(false);
       }
     } catch (error) {
@@ -114,7 +115,7 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
     } finally {
       setLoading(false);
     }
-  }, [API_BASE]);
+  }, []);
 
   useEffect(() => {
     if (open) {
@@ -215,11 +216,11 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
           try {
             console.log(`Uploading file ${i + 1}/${totalFiles}: ${file.name}`);
             
-            const response = await axios.post(`${API_BASE}/api/vosk/models/upload`, formData, {
+            const response = await backendApi.post('/api/vosk/models/upload', formData, {
               headers: {
                 'Content-Type': 'multipart/form-data',
               },
-              onUploadProgress: ((currentCompleted) => (progressEvent) => {
+              onUploadProgress: ((currentCompleted) => (progressEvent: any) => {
                 if (progressEvent.total) {
                   const fileProgress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
                   const overallProgress = Math.round(((currentCompleted + (fileProgress / 100)) / totalFiles) * 100);
@@ -292,8 +293,8 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
           setError(result.error || 'Error deleting model');
         }
       } else {
-        // Use HTTP API for web/Docker version
-        await axios.delete(`${API_BASE}/api/vosk/models/${encodeURIComponent(modelName)}`);
+        // Use backendApi service
+        await deleteVoskModel(modelName);
         setSuccess('Model deleted successfully');
       }
       loadModels();
@@ -330,8 +331,8 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
         // Update checksum after successful extraction
         await updateVoskModelsChecksum();
       } else {
-        // Use HTTP API for web/Docker version
-        await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(modelName)}/extract`);
+        // Use backendApi service
+        await extractVoskModel(modelName);
       }
       
       // Complete the progress
@@ -498,8 +499,8 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
             errors.push(`❌ ${fileName}: ${result.error || 'Delete failed'}`);
           }
         } else {
-          // Use HTTP API for web/Docker version
-          await axios.delete(`${API_BASE}/api/vosk/models/${encodeURIComponent(fileName)}`);
+          // Use backendApi service
+          await deleteVoskModel(fileName);
           results.push(`✅ ${fileName}: Deleted successfully`);
         }
       } catch (error: any) {
@@ -578,8 +579,8 @@ const VoskModelManager: React.FC<VoskModelManagerProps> = ({ open, onClose, vosk
               throw new Error(result.error || 'Extract failed');
             }
           } else {
-            // Use HTTP API for web/Docker version
-            await axios.post(`${API_BASE}/api/vosk/models/${encodeURIComponent(fileName)}/extract`);
+            // Use backendApi service
+            await extractVoskModel(fileName);
           }
           
           clearInterval(fileProgressInterval);
