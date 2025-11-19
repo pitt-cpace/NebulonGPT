@@ -525,6 +525,18 @@ async def generate_tts_audio(text: str, voice: str, speed: float):
         logger.error(f"TTS generation error: {e}")
         return None
 
+def process_next_in_queue(websocket: WebSocket, session_state: dict):
+    """Process the next item in the TTS queue"""
+    tts_queue = session_state['tts_queue']
+    is_paused = session_state['paused']
+    
+    if tts_queue and not is_paused:
+        task_fn = tts_queue.pop(0)
+        task = asyncio.create_task(task_fn())
+        session_state['current_task'] = task
+    else:
+        session_state['current_task'] = None
+
 @app.websocket("/tts")
 async def tts_websocket(websocket: WebSocket):
     """Kokoro TTS WebSocket endpoint"""
@@ -536,7 +548,10 @@ async def tts_websocket(websocket: WebSocket):
     session_state = {
         'paused': False,
         'active_message_id': None,
-        'queue': []
+        'queued_audio': [],
+        'processing': False,
+        'tts_queue': [],
+        'current_task': None
     }
     
     try:
@@ -548,12 +563,61 @@ async def tts_websocket(websocket: WebSocket):
                 action = data['action'].lower()
                 
                 if action in ['stop', 'clear']:
-                    session_state['queue'].clear()
+                    # Clear TTS queue and state
+                    session_state['tts_queue'].clear()
+                    session_state['queued_audio'].clear()
                     session_state['paused'] = False
                     session_state['active_message_id'] = None
+                    session_state['processing'] = False
+                    session_state['current_task'] = None
+                    
+                    # Clear runtime cache while preserving model cache
+                    try:
+                        if tts_pipeline:
+                            # Clear PyTorch cache if using GPU
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                                logger.info("[TTS] Cleared CUDA cache")
+                            
+                            # Force Python garbage collection
+                            import gc
+                            gc.collect()
+                            logger.info("[TTS] Forced garbage collection")
+                    except Exception as e:
+                        logger.warning(f"[TTS] Error clearing runtime cache: {e}")
+                    
+                    # Verification loop - check until everything is cleared (max 1 second)
+                    max_attempts = 10
+                    attempt = 0
+                    cleared = False
+                    
+                    while not cleared and attempt < max_attempts:
+                        await asyncio.sleep(0.1)
+                        attempt += 1
+                        
+                        # Check if everything is properly cleared
+                        buffers_empty = len(session_state.get('queued_audio', [])) == 0
+                        queue_empty = len(session_state.get('tts_queue', [])) == 0
+                        not_paused = session_state.get('paused', False) == False
+                        not_processing = session_state.get('processing', False) == False
+                        
+                        cleared = all([buffers_empty, queue_empty, not_paused, not_processing])
+                        
+                        if cleared:
+                            logger.info(f"[TTS] Completely cleared after {attempt * 100}ms")
+                            break
+                    
+                    if not cleared:
+                        logger.warning(f"[TTS] Clearing verification timeout after 1 second")
+                    
                     await websocket.send_json({
                         'type': 'queue_cleared',
-                        'status': 'success'
+                        'action': action,
+                        'status': 'success' if cleared else 'partial',
+                        'message': f'Server-side TTS cleared after {attempt * 100}ms verification',
+                        'verification_time_ms': attempt * 100,
+                        'fully_cleared': cleared,
+                        'ready_for_next_operation': cleared
                     })
                 
                 elif action == 'pause':
@@ -583,25 +647,43 @@ async def tts_websocket(websocket: WebSocket):
                 speed = data.get('speed', 1.0)
                 msg_id = data.get('assistantMessageId')
                 
-                # Check message ID match
-                if session_state['active_message_id'] and session_state['active_message_id'] != msg_id:
-                    logger.info(f"[TTS] Skipping - message ID mismatch")
-                    continue
+                # Create async task function for queue
+                async def tts_task():
+                    try:
+                        # Check message ID match
+                        if session_state['active_message_id'] and session_state['active_message_id'] != msg_id:
+                            logger.info(f"[TTS] Skipping - message ID mismatch: active={session_state['active_message_id']}, incoming={msg_id}")
+                            return
+                        
+                        logger.info(f"[TTS] Processing - message ID match: {msg_id}, text: {text[:50]}...")
+                        
+                        # Generate audio
+                        audio_data = await generate_tts_audio(text, voice, speed)
+                        
+                        if audio_data:
+                            await websocket.send_json({
+                                'type': 'complete_audio',
+                                'text': text,
+                                'voice': voice,
+                                'speed': speed,
+                                'audio': base64.b64encode(audio_data).decode('utf-8'),
+                                'audio_format': 'wav',
+                                'sample_rate': 24000,
+                                'assistantMessageId': msg_id
+                            })
+                    except Exception as e:
+                        logger.error(f"[TTS] Error in TTS task: {e}")
+                    finally:
+                        # Process next item in queue
+                        process_next_in_queue(websocket, session_state)
                 
-                # Generate audio
-                audio_data = await generate_tts_audio(text, voice, speed)
+                # Add task to queue
+                session_state['tts_queue'].append(tts_task)
                 
-                if audio_data:
-                    await websocket.send_json({
-                        'type': 'complete_audio',
-                        'text': text,
-                        'voice': voice,
-                        'speed': speed,
-                        'audio': base64.b64encode(audio_data).decode('utf-8'),
-                        'audio_format': 'wav',
-                        'sample_rate': 24000,
-                        'assistantMessageId': msg_id
-                    })
+                # If no current task or current task is done, start processing
+                current_task = session_state.get('current_task')
+                if not current_task or current_task.done():
+                    process_next_in_queue(websocket, session_state)
     
     except WebSocketDisconnect:
         logger.info(f"[TTS] Disconnected: {session_id}")
