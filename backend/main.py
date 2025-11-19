@@ -412,12 +412,18 @@ async def vosk_websocket(websocket: WebSocket):
     
     try:
         while True:
-            data = await websocket.receive()
+            message = await websocket.receive()
             
-            # Binary audio data
-            if 'bytes' in data:
+            # Check for disconnect message
+            if message.get('type') == 'websocket.disconnect':
+                logger.info(f"[Vosk] Received disconnect message: {session_id}")
+                break
+            
+            # Handle binary audio data
+            if 'bytes' in message:
+                audio_data = message['bytes']
                 if rec:
-                    if rec.AcceptWaveform(data['bytes']):
+                    if rec.AcceptWaveform(audio_data):
                         result = json.loads(rec.Result())
                         if result.get("text"):
                             await websocket.send_json({"type": "result", "text": result["text"]})
@@ -426,10 +432,10 @@ async def vosk_websocket(websocket: WebSocket):
                         if partial.get("partial"):
                             await websocket.send_json({"type": "partial", "partial": partial["partial"]})
             
-            # JSON commands
-            elif 'text' in data:
+            # Handle text messages (JSON commands)
+            elif 'text' in message:
                 try:
-                    msg = json.loads(data['text'])
+                    msg = json.loads(message['text'])
                     msg_type = msg.get("type")
                     
                     if msg_type == "get_models":
@@ -448,11 +454,15 @@ async def vosk_websocket(websocket: WebSocket):
                         rec = KaldiRecognizer(model, sample_rate)
                         rec.SetWords(True)
                         await websocket.send_json({"type": "model_loaded", "model": model_name})
-                except:
+                except json.JSONDecodeError:
                     pass
+                except Exception as e:
+                    logger.error(f"[Vosk] Error processing message: {e}")
     
     except WebSocketDisconnect:
-        logger.info(f"[Vosk] Disconnected: {session_id}")
+        logger.info(f"[Vosk] Client disconnected: {session_id}")
+    except Exception as e:
+        logger.error(f"[Vosk] Error in WebSocket handler: {e}")
     finally:
         if current_model:
             vosk_model_refcnt[current_model] -= 1
