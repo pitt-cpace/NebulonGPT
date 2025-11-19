@@ -167,46 +167,53 @@ else
         torch==2.2.2 torchvision==0.17.2
 fi
 
-# Install remaining packages from requirements (excluding torch and torchvision)
-echo "Installing remaining Python packages for $TARGET_ARCH..."
-$BUNDLED_PYTHON -m pip install \
-    --upgrade --force-reinstall \
-    -r requirements-bundle.txt --no-deps
-
-# Now install dependencies of the packages we just installed
-echo "Installing package dependencies..."
-$BUNDLED_PYTHON -m pip install \
-    -r requirements-bundle.txt
-
-# Install spaCy English model
-echo "Installing spaCy English model for $TARGET_ARCH..."
+# Install backend requirements
+echo "Installing backend requirements for $TARGET_ARCH..."
 $BUNDLED_PYTHON -m pip install \
     --upgrade \
-    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+    -r backend/requirements.txt
 
-# Copy websocket servers
-echo "Copying websocket servers..."
-if [ -d 'legacy/Vosk-Server/websocket' ]; then
-    mkdir -p python-bundle/python-env/vosk-server
-    # Copy all files except the models directory
-    find legacy/Vosk-Server/websocket -maxdepth 1 -type f -exec cp {} python-bundle/python-env/vosk-server/ \;
-    # Copy other directories except models
-    for dir in legacy/Vosk-Server/websocket/*/; do
-        if [ -d "$dir" ] && [ "$(basename "$dir")" != "models" ]; then
-            cp -r "$dir" python-bundle/python-env/vosk-server/
-        fi
-    done
-    echo "Vosk server copied (without models directory)"
+# Copy FastAPI backend
+echo "Copying FastAPI backend..."
+if [ -d 'backend' ]; then
+    mkdir -p python-bundle/python-env/backend
+    
+    # Copy Python files and config (exclude models directory, we'll handle that separately)
+    echo "Copying backend Python files..."
+    rsync -av --exclude='models' --exclude='__pycache__' --exclude='*.pyc' backend/ python-bundle/python-env/backend/
+    
+    # Create models directory structure
+    mkdir -p python-bundle/python-env/backend/models/vosk
+    mkdir -p python-bundle/python-env/backend/models/kokoro
+    
+    # Copy Vosk models
+    if [ -d 'backend/models/vosk' ]; then
+        echo "Copying Vosk models..."
+        cp -r backend/models/vosk/* python-bundle/python-env/backend/models/vosk/
+        echo "Vosk models copied"
+    fi
+    
+    # Handle Kokoro models - reassemble and extract split zips if they exist
+    if [ -f 'backend/models/kokoro/huggingface-cache.zip.001' ]; then
+        echo "Reassembling Kokoro model split zips..."
+        cat backend/models/kokoro/huggingface-cache.zip.* > python-bundle/python-env/backend/models/kokoro/huggingface-cache.zip
+        
+        echo "Extracting Kokoro models..."
+        cd python-bundle/python-env/backend/models/kokoro
+        unzip -q huggingface-cache.zip
+        rm huggingface-cache.zip
+        cd - > /dev/null
+        echo "Kokoro models extracted"
+    elif [ -d 'backend/models/kokoro/huggingface-cache' ]; then
+        echo "Copying Kokoro models (already extracted)..."
+        cp -r backend/models/kokoro/huggingface-cache python-bundle/python-env/backend/models/kokoro/
+        echo "Kokoro models copied"
+    fi
+    
+    echo "Backend copied successfully"
 else
-    echo "Skip: legacy/Vosk-Server/websocket not found"
-fi
-
-if [ -d 'legacy/Kokoro-TTS-Server/websocket' ]; then
-    mkdir -p python-bundle/python-env/kokoro-tts
-    cp -r legacy/Kokoro-TTS-Server/websocket/* python-bundle/python-env/kokoro-tts/
-    echo "Kokoro TTS server copied"
-else
-    echo "Skip: legacy/Kokoro-TTS-Server/websocket not found"
+    echo "ERROR: backend directory not found!"
+    exit 1
 fi
 
 # Calculate bundle size and create architecture-specific checksum
@@ -265,9 +272,10 @@ echo "Python bundle created and zipped successfully for $TARGET_ARCH!"
 echo ""
 echo "Bundle contents:"
 echo "   • Standalone Python $PYTHON_VERSION from python-build-standalone"
-echo "   • All required packages (vosk, torch, spacy, kokoro, etc.)"
-echo "   • Vosk ASR server"
-echo "   • Kokoro TTS server"
+echo "   • All required packages (FastAPI, vosk, torch, spacy, kokoro, etc.)"
+echo "   • FastAPI unified backend (REST API + WebSocket endpoints)"
+echo "   • Vosk models for speech recognition"
+echo "   • Kokoro models for text-to-speech"
 echo "   • Checksum file: bundle-checksum-${TARGET_ARCH}.txt"
 echo ""
 echo "Ready for distribution!"

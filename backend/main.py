@@ -45,9 +45,9 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 PORT = int(os.environ.get('REST_API_PORT', 3001))
-DATA_DIR = Path(os.environ.get('DATA_DIR', '/app/data'))
+DATA_DIR = Path(os.environ.get('DATA_DIR', './data'))
 CHATS_FILE = DATA_DIR / 'chats.json'
-VOSK_MODELS_DIR = Path(os.environ.get('VOSK_MODELS_DIR', '/app/backend/models/vosk'))
+VOSK_MODELS_DIR = Path(os.environ.get('VOSK_MODELS_DIR', './models/vosk'))
 
 # Ensure directories exist
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -480,7 +480,7 @@ async def initialize_tts_pipeline():
         from kokoro import KPipeline
         
         # Set cache directories
-        cache_dir = os.environ.get('HF_HOME', '/app/.cache/huggingface')
+        cache_dir = os.environ.get('HF_HOME', './backend/models/kokoro/huggingface-cache')
         os.environ["HF_HOME"] = cache_dir
         os.environ["TRANSFORMERS_CACHE"] = f"{cache_dir}/transformers"
         os.environ["HF_DATASETS_CACHE"] = f"{cache_dir}/datasets"

@@ -162,33 +162,62 @@ Write-Info "Using bundled Python: $bundledPython"
 # Install packages using bundled pip
 & $bundledPython -m pip install --upgrade pip
 
-& $bundledPython -m pip install --upgrade --force-reinstall -r requirements-bundle.txt
+# Install backend requirements
+Write-Info "Installing backend requirements for $Architecture..."
+& $bundledPython -m pip install --upgrade -r backend\requirements.txt
 
-# Install spaCy English model
-Write-Info "Installing spaCy English model for $Architecture..."
-& $bundledPython -m pip install --upgrade https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
-
-# Copy websocket servers
-Write-Info "Copying websocket servers..."
-if (Test-Path "Vosk-Server\websocket") {
-    New-Item -ItemType Directory -Path "python-bundle\python-env\vosk-server" -Force | Out-Null
+# Copy FastAPI backend
+Write-Info "Copying FastAPI backend..."
+if (Test-Path "backend") {
+    New-Item -ItemType Directory -Path "python-bundle\python-env\backend" -Force | Out-Null
     
-    # Copy all files except the models directory
-    Get-ChildItem -Path "Vosk-Server\websocket" -Exclude "models" | Copy-Item -Destination "python-bundle\python-env\vosk-server" -Recurse -Force
+    # Copy Python files and config (exclude models directory, we'll handle that separately)
+    Write-Info "Copying backend Python files..."
+    Get-ChildItem -Path "backend" -Exclude "models","__pycache__","*.pyc" | Copy-Item -Destination "python-bundle\python-env\backend" -Recurse -Force
     
-    Write-Success "Vosk server copied"
+    # Create models directory structure
+    New-Item -ItemType Directory -Path "python-bundle\python-env\backend\models\vosk" -Force | Out-Null
+    New-Item -ItemType Directory -Path "python-bundle\python-env\backend\models\kokoro" -Force | Out-Null
+    
+    # Copy Vosk models
+    if (Test-Path "backend\models\vosk") {
+        Write-Info "Copying Vosk models..."
+        Copy-Item -Path "backend\models\vosk\*" -Destination "python-bundle\python-env\backend\models\vosk" -Recurse -Force
+        Write-Success "Vosk models copied"
+    }
+    
+    # Handle Kokoro models - reassemble and extract split zips if they exist
+    if (Test-Path "backend\models\kokoro\huggingface-cache.zip.001") {
+        Write-Info "Reassembling Kokoro model split zips..."
+        
+        # Get all zip parts and combine them
+        $zipParts = Get-ChildItem -Path "backend\models\kokoro" -Filter "huggingface-cache.zip.*" | Sort-Object Name
+        $outputZip = "python-bundle\python-env\backend\models\kokoro\huggingface-cache.zip"
+        
+        # Combine all parts into single zip
+        $outputStream = [System.IO.File]::OpenWrite($outputZip)
+        foreach ($part in $zipParts) {
+            $bytes = [System.IO.File]::ReadAllBytes($part.FullName)
+            $outputStream.Write($bytes, 0, $bytes.Length)
+        }
+        $outputStream.Close()
+        
+        Write-Info "Extracting Kokoro models..."
+        Expand-Archive -Path $outputZip -DestinationPath "python-bundle\python-env\backend\models\kokoro" -Force
+        Remove-Item $outputZip
+        Write-Success "Kokoro models extracted"
+    }
+    elseif (Test-Path "backend\models\kokoro\huggingface-cache") {
+        Write-Info "Copying Kokoro models (already extracted)..."
+        Copy-Item -Path "backend\models\kokoro\huggingface-cache" -Destination "python-bundle\python-env\backend\models\kokoro" -Recurse -Force
+        Write-Success "Kokoro models copied"
+    }
+    
+    Write-Success "Backend copied successfully"
 }
 else {
-    Write-Warning "Skip: Vosk-Server\websocket not found"
-}
-
-if (Test-Path "Kokoro-TTS-Server\websocket") {
-    New-Item -ItemType Directory -Path "python-bundle\python-env\kokoro-tts" -Force | Out-Null
-    Copy-Item -Path "Kokoro-TTS-Server\websocket\*" -Destination "python-bundle\python-env\kokoro-tts" -Recurse -Force
-    Write-Success "Kokoro TTS server copied"
-}
-else {
-    Write-Warning "Skip: Kokoro-TTS-Server\websocket not found"
+    Write-Error-Message "ERROR: backend directory not found!"
+    exit 1
 }
 
 # Calculate bundle size and create architecture-specific checksum
@@ -209,8 +238,10 @@ Write-Success "Python bundle created and zipped successfully for $Architecture!"
 Write-Host ""
 Write-Host "Bundle contents:" -ForegroundColor Magenta
 Write-Host "   - Standalone Python $PYTHON_VERSION from python-build-standalone" -ForegroundColor White
-Write-Host "   - All required packages (vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
-Write-Host "   - Vosk ASR server" -ForegroundColor White
-Write-Host "   - Kokoro TTS server" -ForegroundColor White
+Write-Host "   - All required packages (FastAPI, vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
+Write-Host "   - FastAPI unified backend (REST API + WebSocket endpoints)" -ForegroundColor White
+Write-Host "   - Vosk models for speech recognition" -ForegroundColor White
+Write-Host "   - Kokoro models for text-to-speech" -ForegroundColor White
+Write-Host "   - Checksum file: bundle-checksum-$Architecture.txt" -ForegroundColor White
 Write-Host ""
 Write-Host "Ready for distribution!" -ForegroundColor Green
