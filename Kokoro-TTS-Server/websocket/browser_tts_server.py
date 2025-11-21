@@ -589,7 +589,7 @@ class BrowserTTSServer:
             cleared = False
             
             while not cleared and attempt < max_attempts:
-                await asyncio.sleep(0.1)  # Wait 100ms between checks
+                await asyncio.sleep(0.01)  # Wait 10ms between checks
                 attempt += 1
                 
                 # Check if everything is properly cleared
@@ -600,7 +600,7 @@ class BrowserTTSServer:
                 cleared = all([buffers_empty, not_paused, not_processing])
                 
                 if cleared:
-                    logger.info(f"✅ TTS completely cleared after {attempt * 100}ms")
+                    logger.info(f"✅ TTS completely cleared after {attempt * 10}ms")
                     break
             
             if not cleared:
