@@ -43,17 +43,22 @@
     "@types/node": "^16.18.30",
     "@types/react": "^18.2.6",
     "@types/react-dom": "^18.2.4",
-    "electron": "^28.0.0",
+    "dotenv-cli": "^11.0.0",
+    "electron": "^39.2.3",
     "electron-builder": "^24.13.3",
     "wait-on": "^7.2.0"
   },
   "scripts": {
-    "start:both": "concurrently \"npm run server\" \"npm start\"",
-    "electron-dev-win": "set NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run server\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && node node_modules\\electron\\cli.js .\"",
-    "electron-dev-mac": "export NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run server\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && npx electron .\"",
-    "dist:mac-x64": "npm run build && ./build-python-bundle-mac.sh x64 && cp electron.js build/ && cp preload.js build/ && cp server.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && electron-builder --mac --x64 && ./signing-scripts/notarize-app.sh x64",
-    "dist:mac-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && cp electron.js build/ && cp preload.js build/ && cp server.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && electron-builder --mac --arm64 && ./signing-scripts/notarize-app.sh arm64",
-    "dist:win": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64 && copy electron.js build\\ && copy preload.js build\\ && copy server.js build\\ && copy public\\vosk-audio-processor.js build\\ && xcopy /E /I /Y Certification build\\Certification && electron-builder --win",
+    "start:both": "concurrently \"npm start\"",
+    "electron-dev-win": "set NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && node node_modules\\electron\\cli.js .\"",
+    "electron-dev-mac": "export NODE_ENV=development && npm run bundle-python && concurrently \"npm start\" \"npm run start-python-services\" \"wait-on http://localhost:3000 && npx electron .\"",
+    "dist:mac-x64": "npm run build && ./build-python-bundle-mac.sh x64 && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && cp -r pkg-scripts build/ && dotenv -e .env.development -- electron-builder --mac --x64 && ./signing-scripts/notarize-app.sh x64",
+    "dist:mac-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && cp -r pkg-scripts build/ && dotenv -e .env.development -- electron-builder --mac --arm64 && ./signing-scripts/notarize-app.sh arm64",
+    "dist:mac-dmg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && cp -r pkg-scripts build/ && dotenv -e .env.development -- electron-builder --mac dmg --x64 && ./signing-scripts/notarize-app.sh x64",
+    "dist:mac-dmg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && cp -r pkg-scripts build/ && dotenv -e .env.development -- electron-builder --mac dmg --arm64 && ./signing-scripts/notarize-app.sh arm64",
+    "dist:mac-pkg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && cp -r pkg-scripts build/ && dotenv -e .env.development -- electron-builder --mac pkg --x64 && ./signing-scripts/notarize-app.sh x64",
+    "dist:mac-pkg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && cp -r pkg-scripts build/ && dotenv -e .env.development -- electron-builder --mac pkg --arm64 && ./signing-scripts/notarize-app.sh arm64",
+    "dist:win": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64 && copy electron.js build\\ && copy preload.js build\\ && copy public\\vosk-audio-processor.js build\\ && xcopy /E /I /Y Certification build\\Certification && electron-builder --win",
     "bundle-python": "node -e \"const os = require('os'); const { execSync } = require('child_process'); const platform = os.platform(); if (platform === 'win32') { execSync('npm run bundle-python-win', { stdio: 'inherit' }); } else if (platform === 'darwin') { execSync('npm run bundle-python-mac', { stdio: 'inherit' }); } else { console.log('Linux bundle not implemented yet, using system Python'); }\"",
     "bundle-python-mac": "chmod +x build-python-bundle-mac.sh && ./build-python-bundle-mac.sh",
     "bundle-python-win": "powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64",
@@ -61,13 +66,12 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "server": "node server.js",
     "electron": "npm run build && set NODE_ENV=production && node node_modules\\electron\\cli.js .",
     "start-python-services": "./start-python-services.sh",
-    "build:electron": "npm run build && cp electron.js build/ && cp preload.js build/ && cp server.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && electron-builder",
+    "build:electron": "npm run build && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && electron-builder",
     "build:docker": "docker build .",
     "dist": "npm run build && electron-builder --publish=never",
-    "dist:linux": "npm run build && cp electron.js build/ && cp preload.js build/ && cp server.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && electron-builder --linux"
+    "dist:linux": "npm run build && cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && electron-builder --linux"
   },
   "eslintConfig": {
     "extends": [
@@ -99,14 +103,12 @@
       "build/**/*",
       "electron.js",
       "preload.js",
-      "server.js",
       "package.json",
       "node_modules/extract-zip/**/*",
       "installer.nsh",
       "Certification/**/*"
     ],
     "asarUnpack": [
-      "build/server.js",
       "build/Certification"
     ],
     "buildDependenciesFromSource": false,
@@ -136,13 +138,25 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "public/icon.icns",
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "pkg"
+      ],
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "identity": "University of Pittsburgh (BB467SPB6A)",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist"
+    },
+    "pkg": {
+      "allowAnywhere": false,
+      "isRelocatable": false,
+      "hasStrictIdentifier": true,
+      "identity": "University of Pittsburgh (BB467SPB6A)",
+      "overwriteAction": "upgrade",
+      "scripts": "../pkg-scripts",
+      "welcome": "./install notice.txt"
     },
     "win": {
       "icon": "public/cpace-logo-icon-256.ico",
