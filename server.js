@@ -130,6 +130,15 @@ app.all('/api/ollama/*', async (req, res) => {
 
 // API endpoints
 
+// API endpoint to identify this server as Node.js-based
+app.get('/api/server-info', (req, res) => {
+  res.json({
+    serverType: 'nodejs',
+    platform: process.platform,
+    isElectron: false
+  });
+});
+
 // Get network addresses - returns HTTPS URLs for network access and HTTP for localhost
 // Separates WiFi/hotspot connections from Ethernet connections
 app.get('/api/network-info', (req, res) => {
