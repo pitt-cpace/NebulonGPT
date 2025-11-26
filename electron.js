@@ -56,8 +56,7 @@ if (isDev) {
 
 // Keep a global reference of the window object
 let mainWindow;
-let voskProcess = null;
-let ttsProcess = null;
+let fastAPIBackendProcess = null;
 let backendServerProcess = null;
 let isQuitting = false;
 let httpServer = null;
@@ -106,14 +105,15 @@ const PATHS = {
   chatsFile: path.join(os.homedir(), '.nebulon-gpt', 'chats.json'),
   voskModelsDir: path.join(os.homedir(), '.nebulon-gpt', 'vosk-models'),
   hfCacheDir: path.join(os.homedir(), '.nebulon-gpt', 'huggingface'),
-  pythonBundleDir: path.join(os.homedir(), '.nebulon-gpt', 'python-bundle')
+  pythonBundleDir: path.join(os.homedir(), '.nebulon-gpt', 'python-bundle'),
+  logsDir: path.join(os.homedir(), '.nebulon-gpt', 'logs')
 };
 
 // Server paths will be set dynamically after extraction in the server startup functions
 
 // Ensure data directories exist
 function ensureDirectories() {
-  const dirs = [PATHS.dataDir, PATHS.voskModelsDir, PATHS.hfCacheDir, PATHS.pythonBundleDir];
+  const dirs = [PATHS.dataDir, PATHS.voskModelsDir, PATHS.hfCacheDir, PATHS.pythonBundleDir, PATHS.logsDir];
   dirs.forEach(dir => {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -148,7 +148,7 @@ function saveChatsData() {
 
 // Extract bundled resources on every startup (simplified calls)
 async function extractBundledResources() {
-  console.log('📦 Extracting bundled resources on startup...');
+  console.log('Extracting bundled resources on startup...');
   
   try {
     // Extract Python bundle if it exists as ZIP
@@ -160,7 +160,7 @@ async function extractBundledResources() {
     // Extract Vosk models
     await extractVoskModels();
 
-    console.log('✅ Resource extraction completed successfully');
+    console.log('Resource extraction completed successfully');
   } catch (error) {
     console.error('Error extracting resources:', error);
     throw error;
@@ -174,19 +174,19 @@ async function extractPythonBundle() {
       const pythonBundleZip = getResourcePath('python-bundle.zip');
       const pythonBundleDir = PATHS.pythonBundleDir;
       
-      console.log(`📦 Checking for Python bundle ZIP: ${pythonBundleZip}`);
-      console.log(`📦 Target extraction directory: ${pythonBundleDir}`);
-      console.log(`📦 ZIP file exists: ${fs.existsSync(pythonBundleZip)}`);
-      console.log(`📦 Target directory exists: ${fs.existsSync(pythonBundleDir)}`);
+      console.log(`Checking for Python bundle ZIP: ${pythonBundleZip}`);
+      console.log(`Target extraction directory: ${pythonBundleDir}`);
+      console.log(`ZIP file exists: ${fs.existsSync(pythonBundleZip)}`);
+      console.log(`Target directory exists: ${fs.existsSync(pythonBundleDir)}`);
       
       // If ZIP doesn't exist, check if directory already exists (development mode)
       if (!fs.existsSync(pythonBundleZip)) {
         if (fs.existsSync(pythonBundleDir)) {
-          console.log('📦 Python bundle directory already exists, skipping extraction');
+          console.log('Python bundle directory already exists, skipping extraction');
           resolve();
           return;
         } else {
-          console.log('📦 No Python bundle ZIP or directory found, skipping extraction');
+          console.log('No Python bundle ZIP or directory found, skipping extraction');
           resolve();
           return;
         }
@@ -199,12 +199,12 @@ async function extractPythonBundle() {
       
       // Step 1: Check if python-bundle directory exists and has content
       if (!fs.existsSync(pythonBundleDir) || fs.readdirSync(pythonBundleDir).length === 0) {
-        console.log('📦 Python bundle directory not found or empty, extracting...');
+        console.log('Python bundle directory not found or empty, extracting...');
         needsExtraction = true;
       }
       // Step 2: Check if checksum file exists
       else if (!fs.existsSync(checksumFile)) {
-        console.log('📦 No Python bundle checksum file found, extracting...');
+        console.log('No Python bundle checksum file found, extracting...');
         needsExtraction = true;
       }
       // Step 3: Only re-extract if checksum is bigger than current size (files missing)
@@ -214,14 +214,14 @@ async function extractPythonBundle() {
           const savedSize = parseInt(fs.readFileSync(checksumFile, 'utf8').trim());
           
           if (savedSize > currentExtractedSize) {
-            console.log(`📦 Python bundle incomplete (expected: ${savedSize}, current: ${currentExtractedSize}), extracting...`);
+            console.log(`Python bundle incomplete (expected: ${savedSize}, current: ${currentExtractedSize}), extracting...`);
             needsExtraction = true;
           } else {
-            console.log('✅ Python bundle size adequate, skipping extraction');
+            console.log('Python bundle size adequate, skipping extraction');
             needsExtraction = false;
           }
         } catch (error) {
-          console.log('📦 Could not read Python bundle checksum file, extracting...');
+          console.log('Could not read Python bundle checksum file, extracting...');
           needsExtraction = true;
         }
       }
@@ -231,11 +231,11 @@ async function extractPythonBundle() {
         return;
       }
 
-      console.log('📦 Extracting Python bundle from ZIP...');
+      console.log('Extracting Python bundle from ZIP...');
       
       // Remove existing directory if it exists
       if (fs.existsSync(pythonBundleDir)) {
-        console.log('📦 Removing existing Python bundle directory...');
+        console.log('Removing existing Python bundle directory...');
         fs.rmSync(pythonBundleDir, { recursive: true, force: true });
       }
       
@@ -281,11 +281,11 @@ async function extractPythonBundle() {
       // Calculate final bundle size and save checksum (like extractVoskModels)
       const finalBundleSize = await calculateDirectorySize(pythonBundleDir);
       fs.writeFileSync(checksumFile, finalBundleSize.toString());
-      console.log(`✅ Python bundle extraction completed. Final size: ${finalBundleSize} bytes`);
+      console.log(`Python bundle extraction completed. Final size: ${finalBundleSize} bytes`);
       
       resolve();
     } catch (error) {
-      console.error('❌ Error extracting Python bundle:', error);
+      console.error('Error extracting Python bundle:', error);
       reject(error);
     }
   });
@@ -302,20 +302,20 @@ async function extractKokoroCache() {
       if (fs.existsSync(kokoroModelsSource)) {
         kokoroModelsDir = kokoroModelsSource;
       } else {
-        console.log('📦 Kokoro TTS source not found at:', kokoroModelsSource);
+        console.log('Kokoro TTS source not found at:', kokoroModelsSource);
         // Try alternative path for development
         const devKokoroSource = getResourcePath('backend/models/kokoro');
         if (fs.existsSync(devKokoroSource)) {
-          console.log('📦 Found Kokoro TTS at dev path, extracting...');
+          console.log('Found Kokoro TTS at dev path, extracting...');
           kokoroModelsDir = devKokoroSource;
         } else {
-          console.log('📦 No Kokoro TTS found at either path');
+          console.log('No Kokoro TTS found at either path');
           
           // Even if no TTS cache is found, ensure datasets directory exists
           const datasetsDir = path.join(PATHS.hfCacheDir, 'datasets');
           if (!fs.existsSync(datasetsDir)) {
             fs.mkdirSync(datasetsDir, { recursive: true });
-            console.log('📦 Created datasets directory for TTS server (no cache found)');
+            console.log('Created datasets directory for TTS server (no cache found)');
           }
           resolve();
           return;
@@ -329,12 +329,12 @@ async function extractKokoroCache() {
       
       // Step 1: Check if huggingface-cache directory exists
       if (!fs.existsSync(PATHS.hfCacheDir)) {
-        console.log('📦 HuggingFace cache directory not found, extracting...');
+        console.log('HuggingFace cache directory not found, extracting...');
         needsExtraction = true;
       }
       // Step 2: Check if checksum file exists
       else if (!fs.existsSync(checksumFile)) {
-        console.log('📦 No HuggingFace cache checksum file found, extracting...');
+        console.log('No HuggingFace cache checksum file found, extracting...');
         needsExtraction = true;
       }
       // Step 3: Compare current cache size with saved size
@@ -344,14 +344,14 @@ async function extractKokoroCache() {
           const savedCacheSize = fs.readFileSync(checksumFile, 'utf8').trim();
           
           if (savedCacheSize === currentCacheSize.toString()) {
-            console.log('✅ HuggingFace cache size unchanged, skipping extraction');
+            console.log('HuggingFace cache size unchanged, skipping extraction');
             needsExtraction = false;
           } else {
-            console.log(`📦 HuggingFace cache size changed (${savedCacheSize} -> ${currentCacheSize}), extracting...`);
+            console.log(`HuggingFace cache size changed (${savedCacheSize} -> ${currentCacheSize}), extracting...`);
             needsExtraction = true;
           }
         } catch (error) {
-          console.log('📦 Could not read cache checksum file, extracting...');
+          console.log('Could not read cache checksum file, extracting...');
           needsExtraction = true;
         }
       }
@@ -361,13 +361,13 @@ async function extractKokoroCache() {
         const datasetsDir = path.join(PATHS.hfCacheDir, 'datasets');
         if (!fs.existsSync(datasetsDir)) {
           fs.mkdirSync(datasetsDir, { recursive: true });
-          console.log('📦 Created datasets directory for TTS server');
+          console.log('Created datasets directory for TTS server');
         }
         resolve();
         return;
       }
 
-      console.log('📦 Extracting Kokoro TTS cache...');
+      console.log('Extracting Kokoro TTS cache...');
       
       const tempDir = path.join(os.tmpdir(), 'nebulon-kokoro-extract');
       
@@ -392,7 +392,7 @@ async function extractKokoroCache() {
       const splitParts = files.filter(file => file.match(/\.zip\..+$/));
       
       if (splitParts.length > 0) {
-        console.log('📦 Found split ZIP files for Kokoro TTS, concatenating...');
+        console.log('Found split ZIP files for Kokoro TTS, concatenating...');
         
         // Step 2: Group split parts by base name (everything before .zip)
         const splitGroups = new Map();
@@ -412,7 +412,7 @@ async function extractKokoroCache() {
         
         // Step 3: Concatenate each group of split parts
         for (const [baseName, parts] of splitGroups) {
-          console.log(`📦 Concatenating split archive: ${baseName} (${parts.length} parts)`);
+          console.log(`Concatenating split archive: ${baseName} (${parts.length} parts)`);
           
           // Sort parts: try numeric first, fall back to alphanumeric
           parts.sort((a, b) => {
@@ -435,12 +435,12 @@ async function extractKokoroCache() {
             const writeStream = fs.createWriteStream(outputZip);
             
             writeStream.on('finish', () => {
-              console.log(`📦 Created: ${baseName}.zip from parts: ${parts.map(p => p.extension).join(', ')}`);
+              console.log(`Created: ${baseName}.zip from parts: ${parts.map(p => p.extension).join(', ')}`);
               resolveConcatenation();
             });
             
             writeStream.on('error', (error) => {
-              console.error(`❌ Error concatenating ${baseName}:`, error);
+              console.error(`Error concatenating ${baseName}:`, error);
               rejectConcatenation(error);
             });
             
@@ -465,11 +465,11 @@ async function extractKokoroCache() {
           const zipPath = path.join(tempDir, zipfile);
           
           try {
-            console.log(`📦 Extracting: ${zipfile}`);
+            console.log(`Extracting: ${zipfile}`);
             await extractZip(zipPath, { dir: tempDir });
-            console.log(`✅ Successfully extracted: ${zipfile}`);
+            console.log(`Successfully extracted: ${zipfile}`);
           } catch (error) {
-            console.warn(`❌ Failed to extract ${zipfile}:`, error);
+            console.warn(`Failed to extract ${zipfile}:`, error);
           }
         }
       }
@@ -520,13 +520,13 @@ async function extractKokoroCache() {
       const datasetsDir = path.join(PATHS.hfCacheDir, 'datasets');
       if (!fs.existsSync(datasetsDir)) {
         fs.mkdirSync(datasetsDir, { recursive: true });
-        console.log('📦 Created datasets directory for TTS server');
+        console.log('Created datasets directory for TTS server');
       }
       
       // Calculate final cache size and save checksum (like extractVoskModels)
       const finalCacheSize = await calculateDirectorySize(PATHS.hfCacheDir);
       fs.writeFileSync(checksumFile, finalCacheSize.toString());
-      console.log(`✅ Kokoro TTS extraction completed. Cache size: ${finalCacheSize} bytes`);
+      console.log(`Kokoro TTS extraction completed. Cache size: ${finalCacheSize} bytes`);
       resolve();
     } catch (error) {
       console.error('Error extracting Kokoro cache:', error);
@@ -544,17 +544,17 @@ async function extractVoskModels() {
       let voskModelsDir = null;
       
       if (fs.existsSync(voskModelsSource)) {
-        console.log(`📦 Processing Vosk models from: ${voskModelsSource}`);
+        console.log(`Processing Vosk models from: ${voskModelsSource}`);
         voskModelsDir = voskModelsSource;
       } else {
-        console.log('📦 Vosk models source not found at:', voskModelsSource);
+        console.log('Vosk models source not found at:', voskModelsSource);
         // Try alternative path for development
         const devVoskModelsSource = getResourcePath('backend/models/vosk');
         if (fs.existsSync(devVoskModelsSource)) {
-          console.log('📦 Found Vosk models at dev path, extracting...');
+          console.log('Found Vosk models at dev path, extracting...');
           voskModelsDir = devVoskModelsSource;
         } else {
-          console.log('📦 No Vosk models found at either path');
+          console.log('No Vosk models found at either path');
           resolve();
           return;
         }
@@ -567,12 +567,12 @@ async function extractVoskModels() {
       
       // Step 1: Check if vosk-models directory exists and has content
       if (!fs.existsSync(PATHS.voskModelsDir) || fs.readdirSync(PATHS.voskModelsDir).length === 0) {
-        console.log('📦 Vosk models directory not found or empty, extracting...');
+        console.log('Vosk models directory not found or empty, extracting...');
         needsExtraction = true;
       }
       // Step 2: Check if checksum file exists
       else if (!fs.existsSync(checksumFile)) {
-        console.log('📦 No Vosk models checksum file found, extracting...');
+        console.log('No Vosk models checksum file found, extracting...');
         needsExtraction = true;
       }
       // Step 3: Compare current extracted models size with saved size
@@ -582,14 +582,14 @@ async function extractVoskModels() {
           const savedSize = fs.readFileSync(checksumFile, 'utf8').trim();
           
           if (savedSize === currentExtractedSize.toString()) {
-            console.log('✅ Vosk models size unchanged, skipping extraction');
+            console.log('Vosk models size unchanged, skipping extraction');
             needsExtraction = false;
           } else {
-            console.log(`📦 Vosk models size changed (${savedSize} -> ${currentExtractedSize}), extracting...`);
+            console.log(`Vosk models size changed (${savedSize} -> ${currentExtractedSize}), extracting...`);
             needsExtraction = true;
           }
         } catch (error) {
-          console.log('📦 Could not read Vosk checksum file, extracting...');
+          console.log('Could not read Vosk checksum file, extracting...');
           needsExtraction = true;
         }
       }
@@ -645,7 +645,7 @@ async function extractVoskModels() {
       const splitParts = files.filter(file => file.match(/\.zip\..+$/));
       
       if (splitParts.length > 0) {
-        console.log('📦 Found split ZIP files, concatenating...');
+        console.log('Found split ZIP files, concatenating...');
         
         // Step 2: Group split parts by base name (everything before .zip)
         const splitGroups = new Map();
@@ -665,7 +665,7 @@ async function extractVoskModels() {
         
         // Step 3: Concatenate each group of split parts
         for (const [baseName, parts] of splitGroups) {
-          console.log(`📦 Concatenating split archive: ${baseName} (${parts.length} parts)`);
+          console.log(`Concatenating split archive: ${baseName} (${parts.length} parts)`);
           
           // Sort parts: try numeric first, fall back to alphanumeric
           parts.sort((a, b) => {
@@ -688,12 +688,12 @@ async function extractVoskModels() {
             const writeStream = fs.createWriteStream(outputZip);
             
             writeStream.on('finish', () => {
-              console.log(`📦 Created: ${baseName}.zip from parts: ${parts.map(p => p.extension).join(', ')}`);
+              console.log(`Created: ${baseName}.zip from parts: ${parts.map(p => p.extension).join(', ')}`);
               resolveConcatenation();
             });
             
             writeStream.on('error', (error) => {
-              console.error(`❌ Error concatenating ${baseName}:`, error);
+              console.error(`Error concatenating ${baseName}:`, error);
               rejectConcatenation(error);
             });
             
@@ -719,18 +719,18 @@ async function extractVoskModels() {
           const zipPath = path.join(PATHS.voskModelsDir, zipfile);
           
           try {
-            console.log(`📦 Extracting: ${zipfile}`);
+            console.log(`Extracting: ${zipfile}`);
             // Extract to models directory (like Docker: unzip -o -q "$zipfile" -d /app/vosk-server/models)
             await extractZip(zipPath, { dir: PATHS.voskModelsDir });
-            console.log(`✅ Successfully extracted: ${zipfile}`);
+            console.log(`Successfully extracted: ${zipfile}`);
           } catch (error) {
-            console.warn(`❌ Failed to extract ${zipfile}:`, error);
+            console.warn(`Failed to extract ${zipfile}:`, error);
           }
         }
       }
 
       // Step 3: Clean up - remove all zip files and split parts
-      console.log('📦 Cleaning up zip files and split parts...');
+      console.log('Cleaning up zip files and split parts...');
       const finalFiles = fs.readdirSync(PATHS.voskModelsDir);
       
       for (const file of finalFiles) {
@@ -747,10 +747,10 @@ async function extractVoskModels() {
       // Step 4: Calculate final vosk-models folder size and save it
       const finalVoskModelsSize = await calculateDirectorySize(PATHS.voskModelsDir);
       fs.writeFileSync(checksumFile, finalVoskModelsSize.toString());
-      console.log(`✅ Vosk models extraction completed. Final size: ${finalVoskModelsSize} bytes`);
+      console.log(`Vosk models extraction completed. Final size: ${finalVoskModelsSize} bytes`);
       resolve();
     } catch (error) {
-      console.error('❌ Error extracting Vosk models:', error);
+      console.error('Error extracting Vosk models:', error);
       reject(error);
     }
   });
@@ -806,7 +806,7 @@ async function cleanupExtractedModels() {
     // Only remove directories that look like extracted Vosk models
     if (stats.isDirectory() && item.startsWith('vosk-model-')) {
       try {
-        console.log(`📦 Removing old extracted model: ${item}`);
+        console.log(`Removing old extracted model: ${item}`);
         fs.rmSync(itemPath, { recursive: true, force: true });
       } catch (error) {
         console.warn(`Failed to remove ${item}:`, error);
@@ -823,7 +823,7 @@ function detectPythonVersion(pythonBundleDir) {
       const libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'Lib');
       const sitePackagesDir = path.join(libDir, 'site-packages');
       if (fs.existsSync(sitePackagesDir)) {
-        console.log(`🐍 Detected Windows Python with direct site-packages`);
+        console.log(`Detected Windows Python with direct site-packages`);
         return 'direct'; // Special marker for Windows direct structure
       }
     } else {
@@ -833,7 +833,7 @@ function detectPythonVersion(pythonBundleDir) {
         const pythonVersions = fs.readdirSync(libDir).filter(dir => dir.startsWith('python3.'));
         if (pythonVersions.length > 0) {
           const pythonVersion = pythonVersions[0]; // Take the first (and typically only) version
-          console.log(`🐍 Detected Python version: ${pythonVersion}`);
+          console.log(`Detected Python version: ${pythonVersion}`);
           return pythonVersion;
         }
       }
@@ -846,41 +846,40 @@ function detectPythonVersion(pythonBundleDir) {
   }
 }
 
-// Start the Vosk server
-function startVoskServer() {
+// Start the FastAPI Backend (replaces separate Vosk and TTS servers)
+function startFastAPIBackend() {
   return new Promise((resolve, reject) => {
-    console.log('Starting Vosk server...');
+    console.log('Starting FastAPI unified backend...');
     
     let pythonCmd;
     let pythonEnv = { ...process.env };
     
     // Check if extracted Python executable exists in home directory
-    // Windows python-build-standalone has python.exe in root, macOS/Linux has it in bin/
     const extractedPython = process.platform === 'win32' 
       ? path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'python.exe')
       : path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'bin', 'python3');
     
-    // Dynamically detect Python version - MUST be dynamic, no fallback to hardcoded version
+    // Dynamically detect Python version
     const pythonVersion = detectPythonVersion(PATHS.pythonBundleDir);
     
-    console.log(`🐍 Checking extracted Python: ${extractedPython}`);
-    console.log(`🐍 Python exists: ${fs.existsSync(extractedPython)}`);
+    console.log(`Checking extracted Python: ${extractedPython}`);
+    console.log(`Python exists: ${fs.existsSync(extractedPython)}`);
     
     let extractedPackages = null;
     if (pythonVersion) {
       if (pythonVersion === 'direct') {
         // Windows: Direct site-packages in Lib/
         extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'Lib', 'site-packages');
-        console.log(`🐍 Using Windows direct site-packages`);
+        console.log(`Using Windows direct site-packages`);
       } else {
         // macOS/Linux: Versioned subdirectory
         extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
-        console.log(`🐍 Using dynamic Python version: ${pythonVersion}`);
+        console.log(`Using dynamic Python version: ${pythonVersion}`);
       }
-      console.log(`🐍 Checking extracted packages: ${extractedPackages}`);
-      console.log(`🐍 Packages exist: ${fs.existsSync(extractedPackages)}`);
+      console.log(`Checking extracted packages: ${extractedPackages}`);
+      console.log(`Packages exist: ${fs.existsSync(extractedPackages)}`);
     } else {
-      console.log(`🐍 Could not detect Python version in bundle, skipping extracted packages`);
+      console.log(`Could not detect Python version in bundle, skipping extracted packages`);
     }
     
     if (fs.existsSync(extractedPython) && extractedPackages && fs.existsSync(extractedPackages)) {
@@ -890,7 +889,7 @@ function startVoskServer() {
       console.log(`Extracted packages path: ${extractedPackages}`);
       
       // Set up environment for extracted Python
-      pythonEnv.PYTHONPATH = `${path.join(PATHS.pythonBundleDir, 'python-env/vosk-server')}:${extractedPackages}`;
+      pythonEnv.PYTHONPATH = `${extractedPackages}`;
       pythonEnv.PYTHONHOME = path.join(PATHS.pythonBundleDir, 'python-env/python-dist');
     } else {
       // No system Python fallback - bundled Python environment required
@@ -900,177 +899,117 @@ function startVoskServer() {
           ? 'Could not detect Python version in bundle'
           : 'Bundled Python packages not found';
       
-      console.error(`❌ Vosk server cannot start: ${errorMsg}`);
-      console.error(`❌ Required bundled Python environment is missing`);
+      console.error(`FastAPI backend cannot start: ${errorMsg}`);
+      console.error(`Required bundled Python environment is missing`);
       reject(new Error(errorMsg));
       return;
     }
     
+    // Set up environment variables for FastAPI backend
     const env = {
       ...pythonEnv,
+      REST_API_PORT: '3001',
+      DATA_DIR: PATHS.dataDir,
       VOSK_MODELS_DIR: PATHS.voskModelsDir,
-      VOSK_SERVER_INTERFACE: '127.0.0.1',
-      VOSK_SERVER_PORT: '2700'
-    };
-
-
-    // Dynamically determine server script path after extraction
-    const extractedVoskServer = path.join(PATHS.pythonBundleDir, 'python-env/vosk-server/asr_server_with_models.py');
-    const devVoskServer = getResourcePath('legacy/Vosk-Server/websocket/asr_server_with_models.py');
-    
-    const voskServerScript = fs.existsSync(extractedVoskServer) ? extractedVoskServer : devVoskServer;
-    
-    console.log(`🐍 Using Vosk server script: ${voskServerScript}`);
-    console.log(`🐍 Server script exists: ${fs.existsSync(voskServerScript)}`);
-
-    voskProcess = spawn(pythonCmd, [voskServerScript], {
-      env,
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-
-    voskProcess.stdout.on('data', (data) => {
-      console.log(`[VOSK] ${data}`);
-    });
-
-    voskProcess.stderr.on('data', (data) => {
-      console.error(`[VOSK] ${data}`);
-    });
-
-    voskProcess.on('close', (code) => {
-      console.log(`Vosk process exited with code ${code}`);
-      if (!isQuitting) {
-        // Restart Vosk if it crashes unexpectedly
-        setTimeout(() => startVoskServer(), 2000);
-      }
-    });
-
-    // Wait a bit for Vosk to start
-    setTimeout(() => resolve(), 3000);
-  });
-}
-
-// Start the TTS server
-function startTTSServer() {
-  return new Promise((resolve, reject) => {
-    console.log('Starting TTS server...');
-    
-    let pythonCmd;
-    let pythonEnv = { ...process.env };
-    
-    // Check if extracted Python executable exists in home directory
-    // Windows python-build-standalone has python.exe in root, macOS/Linux has it in bin/
-    const extractedPython = process.platform === 'win32' 
-      ? path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'python.exe')
-      : path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'bin', 'python3');
-    
-    // Dynamically detect Python version - MUST be dynamic, no fallback to hardcoded version
-    const pythonVersion = detectPythonVersion(PATHS.pythonBundleDir);
-    
-    console.log(`🔊 Checking extracted Python: ${extractedPython}`);
-    console.log(`🔊 Python exists: ${fs.existsSync(extractedPython)}`);
-    
-    let extractedPackages = null;
-    if (pythonVersion) {
-      if (pythonVersion === 'direct') {
-        // Windows: Direct site-packages in Lib/
-        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'Lib', 'site-packages');
-        console.log(`🔊 Using Windows direct site-packages`);
-      } else {
-        // macOS/Linux: Versioned subdirectory
-        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
-        console.log(`🔊 Using dynamic Python version: ${pythonVersion}`);
-      }
-      console.log(`🔊 Checking extracted packages: ${extractedPackages}`);
-      console.log(`🔊 Packages exist: ${fs.existsSync(extractedPackages)}`);
-    } else {
-      console.log(`🔊 Could not detect Python version in bundle, skipping extracted packages`);
-    }
-    
-    if (fs.existsSync(extractedPython) && extractedPackages && fs.existsSync(extractedPackages)) {
-      // Use extracted Python with extracted packages - 100% bundled
-      pythonCmd = extractedPython;
-      console.log(`Using extracted Python: ${pythonCmd}`);
-      console.log(`Extracted packages path: ${extractedPackages}`);
-      
-      // Set up environment for extracted Python
-      pythonEnv.PYTHONPATH = `${path.join(PATHS.pythonBundleDir, 'python-env/kokoro-tts')}:${extractedPackages}`;
-      pythonEnv.PYTHONHOME = path.join(PATHS.pythonBundleDir, 'python-env/python-dist');
-    } else {
-      // No system Python fallback - bundled Python environment required
-      const errorMsg = !fs.existsSync(extractedPython) 
-        ? 'Bundled Python executable not found'
-        : !extractedPackages 
-          ? 'Could not detect Python version in bundle'
-          : 'Bundled Python packages not found';
-      
-      console.error(`❌ TTS server cannot start: ${errorMsg}`);
-      console.error(`❌ Required bundled Python environment is missing`);
-      reject(new Error(errorMsg));
-      return;
-    }
-    
-    const env = {
-      ...pythonEnv,
+      BUILD_DIR: PATHS.buildDir,
       HF_HOME: PATHS.hfCacheDir,
       TRANSFORMERS_CACHE: path.join(PATHS.hfCacheDir, 'transformers'),
       HF_DATASETS_CACHE: path.join(PATHS.hfCacheDir, 'datasets'),
       HF_HUB_OFFLINE: '1',
-      KOKORO_SERVER_HOST: '127.0.0.1',
-      KOKORO_SERVER_PORT: '2701',
-      // Comprehensive Windows Unicode fix
+      // Unicode handling for Windows
       PYTHONIOENCODING: 'utf-8',
       PYTHONLEGACYWINDOWSSTDIO: '0',
-      PYTHONUTF8: '1',
-      // Force console to use UTF-8
-      CHCP: '65001'
+      PYTHONUTF8: '1'
     };
 
-
-    // Dynamically determine TTS server script path after extraction
-    const extractedTTSServer = path.join(PATHS.pythonBundleDir, 'python-env/kokoro-tts/browser_tts_server.py');
-    const devTTSServer = getResourcePath('legacy/Kokoro-TTS-Server/websocket/browser_tts_server.py');
+    // Determine backend script path
+    const extractedBackendScript = path.join(PATHS.pythonBundleDir, 'python-env/backend/main.py');
+    const devBackendScript = getResourcePath('backend/main.py');
     
-    const ttsServerScript = fs.existsSync(extractedTTSServer) ? extractedTTSServer : devTTSServer;
+    const backendScript = fs.existsSync(extractedBackendScript) ? extractedBackendScript : devBackendScript;
     
-    console.log(`🔊 Using TTS server script: ${ttsServerScript}`);
-    console.log(`🔊 Server script exists: ${fs.existsSync(ttsServerScript)}`);
+    console.log(`🐍 Using backend script: ${backendScript}`);
+    console.log(`🐍 Backend script exists: ${fs.existsSync(backendScript)}`);
 
-    // On Windows, redirect stderr to avoid Unicode console issues
-    if (process.platform === 'win32') {
-      ttsProcess = spawn(pythonCmd, [ttsServerScript, '--host', '127.0.0.1', '--port', '2701'], {
-        env,
-        stdio: ['pipe', 'pipe', 'ignore'], // Ignore stderr to avoid Unicode issues
-        shell: false
-      });
-    } else {
-      ttsProcess = spawn(pythonCmd, [ttsServerScript, '--host', '127.0.0.1', '--port', '2701'], {
-        env,
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
+    if (!fs.existsSync(backendScript)) {
+      console.error(`Backend script not found at: ${backendScript}`);
+      reject(new Error('Backend script not found'));
+      return;
     }
 
-    ttsProcess.stdout.on('data', (data) => {
-      console.log(`[TTS] ${data}`);
+    // Create log files with rotation
+    const logFile = path.join(PATHS.logsDir, 'backend.log');
+    const logStream = fs.createWriteStream(logFile, { flags: 'a' });
+    
+    // Write startup header to log
+    const timestamp = new Date().toISOString();
+    logStream.write(`\n${'='.repeat(80)}\n`);
+    logStream.write(`[${timestamp}] Starting FastAPI Backend\n`);
+    logStream.write(`${'='.repeat(80)}\n\n`);
+
+    // Determine correct working directory
+    // For bundled: use python-bundle/python-env (contains backend/ subdirectory)
+    // For dev: use project root (contains backend/ subdirectory)
+    let workingDir;
+    if (fs.existsSync(extractedBackendScript)) {
+      // Bundled mode: backend is in python-bundle/python-env/backend/
+      workingDir = path.join(PATHS.pythonBundleDir, 'python-env');
+    } else {
+      // Dev mode: backend is in project/backend/
+      workingDir = path.dirname(path.dirname(backendScript)); // Go up two levels from main.py
+    }
+    
+    console.log(`🐍 Working directory: ${workingDir}`);
+    console.log(`🐍 Working directory exists: ${fs.existsSync(workingDir)}`);
+
+    // Spawn FastAPI backend using uvicorn
+    fastAPIBackendProcess = spawn(
+      pythonCmd, 
+      ['-m', 'uvicorn', 'backend.main:app', '--host', '0.0.0.0', '--port', '3001'],
+      {
+        env,
+        cwd: workingDir,
+        stdio: ['pipe', 'pipe', 'pipe']
+      }
+    );
+
+    // Capture stdout to log file and console
+    fastAPIBackendProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      console.log(`[BACKEND] ${output}`);
+      logStream.write(`[STDOUT] ${output}`);
     });
 
-    if (process.platform !== 'win32') {
-      ttsProcess.stderr.on('data', (data) => {
-        console.error(`[TTS] ${data}`);
-      });
-    }
+    // Capture stderr to log file and console
+    fastAPIBackendProcess.stderr.on('data', (data) => {
+      const output = data.toString();
+      console.error(`[BACKEND] ${output}`);
+      logStream.write(`[STDERR] ${output}`);
+    });
 
-    ttsProcess.on('close', (code) => {
-      console.log(`TTS process exited with code ${code}`);
+    fastAPIBackendProcess.on('close', (code) => {
+      const timestamp = new Date().toISOString();
+      const message = `[${timestamp}] FastAPI backend process exited with code ${code}\n`;
+      console.log(message);
+      logStream.write(message);
+      logStream.end();
+      
       if (!isQuitting && code !== 0) {
-        // Only restart TTS if it crashed (non-zero exit code)
-        console.log('TTS server crashed, restarting in 2 seconds...');
-        setTimeout(() => startTTSServer(), 2000);
-      } else if (code === 0) {
-        console.log('TTS server exited normally, not restarting');
+        // Restart backend if it crashes unexpectedly
+        console.log('FastAPI backend crashed, restarting in 2 seconds...');
+        setTimeout(() => startFastAPIBackend(), 2000);
       }
     });
 
-    // Wait a bit for TTS to start
+    fastAPIBackendProcess.on('error', (error) => {
+      const timestamp = new Date().toISOString();
+      const message = `[${timestamp}] FastAPI backend error: ${error.message}\n`;
+      console.error(message);
+      logStream.write(message);
+    });
+
+    console.log('FastAPI backend started, waiting for initialization...');
+    // Wait a bit for backend to start
     setTimeout(() => resolve(), 3000);
   });
 }
@@ -1124,10 +1063,10 @@ function startHTTPSServer() {
         rejectUnauthorized: false
       };
       
-      // Create HTTPS server that proxies to HTTP server on port 3000
+      // Create HTTPS server that proxies to FastAPI backend on port 3001
       const httpsServer = https.createServer(sslOptions, (req, res) => {
         const axios = require('axios');
-        const targetUrl = `http://127.0.0.1:3000${req.url}`;
+        const targetUrl = `http://127.0.0.1:3001${req.url}`;
         
         console.log(`🔐 HTTPS proxy request: ${req.method} ${req.url}`);
         
@@ -1144,7 +1083,7 @@ function startHTTPSServer() {
             headers: {
               ...req.headers,
               // Remove headers that shouldn't be forwarded
-              host: 'localhost:3000'
+              host: 'localhost:3001'
             },
             responseType: 'stream',
             timeout: 60000, // 60 second timeout
@@ -1214,9 +1153,9 @@ function startHTTPSServer() {
           console.error(`❌ HTTPS WebSocket socket error for ${req.url}:`, err.message);
         });
         
-        // Create target connection to HTTP server
-        const targetSocket = net.connect(3000, '127.0.0.1', () => {
-          console.log(`📡 Connected to HTTP server for WebSocket upgrade: ${req.url}`);
+        // Create target connection to FastAPI backend
+        const targetSocket = net.connect(3001, '127.0.0.1', () => {
+          console.log(`📡 Connected to FastAPI backend for WebSocket upgrade: ${req.url}`);
           
           // Forward the original HTTP upgrade request to the target
           const upgradeRequest = [
@@ -1291,7 +1230,7 @@ function startHTTPSServer() {
   });
 }
 
-// Start Express server in production mode
+// Start Express server in production mode - ONLY for static file serving
 function startExpressServer() {
   return new Promise((resolve, reject) => {
     if (isDev) {
@@ -1301,466 +1240,16 @@ function startExpressServer() {
       return;
     }
 
-    console.log('Starting Express server for production mode...');
+    console.log('Starting Express server for static file serving only...');
     
     const expressApp = express();
     const PORT = 3000;
 
-    // Configure multer for file uploads
-    const upload = multer({
-      dest: path.join(os.tmpdir(), 'nebulon-uploads'),
-      limits: {
-        fileSize: 5 * 1024 * 1024 * 1024, // 5GB limit
-      },
-    });
-
-    // Middleware
-    expressApp.use(cors());
-    expressApp.use(bodyParser.json({ limit: '50mb' }));
-    expressApp.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
-
-    // Ollama Proxy - Forward requests to local Ollama instance
-    const axios = require('axios');
-    const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
-
-    expressApp.all('/api/ollama/*', async (req, res) => {
-      try {
-        const ollamaPath = req.path.replace('/api/ollama', '');
-        const ollamaUrl = `${OLLAMA_BASE_URL}/api${ollamaPath}`;
-        
-        console.log(`📡 Proxying Ollama request: ${req.method} ${ollamaPath} to ${ollamaUrl}`);
-        
-        const config = {
-          method: req.method,
-          url: ollamaUrl,
-          data: req.body,
-          headers: {
-            'Content-Type': req.headers['content-type'] || 'application/json',
-            ...(req.headers['authorization'] && { 'Authorization': req.headers['authorization'] })
-          },
-          responseType: req.body && req.body.stream ? 'stream' : 'json',
-          timeout: 300000,
-          validateStatus: function (status) {
-            return status < 600; // Accept all status codes to properly forward errors
-          }
-        };
-        
-        const response = await axios(config);
-        
-        console.log(`✅ Ollama response: ${response.status}`);
-        
-        // Set status code
-        res.status(response.status);
-        
-        // Forward headers
-        if (response.headers['content-type']) {
-          res.setHeader('Content-Type', response.headers['content-type']);
-        }
-        
-        // Handle streaming responses
-        if (response.data && response.data.pipe) {
-          response.data.pipe(res);
-        } else {
-          // Handle JSON responses
-          res.json(response.data);
-        }
-      } catch (error) {
-        console.error('❌ Ollama proxy error:', error.message);
-        console.error('   Code:', error.code);
-        console.error('   URL attempted:', error.config?.url);
-        
-        // Provide detailed error response
-        const statusCode = error.response?.status || 502;
-        const errorMessage = error.code === 'ECONNREFUSED' 
-          ? 'Cannot connect to Ollama - please ensure Ollama is running on localhost:11434'
-          : error.message || 'Ollama proxy error';
-        
-        res.status(statusCode).json({ 
-          error: errorMessage,
-          code: error.code,
-          details: error.response?.data
-        });
-      }
-    });
-
-    // Create WebSocket proxy middleware instances
-    const voskProxy = createProxyMiddleware({
-      target: 'ws://127.0.0.1:2700',
-      ws: true,
-      changeOrigin: true,
-      pathRewrite: {
-        '^/vosk': '', // Remove /vosk prefix when forwarding
-      },
-      logLevel: 'debug',
-      onError: (err, req, res) => {
-        console.error('❌ Vosk proxy error:', err.message);
-      },
-      onProxyReq: (proxyReq, req, res) => {
-        console.log('📡 Proxying Vosk HTTP request');
-      },
-      onProxyReqWs: (proxyReq, req, socket, options, head) => {
-        console.log('📡 Proxying Vosk WebSocket request');
-      },
-    });
-
-    const ttsProxy = createProxyMiddleware({
-      target: 'ws://127.0.0.1:2701',
-      ws: true,
-      changeOrigin: true,
-      pathRewrite: {
-        '^/tts': '', // Remove /tts prefix when forwarding
-      },
-      logLevel: 'debug',
-      onError: (err, req, res) => {
-        console.error('❌ TTS proxy error:', err.message);
-      },
-      onProxyReq: (proxyReq, req, res) => {
-        console.log('📡 Proxying TTS HTTP request');
-      },
-      onProxyReqWs: (proxyReq, req, socket, options, head) => {
-        console.log('📡 Proxying TTS WebSocket request');
-      },
-    });
-
-    // Apply middleware to routes
-    expressApp.use('/vosk', voskProxy);
-    expressApp.use('/tts', ttsProxy);
-
-    // API endpoint to identify this server as Electron-based
-    expressApp.get('/api/server-info', (req, res) => {
-      res.json({
-        serverType: 'electron',
-        version: app.getVersion(),
-        platform: process.platform,
-        isElectron: true
-      });
-    });
-
-    // API endpoint for network addresses - returns HTTPS URLs for network access
-    // Separates WiFi/hotspot connections from Ethernet connections
-    expressApp.get('/api/network-info', (req, res) => {
-      try {
-        const HTTPS_PORT = 3443; // Same port as backend server
-        const HTTP_PORT = 3000; // Electron's Express server port
-        const wifiIPs = [];
-        const ethernetIPs = [];
-        const networkInterfaces = os.networkInterfaces();
-        
-        // Get WiFi interface names using platform-specific commands
-        let wifiInterfaceNames = new Set();
-        
-        // For macOS: use networksetup to get accurate WiFi interfaces
-        if (process.platform === 'darwin') {
-          try {
-            const output = execSync('networksetup -listallhardwareports', { encoding: 'utf8' });
-            
-            // Parse output to find WiFi interfaces
-            const lines = output.split('\n');
-            for (let i = 0; i < lines.length; i++) {
-              if (lines[i].includes('Hardware Port:') && 
-                  (lines[i].includes('Wi-Fi') || lines[i].includes('WiFi') || lines[i].includes('AirPort'))) {
-                if (i + 1 < lines.length && lines[i + 1].includes('Device:')) {
-                  const deviceMatch = lines[i + 1].match(/Device:\s*(\S+)/);
-                  if (deviceMatch) {
-                    wifiInterfaceNames.add(deviceMatch[1]);
-                    console.log(`🔍 Detected WiFi interface on macOS: ${deviceMatch[1]}`);
-                  }
-                }
-              }
-            }
-          } catch (error) {
-            console.warn('Could not run networksetup command:', error.message);
-          }
-        }
-        
-        // Process interfaces
-        for (const interfaceName in networkInterfaces) {
-          const interfaces = networkInterfaces[interfaceName];
-          const lowerName = interfaceName.toLowerCase();
-          
-          for (const iface of interfaces) {
-            // Get all IPv4 addresses that are not internal
-            if (iface.family === 'IPv4' && !iface.internal) {
-              const address = `https://${iface.address}:${HTTPS_PORT}`;
-              
-              console.log(`📡 Processing interface: ${interfaceName} → ${iface.address}`);
-              
-              // Check if this interface was identified as WiFi by platform-specific command
-              if (wifiInterfaceNames.has(interfaceName)) {
-                console.log(`  ✅ Classified as WiFi (platform detection: ${interfaceName})`);
-                wifiIPs.push(address);
-              }
-              // Detect WiFi by interface name patterns
-              else if (/^(wlan|wlp|wl|wifi|wi-?fi|air|airport|wlx|wireless|wi_fi|wlan\d+)/i.test(lowerName)) {
-                console.log(`  ✅ Classified as WiFi (name pattern: ${interfaceName})`);
-                wifiIPs.push(address);
-              }
-              // Detect WiFi by AWDL (Apple Wireless Direct Link)
-              else if (lowerName.includes('awdl')) {
-                console.log(`  ✅ Classified as WiFi (AWDL: ${interfaceName})`);
-                wifiIPs.push(address);
-              }
-              // Bridge interfaces - for hotspot scenarios
-              else if (lowerName.includes('bridge')) {
-                console.log(`  ✅ Classified as WiFi (bridge: ${interfaceName})`);
-                wifiIPs.push(address);
-              }
-              // Detect Ethernet by name patterns
-              else if (/^(eth|enp|en|eno|ens|em|ethernet|lan|enx|usb|eth\d+)/i.test(lowerName)) {
-                console.log(`  ℹ️ Classified as Ethernet (name pattern: ${interfaceName})`);
-                ethernetIPs.push(address);
-              }
-              // Fallback: unknown interfaces go to Ethernet
-              else {
-                console.log(`  ℹ️ Classified as Ethernet (fallback: ${interfaceName})`);
-                ethernetIPs.push(address);
-              }
-            }
-          }
-        }
-        
-        res.json({ 
-          wifiIPs,
-          ethernetIPs,
-          networkIPs: [...wifiIPs, ...ethernetIPs], // For backward compatibility
-          httpsPort: HTTPS_PORT,
-          httpPort: HTTP_PORT
-        });
-      } catch (error) {
-        console.error('Error getting network addresses:', error);
-        res.status(500).json({ error: 'Failed to get network addresses' });
-      }
-    });
-
-    // API endpoints for chat data
-    expressApp.get('/api/chats', (req, res) => {
-      res.json(chatsData);
-    });
-
-    expressApp.post('/api/chats/:chatId', (req, res) => {
-      try {
-        const chatId = req.params.chatId;
-        const chatData = req.body;
-        
-        if (!chatId || !chatData) {
-          return res.status(400).json({ error: 'Chat ID and chat data are required' });
-        }
-        
-        const existingChatIndex = chatsData.findIndex(chat => chat.id === chatId);
-        
-        if (existingChatIndex >= 0) {
-          chatsData[existingChatIndex] = { ...chatsData[existingChatIndex], ...chatData, id: chatId };
-        } else {
-          chatsData.unshift({ ...chatData, id: chatId });
-        }
-        
-        saveChatsData();
-        res.json({ success: true });
-      } catch (error) {
-        console.error('Error saving chat:', error);
-        res.status(500).json({ error: 'Failed to save chat' });
-      }
-    });
-
-    expressApp.post('/api/chats', (req, res) => {
-      try {
-        const chats = Array.isArray(req.body) ? req.body : req.body.chats || req.body;
-        
-        if (!chats) {
-          return res.status(400).json({ error: 'No chats data provided' });
-        }
-        
-        chatsData = chats;
-        saveChatsData();
-        res.json({ success: true });
-      } catch (error) {
-        console.error('Error writing chats:', error);
-        res.status(500).json({ error: 'Failed to save chats' });
-      }
-    });
-
-    // Helper function to calculate directory size
-    const getDirectorySize = (dirPath) => {
-      let totalSize = 0;
-      
-      try {
-        const items = fs.readdirSync(dirPath);
-        
-        for (const item of items) {
-          const itemPath = path.join(dirPath, item);
-          const stats = fs.statSync(itemPath);
-          
-          if (stats.isDirectory()) {
-            totalSize += getDirectorySize(itemPath);
-          } else {
-            totalSize += stats.size;
-          }
-        }
-      } catch (error) {
-        console.error(`Error calculating directory size for ${dirPath}:`, error);
-      }
-      
-      return totalSize;
-    };
-
-    // Vosk Models API endpoints
-    expressApp.get('/api/vosk/models/all', async (req, res) => {
-      try {
-        const models = [];
-        
-        if (fs.existsSync(PATHS.voskModelsDir)) {
-          const items = fs.readdirSync(PATHS.voskModelsDir);
-          
-          for (const item of items) {
-            const itemPath = path.join(PATHS.voskModelsDir, item);
-            const stats = fs.statSync(itemPath);
-            
-            let type = 'file';
-            let status = 'other';
-            let size = stats.size;
-            
-            if (stats.isDirectory()) {
-              type = 'directory';
-              size = await calculateDirectorySize(itemPath);
-              
-              const requiredFiles = ['conf/model.conf', 'am/final.mdl', 'graph/HCLG.fst'];
-              let hasRequiredFiles = 0;
-              
-              for (const file of requiredFiles) {
-                if (fs.existsSync(path.join(itemPath, file))) {
-                  hasRequiredFiles++;
-                }
-              }
-              
-              status = hasRequiredFiles >= 2 ? 'ready' : 'other';
-            } else if (item.endsWith('.zip')) {
-              type = 'zip';
-              status = 'archived';
-            }
-            
-            models.push({
-              name: item,
-              type,
-              size,
-              modified: stats.mtime.toISOString(),
-              status
-            });
-          }
-          
-          models.sort((a, b) => {
-            const priority = { ready: 0, archived: 1, other: 2 };
-            const aPriority = priority[a.status] || 3;
-            const bPriority = priority[b.status] || 3;
-            
-            if (aPriority !== bPriority) {
-              return aPriority - bPriority;
-            }
-            
-            return a.name.localeCompare(b.name);
-          });
-        }
-        
-        res.json({ models });
-      } catch (error) {
-        console.error('Error listing models:', error);
-        res.status(500).json({ error: 'Failed to list models' });
-      }
-    });
-
-    expressApp.post('/api/vosk/models/upload', upload.single('model'), (req, res) => {
-      try {
-        if (!req.file) {
-          return res.status(400).json({ error: 'No file uploaded' });
-        }
-        
-        const uploadedFile = req.file;
-        const originalName = uploadedFile.originalname;
-        
-        if (!originalName.endsWith('.zip')) {
-          fs.unlinkSync(uploadedFile.path);
-          return res.status(400).json({ error: 'Only ZIP files are supported' });
-        }
-        
-        const targetPath = path.join(PATHS.voskModelsDir, originalName);
-        fs.copyFileSync(uploadedFile.path, targetPath);
-        fs.unlinkSync(uploadedFile.path);
-        
-        try {
-          const zip = new AdmZip(targetPath);
-          zip.extractAllTo(PATHS.voskModelsDir, true);
-          res.json({ 
-            message: 'Model uploaded and extracted successfully', 
-            filename: originalName,
-            extracted: true
-          });
-        } catch (extractError) {
-          res.json({ 
-            message: 'Model uploaded successfully, but auto-extraction failed', 
-            filename: originalName,
-            extracted: false,
-            extractError: extractError.message
-          });
-        }
-      } catch (error) {
-        console.error('Error uploading model:', error);
-        if (req.file && fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
-        }
-        res.status(500).json({ error: 'Failed to upload model' });
-      }
-    });
-
-    expressApp.post('/api/vosk/models/:name/extract', (req, res) => {
-      try {
-        const modelName = decodeURIComponent(req.params.name);
-        const zipPath = path.join(PATHS.voskModelsDir, modelName);
-        
-        if (!fs.existsSync(zipPath)) {
-          return res.status(404).json({ error: 'Model file not found' });
-        }
-        
-        if (!modelName.endsWith('.zip')) {
-          return res.status(400).json({ error: 'File is not a ZIP archive' });
-        }
-        
-        const zip = new AdmZip(zipPath);
-        zip.extractAllTo(PATHS.voskModelsDir, true);
-        
-        res.json({ message: 'Model extracted successfully' });
-      } catch (error) {
-        console.error('Error extracting model:', error);
-        res.status(500).json({ error: 'Failed to extract model' });
-      }
-    });
-
-    expressApp.delete('/api/vosk/models/:name', (req, res) => {
-      try {
-        const modelName = decodeURIComponent(req.params.name);
-        const modelPath = path.join(PATHS.voskModelsDir, modelName);
-        
-        if (!fs.existsSync(modelPath)) {
-          return res.status(404).json({ error: 'Model not found' });
-        }
-        
-        const stats = fs.statSync(modelPath);
-        
-        if (stats.isDirectory()) {
-          fs.rmSync(modelPath, { recursive: true, force: true });
-        } else {
-          fs.unlinkSync(modelPath);
-        }
-        
-        res.json({ message: 'Model deleted successfully' });
-      } catch (error) {
-        console.error('Error deleting model:', error);
-        res.status(500).json({ error: 'Failed to delete model' });
-      }
-    });
-
     // Serve static files from build directory
     expressApp.use(express.static(PATHS.buildDir));
 
-    // Handle client-side routing - send index.html for all non-API routes
+    // Handle client-side routing - send index.html for all routes
+    // Frontend will connect directly to port 3001 for all API/WebSocket calls
     expressApp.get('*', (req, res) => {
       res.sendFile(path.join(PATHS.buildDir, 'index.html'));
     });
@@ -1769,52 +1258,12 @@ function startExpressServer() {
     httpServer = expressApp.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Express server running on port ${PORT}`);
       console.log(`   - Local: http://localhost:${PORT}`);
-      console.log(`   - Local: http://127.0.0.1:${PORT}`);
-      
-      // Get and display network IP addresses
-      const os = require('os');
-      const networkInterfaces = os.networkInterfaces();
-      const addresses = [];
-      
-      for (const interfaceName in networkInterfaces) {
-        const interfaces = networkInterfaces[interfaceName];
-        for (const iface of interfaces) {
-          // Skip internal and non-IPv4 addresses
-          if (iface.family === 'IPv4' && !iface.internal) {
-            addresses.push(iface.address);
-          }
-        }
-      }
-      
-      if (addresses.length > 0) {
-        addresses.forEach(addr => {
-          console.log(`   - Network: http://${addr}:${PORT}`);
-        });
-      }
-      
       console.log(`   - Serving static files from: ${PATHS.buildDir}`);
-      console.log(`   - WebSocket proxies: /vosk → ws://127.0.0.1:2700, /tts → ws://127.0.0.1:2701`);
+      console.log(`   - Frontend connects to FastAPI backend on port 3001`);
       resolve();
     }).on('error', (error) => {
       console.error('Failed to start Express server:', error);
       reject(error);
-    });
-
-    // CRITICAL: Handle WebSocket upgrades for the proxy middleware
-    // Without this, WebSocket connections won't be properly proxied
-    httpServer.on('upgrade', (req, socket, head) => {
-      console.log(`🔄 WebSocket upgrade request for: ${req.url}`);
-      
-      if (req.url.startsWith('/vosk')) {
-        console.log('🎤 Upgrading Vosk WebSocket connection');
-        voskProxy.upgrade(req, socket, head);
-      } else if (req.url.startsWith('/tts')) {
-        console.log('🔊 Upgrading TTS WebSocket connection');
-        ttsProxy.upgrade(req, socket, head);
-      } else {
-        console.log(`⚠️ Unknown WebSocket upgrade request: ${req.url}`);
-        socket.destroy();
-      }
     });
   });
 }
@@ -2156,10 +1605,9 @@ async function initializeBackgroundServices() {
       await startHTTPSServer();
     }
     
-    // Start Python services in background
-    console.log('Starting Python services in background...');
-    await startVoskServer();
-    await startTTSServer();
+    // Start unified FastAPI backend (replaces separate Vosk and TTS servers)
+    console.log('Starting FastAPI unified backend in background...');
+    await startFastAPIBackend();
     
     console.log('✅ All background services started successfully');
   } catch (error) {
@@ -2196,12 +1644,10 @@ app.on('before-quit', () => {
     backendServerProcess.close();
   }
   
-  // Terminate Python processes
-  if (voskProcess) {
-    voskProcess.kill();
-  }
-  if (ttsProcess) {
-    ttsProcess.kill();
+  // Terminate FastAPI backend process
+  if (fastAPIBackendProcess) {
+    console.log('Terminating FastAPI backend...');
+    fastAPIBackendProcess.kill();
   }
 });
 
