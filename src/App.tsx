@@ -640,20 +640,6 @@ const App: React.FC = () => {
         
         console.log(`📊 User message: ${userTokenCount} tokens, Cumulative context: ${cumulativeContextTokens} tokens`);
         
-        // Update current chat with user message
-        const updatedChat = {
-          ...currentChat,
-          messages: [...currentChat.messages, userMessage],
-        };
-        
-        // Update chats state
-        const updatedChats = chats.map(chat => 
-          chat.id === currentChat.id ? updatedChat : chat
-        );
-           
-        setCurrentChat(updatedChat);
-        setChats(updatedChats);
-
         // Set the current message ID from the LLM response or fallback to local ID
         // Retry until successful
         const setMessageIdWithRetry = async (): Promise<void> => {
@@ -665,26 +651,36 @@ const App: React.FC = () => {
         };
         
         await setMessageIdWithRetry();
+        
+        // Create AI message placeholder
+        const aiMessage: MessageType = {
+          id: aiMessageId,
+          role: 'assistant',
+          content: '', // Start with empty content that will be streamed
+          timestamp: new Date().toISOString(),
+        };
+        
+        // Create the updated messages array that includes both user and AI messages
+        const updatedMessagesArray = [...currentChat.messages, userMessage, aiMessage];
+        
+        // Update state with BOTH user and AI messages at once using functional updates
+        setCurrentChat(prevChat => {
+          if (!prevChat) return null;
+          return {
+            ...prevChat,
+            messages: updatedMessagesArray,
+          };
+        });
+        
+        setChats(prevChats => 
+          prevChats.map(chat => 
+            chat.id === currentChat.id 
+              ? { ...chat, messages: updatedMessagesArray }
+              : chat
+          )
+        );
+        
         {
-          const aiMessage: MessageType = {
-            id: aiMessageId,
-            role: 'assistant',
-            content: '', // Start with empty content that will be streamed
-            timestamp: new Date().toISOString(),
-          };
-          
-          // Add the empty AI message to the chat
-          const chatWithAiMessage = {
-            ...updatedChat,
-            messages: [...updatedChat.messages, aiMessage],
-          };
-          
-          const chatsWithAiMessage = updatedChats.map(chat => 
-            chat.id === currentChat.id ? chatWithAiMessage : chat
-          );
-          
-          setCurrentChat(chatWithAiMessage);
-          setChats(chatsWithAiMessage);
           
           // Add AI response using the actual API with streaming
           //Wait additional 500ms for server and processes to respond properly
@@ -846,7 +842,7 @@ const App: React.FC = () => {
             // Start both operations in parallel using Promise.all or separate promises
             const apiResult = await sendMessage(
               selectedModel.id,
-              [...updatedChat.messages], // Include the new user message
+              updatedMessagesArray, // Use the array we created earlier that includes both user and AI messages
               {
                 num_ctx: contextLength,
                 temperature: temperature

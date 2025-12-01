@@ -808,6 +808,7 @@ const InputArea: React.FC<InputAreaProps> = ({
             multiline
             maxRows={4}
             value={message}
+            disabled={loading}
             onChange={(e) => {
               const newValue = e.target.value;
               setMessage(newValue);
@@ -855,9 +856,10 @@ const InputArea: React.FC<InputAreaProps> = ({
 
         {loading ? (
           <IconButton
-            color="error"
+            color="primary"
             onClick={onStopResponse}
             sx={{ ml: 1 }}
+            title="Stop generating response"
           >
             <StopIcon />
           </IconButton>
