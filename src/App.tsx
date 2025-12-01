@@ -135,7 +135,7 @@ const App: React.FC = () => {
       // Set the new active message ID for this response
       const success = await ttsService.setActiveMessageId(msgId);
       if (!success) {
-        console.error('Start: Failed to set active message ID for TTS:', msgId);
+        //console.error('Start: Failed to set active message ID for TTS:', msgId);
       }
       return success;
     }
@@ -540,56 +540,15 @@ const App: React.FC = () => {
     }
   };
 
-  // Ref to track the currently running message operation
-  const currentMessageOperationRef = useRef<Promise<void> | null>(null);
-  const isProcessingMessageRef = useRef<boolean>(false);
-
-  // Helper function to start a new message operation
-  const startNewMessageOperation = (content: string, attachments?: FileAttachment[]) => {
-    isProcessingMessageRef.current = true;
-    
-    // Create and store the promise for this operation
-    const operationPromise = new Promise<void>((resolve) => {
-      handleSendMessageInternal(content, attachments);
-      // Set up a listener for when loading completes
-      const checkComplete = setInterval(() => {
-        if (!loading) {
-          clearInterval(checkComplete);
-          isProcessingMessageRef.current = false;
-          resolve();
-        }
-      }, 100);
-    });
-    
-    currentMessageOperationRef.current = operationPromise;
-  };
-
-  // Public wrapper function that ensures only one message is processed at a time
+  // Simple wrapper function that calls the internal handler
   const handleSendMessage = (content: string, attachments?: FileAttachment[]) => {
-    // If there's already a message being processed, cancel it and wait for cleanup
-    if (isProcessingMessageRef.current && currentMessageOperationRef.current) {
-      console.log('🔄 New message requested - canceling previous operation...');
-      
-      // Cancel the previous operation
-      handleStopResponse().then(() => {
-        console.log('✅ Previous operation canceled - starting new message');
-        // Wait for previous operation to fully complete before starting new one
-        if (currentMessageOperationRef.current) {
-          currentMessageOperationRef.current.then(() => {
-            // Previous operation completed, now start the new one
-            startNewMessageOperation(content, attachments);
-          }).catch(() => {
-            // Even if previous operation failed, start the new one
-            startNewMessageOperation(content, attachments);
-          });
-        } else {
-          startNewMessageOperation(content, attachments);
-        }
-      });
-    } else {
-      // No operation in progress, start immediately
-      startNewMessageOperation(content, attachments);
+    // Prevent sending if already loading
+    if (loading) {
+      console.log('⚠️ Already processing a message, ignoring new request');
+      return;
     }
+    
+    handleSendMessageInternal(content, attachments);
   };
 
   // Internal function that contains the actual message sending logic

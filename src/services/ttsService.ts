@@ -129,7 +129,7 @@ export class TTSService {
         const timeout = setTimeout(() => {
           this.pendingSetActiveMessageId.delete(requestId);
           resolve(false);
-        }, 10000);
+        }, 10);
         
         // Store the resolver with cleanup
         this.pendingSetActiveMessageId.set(requestId, (success: boolean) => {
