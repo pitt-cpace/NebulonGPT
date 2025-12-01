@@ -10,6 +10,7 @@ const os = require('os');
 const https = require('https');
 const http = require('http');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const { execSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,7 +26,6 @@ const VOSK_MODELS_DIR = fs.existsSync('/app/vosk-server/models')
   : path.join(os.homedir(), '.nebulon-gpt', 'vosk-models');  // Development/Electron
   
 console.log(`📂 Using Vosk models directory: ${VOSK_MODELS_DIR}`);
-
 
 // Configure multer for file uploads
 const upload = multer({
@@ -130,7 +130,16 @@ app.all('/api/ollama/*', async (req, res) => {
 
 // API endpoints
 
-// Get network addresses - returns HTTPS URLs for network access and HTTP for localhost
+// API endpoint to identify this server as Node.js-based
+app.get('/api/server-info', (req, res) => {
+  res.json({
+    serverType: 'nodejs',
+    platform: process.platform,
+    isElectron: false
+  });
+});
+
+// Get network addresses with enhanced Windows hotspot detection
 // Separates WiFi/hotspot connections from Ethernet connections
 app.get('/api/network-info', (req, res) => {
   try {
@@ -138,13 +147,37 @@ app.get('/api/network-info', (req, res) => {
     const ethernetIPs = [];
     const networkInterfaces = os.networkInterfaces();
     
+    // Enhanced Windows interface detection using wmic command
+    let windowsInterfaceDetails = new Map();
+    if (process.platform === 'win32') {
+      try {
+        // Use wmic to get detailed interface information including descriptions
+        const wmicOutput = execSync('wmic path win32_networkadapter where "NetConnectionStatus=2" get NetConnectionID,Description /format:csv', { encoding: 'utf8' });
+        
+        const lines = wmicOutput.split('\n').filter(line => line.trim() && !line.startsWith('Node'));
+        for (const line of lines) {
+          const parts = line.split(',');
+          if (parts.length >= 3) {
+            const description = parts[1]?.trim();
+            const connectionId = parts[2]?.trim();
+            
+            if (description && connectionId) {
+              windowsInterfaceDetails.set(connectionId, description);
+              console.log(`🔍 Windows interface: ${connectionId} → ${description}`);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Could not run wmic command for Windows interface detection:', error.message);
+      }
+    }
+    
     // Get WiFi interface names using platform-specific commands
     let wifiInterfaceNames = new Set();
     
     // For macOS: use networksetup to get accurate WiFi interfaces
     if (process.platform === 'darwin') {
       try {
-        const { execSync } = require('child_process');
         const output = execSync('networksetup -listallhardwareports').toString();
         
         // Parse output to find WiFi interfaces
@@ -168,7 +201,7 @@ app.get('/api/network-info', (req, res) => {
       }
     }
     
-    // Process interfaces
+    // Process interfaces with enhanced Windows hotspot detection
     for (const interfaceName in networkInterfaces) {
       const interfaces = networkInterfaces[interfaceName];
       const lowerName = interfaceName.toLowerCase();
@@ -177,31 +210,65 @@ app.get('/api/network-info', (req, res) => {
         // Get all IPv4 addresses that are not internal
         if (iface.family === 'IPv4' && !iface.internal) {
           const address = `https://${iface.address}:${HTTPS_PORT}`;
+          const ipAddress = iface.address;
           
           console.log(`📡 Processing interface: ${interfaceName} → ${iface.address}`);
           
-          // Check if this interface was identified as WiFi by platform-specific command
+          let isWiFi = false;
+          
+          // Enhanced Windows-specific detection
+          if (process.platform === 'win32') {
+            const description = windowsInterfaceDetails.get(interfaceName) || '';
+            
+            // Windows Mobile Hotspot detection
+            if (lowerName.includes('local area connection') && 
+                (description.includes('Wi-Fi Direct') || description.includes('Microsoft Wi-Fi Direct Virtual Adapter'))) {
+              console.log(`  ✅ Classified as WiFi (Windows hotspot: ${interfaceName}, ${description})`);
+              isWiFi = true;
+            }
+            // Windows hotspot IP range detection (192.168.137.x is default Windows hotspot range)
+            else if (ipAddress.startsWith('192.168.137.')) {
+              console.log(`  ✅ Classified as WiFi (Windows hotspot IP range: ${ipAddress})`);
+              isWiFi = true;
+            }
+            // Standard Windows WiFi adapter detection
+            else if (description.includes('Wi-Fi') || description.includes('Wireless') || description.includes('802.11')) {
+              console.log(`  ✅ Classified as WiFi (Windows description: ${description})`);
+              isWiFi = true;
+            }
+          }
+          
+          // macOS-specific detection
           if (wifiInterfaceNames.has(interfaceName)) {
-            console.log(`  ✅ Classified as WiFi (platform detection: ${interfaceName})`);
+            console.log(`  ✅ Classified as WiFi (macOS platform detection: ${interfaceName})`);
+            isWiFi = true;
+          }
+          
+          // Cross-platform pattern-based detection
+          if (!isWiFi) {
+            // Standard WiFi interface patterns
+            if (/^(wlan|wlp|wl|wifi|wi-?fi|air|airport|wlx|wireless|wi_fi|wlan\d+)/i.test(lowerName)) {
+              console.log(`  ✅ Classified as WiFi (name pattern: ${interfaceName})`);
+              isWiFi = true;
+            }
+            // AWDL (Apple Wireless Direct Link)
+            else if (lowerName.includes('awdl')) {
+              console.log(`  ✅ Classified as WiFi (AWDL: ${interfaceName})`);
+              isWiFi = true;
+            }
+            // Bridge interfaces (generic hotspot scenarios)
+            else if (lowerName.includes('bridge')) {
+              console.log(`  ✅ Classified as WiFi (bridge: ${interfaceName})`);
+              isWiFi = true;
+            }
+          }
+          
+          // Classification result
+          if (isWiFi) {
             wifiIPs.push(address);
           }
-          // Detect WiFi by interface name patterns
-          else if (/^(wlan|wlp|wl|wifi|wi-?fi|air|airport|wlx|wireless|wi_fi|wlan\d+)/i.test(lowerName)) {
-            console.log(`  ✅ Classified as WiFi (name pattern: ${interfaceName})`);
-            wifiIPs.push(address);
-          }
-          // Detect WiFi by AWDL (Apple Wireless Direct Link)
-          else if (lowerName.includes('awdl')) {
-            console.log(`  ✅ Classified as WiFi (AWDL: ${interfaceName})`);
-            wifiIPs.push(address);
-          }
-          // Bridge interfaces - for hotspot scenarios
-          else if (lowerName.includes('bridge')) {
-            console.log(`  ✅ Classified as WiFi (bridge: ${interfaceName})`);
-            wifiIPs.push(address);
-          }
-          // Detect Ethernet by name patterns
-          else if (/^(eth|enp|en|eno|ens|em|ethernet|lan|enx|usb|eth\d+)/i.test(lowerName)) {
+          // Ethernet patterns (including VMware and Hyper-V virtual adapters)
+          else if (/^(eth|enp|en|eno|ens|em|ethernet|lan|enx|usb|vmware|vethernet)/i.test(lowerName)) {
             console.log(`  ℹ️ Classified as Ethernet (name pattern: ${interfaceName})`);
             ethernetIPs.push(address);
           }
