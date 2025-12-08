@@ -96,21 +96,34 @@ export const fetchModels = async (): Promise<ModelType[]> => {
 
 // Variable to store the current reader for cancellation
 let currentReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+// Variable to store the abort controller for truly stopping the HTTP request
+let abortController: AbortController | null = null;
 
 // Function to cancel the current stream
 // Returns true if successfully cancelled, false otherwise
 export const cancelStream = async (): Promise<boolean> => {
-  if (currentReader) {
-    try {
-      await currentReader.cancel('User cancelled the response');
-      currentReader = null;
-      return true;
-    } catch (error) {
-      console.error('Error cancelling stream:', error);
-      return false;
+  try {
+    // Abort the fetch request first - this truly stops the LLM on the server
+    if (abortController) {
+      abortController.abort();
+      abortController = null;
     }
+
+    // Then clean up the reader
+    if (currentReader) {
+      try {
+        await currentReader.cancel('User cancelled the response');
+      } catch (error) {
+        // Ignore errors from cancelling the reader after abort
+      }
+      currentReader = null;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error cancelling stream:', error);
+    return false;
   }
-  return true; // No active reader to cancel, so return true
 };
 
 // Helper function to filter out chain-of-thought reasoning (text starting with asterisk)
@@ -316,11 +329,15 @@ const endpoint = '/chat';
       // Log the complete payload with messages containing images
       //console.log('Complete Ollama API request payload:', JSON.stringify(payload, null, 2));
       
-      // Use fetch for streaming
+      // Create a new AbortController for this request
+      abortController = new AbortController();
+      
+      // Use fetch for streaming with abort signal
       const response = await fetch(`${baseURL}${endpoint}`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(payload),
+        signal: abortController.signal,
       });
       
       if (!response.ok) {
@@ -391,7 +408,14 @@ const endpoint = '/chat';
           }
         }
       } catch (error: any) {
-        // Check if this is a cancellation error
+        // Check if this is an AbortError from AbortController
+        if (error.name === 'AbortError') {
+          console.log('🛑 Stream was aborted by user - LLM generation stopped on server');
+          const tokensReceived = tokenCountingService.countTokens(fullResponse);
+          console.log(`📥 Tokens received from LLM: ${tokensReceived} (aborted)`);
+          return { response: fullResponse, tokensSent, tokensReceived };
+        }
+        // Check if this is a cancellation error from reader.cancel()
         if (error.message === 'User cancelled the response') {
           console.log('Stream was cancelled by user');
           const tokensReceived = tokenCountingService.countTokens(fullResponse);
@@ -402,6 +426,7 @@ const endpoint = '/chat';
         throw error;
       } finally {
         currentReader = null;
+        abortController = null;
       }
       
       // Calculate tokens received and return complete object
@@ -444,6 +469,12 @@ const endpoint = '/chat';
     
     return { response: 'No response from the model. Please check the Ollama API is running correctly.', tokensSent, tokensReceived: 0 };
   } catch (error: any) {
+    // Handle AbortError from AbortController
+    if (error.name === 'AbortError') {
+      console.log('🛑 Request was aborted by user');
+      return { response: '', tokensSent: tokensSent || 0, tokensReceived: 0 };
+    }
+    
     console.error('Error sending message to Ollama API:', error);
     
     // Provide more detailed error information
