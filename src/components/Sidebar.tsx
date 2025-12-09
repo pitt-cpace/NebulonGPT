@@ -432,7 +432,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             ref={chatListRef}
             onScroll={handleScroll}
             sx={{
-              maxHeight: 'calc(100vh - 400px)', // Adjust based on your layout
+              maxHeight: 'calc(100vh - 450px)', // Increased from 400px to account for Select All header
               overflowY: 'auto',
               overflowX: 'hidden',
             }}
