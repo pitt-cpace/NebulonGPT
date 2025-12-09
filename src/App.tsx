@@ -442,8 +442,12 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDeleteChat = async (chatId: string) => {
-    const updatedChats = chats.filter(chat => chat.id !== chatId);
+  const handleDeleteChat = async (chatId: string | string[]) => {
+    // Support both single chat ID (string) and multiple chat IDs (array)
+    const idsToDelete = Array.isArray(chatId) ? chatId : [chatId];
+    
+    // Filter out all chats that should be deleted
+    const updatedChats = chats.filter(chat => !idsToDelete.includes(chat.id));
     
     // Immediately save to server to ensure deletion persists
     try {
@@ -455,7 +459,8 @@ const App: React.FC = () => {
     
     setChats(updatedChats);
     
-    if (currentChat?.id === chatId) {
+    // Check if current chat was deleted
+    if (currentChat && idsToDelete.includes(currentChat.id)) {
       // Set the new current chat
       const newCurrentChat = updatedChats.length > 0 ? updatedChats[0] : null;
       setCurrentChat(newCurrentChat);

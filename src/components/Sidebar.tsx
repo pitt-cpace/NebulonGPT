@@ -22,6 +22,7 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  Checkbox,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -34,6 +35,7 @@ import {
   Workspaces as WorkspacesIcon,
   AutoAwesome as AutoAwesomeIcon,
   ChevronLeft as ChevronLeftIcon,
+  DeleteSweep as DeleteSweepIcon,
 } from '@mui/icons-material';
 import { ChatType } from '../types';
 import * as styles from '../styles/components/Sidebar.styles';
@@ -45,7 +47,7 @@ interface SidebarProps {
   currentChatId?: string;
   onCreateNewChat: () => void;
   onSelectChat: (chatId: string) => void;
-  onDeleteChat: (chatId: string) => void;
+  onDeleteChat: (chatId: string | string[]) => void;
   onUpdateChatTitle: (chatId: string, newTitle: string) => void;
   onLoadMoreChats?: () => void;
   hasMoreChats?: boolean;
@@ -80,6 +82,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [tooltipTimeout, setTooltipTimeout] = useState<NodeJS.Timeout | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [chatToDelete, setChatToDelete] = useState<{ id: string; title: string } | null>(null);
+  
+  // Selection mode state for bulk delete
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
   
   // Refs for scroll detection
   const chatListRef = useRef<HTMLDivElement>(null);
@@ -163,6 +170,48 @@ const Sidebar: React.FC<SidebarProps> = ({
       setTooltipTimeout(null);
     }
     setTooltipOpen(false);
+  };
+
+  // Selection handlers for bulk delete
+  const toggleSelectionMode = () => {
+    setSelectionMode(!selectionMode);
+    setSelectedChatIds(new Set());
+  };
+
+  const toggleChatSelection = (chatId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newSelected = new Set(selectedChatIds);
+    if (newSelected.has(chatId)) {
+      newSelected.delete(chatId);
+    } else {
+      newSelected.add(chatId);
+    }
+    setSelectedChatIds(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedChatIds.size === filteredChats.length) {
+      // Deselect all
+      setSelectedChatIds(new Set());
+    } else {
+      // Select all
+      const allIds = new Set(filteredChats.map(chat => chat.id));
+      setSelectedChatIds(allIds);
+    }
+  };
+
+  const handleBulkDelete = () => {
+    // Convert Set to Array
+    const idsToDelete = Array.from(selectedChatIds);
+    
+    // Pass the entire array to onDeleteChat (App.tsx now supports arrays)
+    // This prevents race conditions from multiple state updates
+    onDeleteChat(idsToDelete);
+    
+    // Clear selection immediately
+    setSelectedChatIds(new Set());
+    setSelectionMode(false);
+    setBulkDeleteConfirmOpen(false);
   };
 
   // Scroll detection for lazy loading
@@ -324,6 +373,61 @@ const Sidebar: React.FC<SidebarProps> = ({
           {chatsOpen ? <ExpandLess /> : <ExpandMore />}
         </ListItemButton>
         <Collapse in={chatsOpen} timeout="auto" unmountOnExit>
+          {/* Selection Mode Header - Select All and Bulk Delete */}
+          {filteredChats.length > 0 && (
+            <Box sx={{ 
+              px: 2, 
+              py: 1, 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              backgroundColor: selectionMode ? 'rgba(244, 67, 54, 0.08)' : 'transparent',
+              borderBottom: selectionMode ? '1px solid' : 'none',
+              borderColor: 'divider',
+              transition: 'all 0.2s',
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Checkbox
+                  size="small"
+                  checked={selectedChatIds.size === filteredChats.length && filteredChats.length > 0}
+                  indeterminate={selectedChatIds.size > 0 && selectedChatIds.size < filteredChats.length}
+                  onChange={toggleSelectAll}
+                  sx={{
+                    padding: '4px',
+                    '&.Mui-checked': {
+                      color: 'error.main',
+                    },
+                    '&.MuiCheckbox-indeterminate': {
+                      color: 'error.main',
+                    },
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                  {selectionMode && selectedChatIds.size > 0 
+                    ? `${selectedChatIds.size} selected`
+                    : 'Select All'
+                  }
+                </Typography>
+              </Box>
+              
+              {selectedChatIds.size > 0 && (
+                <Tooltip title="Delete selected chats">
+                  <IconButton
+                    size="small"
+                    onClick={() => setBulkDeleteConfirmOpen(true)}
+                    sx={{
+                      color: 'error.main',
+                      '&:hover': {
+                        backgroundColor: 'rgba(244, 67, 54, 0.12)',
+                      },
+                    }}
+                  >
+                    <DeleteSweepIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )}
           <Box
             ref={chatListRef}
             onScroll={handleScroll}
@@ -339,21 +443,46 @@ const Sidebar: React.FC<SidebarProps> = ({
                   {filteredChats.map((chat) => (
                     <ListItemButton
                       key={chat.id}
-                      selected={chat.id === currentChatId}
-                      onClick={() => {
-                        // If currently editing, queue the selection after save
-                        if (editingChatId) {
-                          pendingChatSelectionRef.current = chat.id;
-                          editTextFieldRef.current?.blur();
+                      selected={!selectionMode && chat.id === currentChatId}
+                      onClick={(e) => {
+                        // In selection mode, clicking toggles selection
+                        if (selectionMode || selectedChatIds.size > 0) {
+                          toggleChatSelection(chat.id, e);
                         } else {
-                          onSelectChat(chat.id);
+                          // If currently editing, queue the selection after save
+                          if (editingChatId) {
+                            pendingChatSelectionRef.current = chat.id;
+                            editTextFieldRef.current?.blur();
+                          } else {
+                            onSelectChat(chat.id);
+                          }
                         }
                       }}
-                      sx={styles.chatListItem}
+                      sx={{
+                        ...styles.chatListItem,
+                        backgroundColor: selectedChatIds.has(chat.id) 
+                          ? 'rgba(244, 67, 54, 0.12)' 
+                          : undefined,
+                      }}
                     >
-                      <ListItemIcon sx={styles.chatListItemIcon}>
-                        <ChatIcon fontSize="small" />
-                      </ListItemIcon>
+                      {selectedChatIds.size > 0 ? (
+                        <Checkbox
+                          size="small"
+                          checked={selectedChatIds.has(chat.id)}
+                          onClick={(e) => toggleChatSelection(chat.id, e)}
+                          sx={{
+                            padding: '4px',
+                            mr: 1,
+                            '&.Mui-checked': {
+                              color: 'error.main',
+                            },
+                          }}
+                        />
+                      ) : (
+                        <ListItemIcon sx={styles.chatListItemIcon}>
+                          <ChatIcon fontSize="small" />
+                        </ListItemIcon>
+                      )}
                       {editingChatId === chat.id ? (
                         <TextField
                           size="small"
@@ -505,6 +634,40 @@ const Sidebar: React.FC<SidebarProps> = ({
             autoFocus
           >
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog
+        open={bulkDeleteConfirmOpen}
+        onClose={() => setBulkDeleteConfirmOpen(false)}
+        aria-labelledby="bulk-delete-dialog-title"
+        aria-describedby="bulk-delete-dialog-description"
+      >
+        <DialogTitle id="bulk-delete-dialog-title">
+          Delete Selected Chats?
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText id="bulk-delete-dialog-description">
+            Are you sure you want to delete {selectedChatIds.size} selected chat{selectedChatIds.size !== 1 ? 's' : ''}? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setBulkDeleteConfirmOpen(false)}
+            color="primary"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleBulkDelete}
+            color="error"
+            variant="contained"
+            startIcon={<DeleteSweepIcon />}
+            autoFocus
+          >
+            Delete {selectedChatIds.size} Chat{selectedChatIds.size !== 1 ? 's' : ''}
           </Button>
         </DialogActions>
       </Dialog>
