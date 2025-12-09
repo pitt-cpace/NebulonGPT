@@ -3602,7 +3602,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 ...(textDirectionStyles && {
                   direction: textDirectionStyles.direction,
                   textAlign: textDirectionStyles.textAlign,
-                  unicodeBidi: mixedContentAnalysis?.shouldUseBidi ? 'bidi-override' : textDirectionStyles.unicodeBidi,
+                  unicodeBidi: textDirectionStyles.unicodeBidi,
                 }),
                 // Let KaTeX handle its own display modes - only hide MathML
                 '& .katex-mathml': {

@@ -67,6 +67,7 @@ export const assistantMessage: SxProps<Theme> = {
 
 export const messageContent: SxProps<Theme> = {
   wordBreak: 'break-word',
+  whiteSpace: 'pre-wrap', // Preserve line breaks and wrap text
 };
 
 export const inputContainer: SxProps<Theme> = {
