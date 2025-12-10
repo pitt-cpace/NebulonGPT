@@ -383,7 +383,7 @@ export class TTSService {
     this.pause();
 
     // Generate new message ID to invalidate any remaining client-side audio
-    const newMessageId = `msg-${Date.now() + 1}`;
+    const newMessageId = `msg-${Date.now()}-stop-${Math.random().toString(36).substring(2, 9)}`;
     if (this.setCurrentMsgId) {
       // Retry until successful
       while (!(await this.setCurrentMsgId(newMessageId))) {

@@ -18,6 +18,16 @@ import { RO } from './hooks/ResizeObserverManager';
 // Global current message ID - immediately accessible everywhere
 let currentMsgId: string | null = null;
 
+// Global counter for ensuring unique message IDs
+let messageIdCounter = 0;
+
+// Function to generate unique message IDs
+const generateUniqueMessageId = (): string => {
+  const timestamp = Date.now();
+  const uniqueId = `msg-${timestamp}-${messageIdCounter++}`;
+  return uniqueId;
+};
+
 const App: React.FC = () => {
   // Theme state - dynamically update without reload
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => getThemeMode());
@@ -572,7 +582,7 @@ const App: React.FC = () => {
     await stopAndProceed();
     
     // Create a placeholder for the AI response (outside try block for error handling scope)
-    const aiMessageId = `msg-${Date.now() + 1}`;
+    const aiMessageId = generateUniqueMessageId();
     
     try {
       // If still loading after stop attempt, return early
@@ -584,7 +594,7 @@ const App: React.FC = () => {
       const ttsSettings = ttsService.getSettings();
           
       const userMessage: MessageType = {
-        id: `msg-${Date.now()}`,
+        id: generateUniqueMessageId(),
         role: 'user',
         content,
         timestamp: new Date().toISOString(),
