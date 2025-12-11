@@ -36,7 +36,7 @@ calculate_dir_size() {
 
 # Function to check if bundle needs rebuilding
 needs_rebuild() {
-    local bundle_dir="python-bundle/python-env"
+    local bundle_dir="python-bundle"
     local checksum_file="python-bundle/bundle-checksum-${TARGET_ARCH}.txt"
     
     echo "   Checking if bundle needs rebuilding..."
@@ -95,7 +95,7 @@ rm -rf python-bundle
 
 # Create directory structure
 echo "Creating directory structure..."
-mkdir -p python-bundle/python-env
+mkdir -p python-bundle
 
 # Determine the correct python-build-standalone URL based on architecture
 if [ "$TARGET_ARCH" = "arm64" ]; then
@@ -130,7 +130,7 @@ tar -xzf python.tar.gz
 
 # Move extracted Python to our bundle directory
 cd -
-mv "$TEMP_DIR/python" python-bundle/python-env/python-dist
+mv "$TEMP_DIR/python" python-bundle/python-dist
 
 # Cleanup temp directory
 rm -rf "$TEMP_DIR"
@@ -139,7 +139,7 @@ rm -rf "$TEMP_DIR"
 echo "Installing Python packages for $TARGET_ARCH..."
 
 # Use the bundled Python's pip to install packages
-BUNDLED_PYTHON="python-bundle/python-env/python-dist/bin/python3"
+BUNDLED_PYTHON="python-bundle/python-dist/bin/python3"
 
 if [ ! -f "$BUNDLED_PYTHON" ]; then
     echo "Bundled Python not found at: $BUNDLED_PYTHON"
@@ -176,39 +176,19 @@ $BUNDLED_PYTHON -m pip install \
 # Copy FastAPI backend
 echo "Copying FastAPI backend..."
 if [ -d 'backend' ]; then
-    mkdir -p python-bundle/python-env/backend
+    mkdir -p python-bundle/backend
     
     # Copy Python files and config (exclude models directory, we'll handle that separately)
     echo "Copying backend Python files..."
-    rsync -av --exclude='models' --exclude='__pycache__' --exclude='*.pyc' backend/ python-bundle/python-env/backend/
+    rsync -av --exclude='models' --exclude='__pycache__' --exclude='*.pyc' backend/ python-bundle/backend/
     
-    # Create models directory structure
-    mkdir -p python-bundle/python-env/backend/models/vosk
-    mkdir -p python-bundle/python-env/backend/models/kokoro
+    # Create empty models directory structure
+    # Models are NOT copied into the Python bundle to avoid duplication
+    # They are extracted separately at runtime to ~/.nebulon-gpt/vosk-models/ and ~/.nebulon-gpt/huggingface/
+    mkdir -p python-bundle/backend/models/vosk
+    mkdir -p python-bundle/backend/models/kokoro
     
-    # Copy Vosk models
-    if [ -d 'backend/models/vosk' ]; then
-        echo "Copying Vosk models..."
-        cp -r backend/models/vosk/* python-bundle/python-env/backend/models/vosk/
-        echo "Vosk models copied"
-    fi
-    
-    # Handle Kokoro models - reassemble and extract split zips if they exist
-    if [ -f 'backend/models/kokoro/huggingface-cache.zip.001' ]; then
-        echo "Reassembling Kokoro model split zips..."
-        cat backend/models/kokoro/huggingface-cache.zip.* > python-bundle/python-env/backend/models/kokoro/huggingface-cache.zip
-        
-        echo "Extracting Kokoro models..."
-        cd python-bundle/python-env/backend/models/kokoro
-        unzip -q huggingface-cache.zip
-        rm huggingface-cache.zip
-        cd - > /dev/null
-        echo "Kokoro models extracted"
-    elif [ -d 'backend/models/kokoro/huggingface-cache' ]; then
-        echo "Copying Kokoro models (already extracted)..."
-        cp -r backend/models/kokoro/huggingface-cache python-bundle/python-env/backend/models/kokoro/
-        echo "Kokoro models copied"
-    fi
+    echo "Empty models directories created (models extracted separately at runtime)"
     
     echo "Backend copied successfully"
 else
@@ -218,7 +198,7 @@ fi
 
 # Calculate bundle size and create architecture-specific checksum
 echo "Calculating bundle checksum for $TARGET_ARCH..."
-BUNDLE_SIZE=$(calculate_dir_size "python-bundle/python-env")
+BUNDLE_SIZE=$(calculate_dir_size "python-bundle")
 echo $BUNDLE_SIZE > "python-bundle/bundle-checksum-${TARGET_ARCH}.txt"
 
 echo "Python bundle creation completed successfully for $TARGET_ARCH!"
@@ -254,7 +234,7 @@ else
                 ((FAILED_COUNT++))
             fi
         fi
-    done < <(find python-bundle/python-env -type f \( -name "*.so" -o -name "*.dylib" -o -perm +111 \) -print0)
+    done < <(find python-bundle -type f \( -name "*.so" -o -name "*.dylib" -o -perm +111 \) -print0)
     
     echo "Signed $SIGNED_COUNT binaries"
     if [ $FAILED_COUNT -gt 0 ]; then
@@ -274,8 +254,8 @@ echo "Bundle contents:"
 echo "   • Standalone Python $PYTHON_VERSION from python-build-standalone"
 echo "   • All required packages (FastAPI, vosk, torch, spacy, kokoro, etc.)"
 echo "   • FastAPI unified backend (REST API + WebSocket endpoints)"
-echo "   • Vosk models for speech recognition"
-echo "   • Kokoro models for text-to-speech"
 echo "   • Checksum file: bundle-checksum-${TARGET_ARCH}.txt"
+echo ""
+echo "Note: Models are packaged separately and extracted at runtime to avoid duplication"
 echo ""
 echo "Ready for distribution!"

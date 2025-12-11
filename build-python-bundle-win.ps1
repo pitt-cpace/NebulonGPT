@@ -48,7 +48,7 @@ function Calculate-DirectorySize {
 }
 
 function Test-NeedsRebuild {
-    $bundleDir = "python-bundle\python-env"
+    $bundleDir = "python-bundle"
     $checksumFile = "python-bundle\bundle-checksum-$Architecture.txt"
     
     if (-not (Test-Path $bundleDir)) {
@@ -98,7 +98,7 @@ if (Test-Path "python-bundle") {
 
 # Create directory structure
 Write-Info "Creating directory structure..."
-New-Item -ItemType Directory -Path "python-bundle\python-env" -Force | Out-Null
+New-Item -ItemType Directory -Path "python-bundle" -Force | Out-Null
 
 # Determine the correct python-build-standalone URL based on architecture
 if ($Architecture -eq "x64") {
@@ -133,7 +133,7 @@ try {
     
     # Move extracted Python to our bundle directory
     $pythonDir = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1
-    Move-Item -Path $pythonDir.FullName -Destination "python-bundle\python-env\python-dist"
+    Move-Item -Path $pythonDir.FullName -Destination "python-bundle\python-dist"
     
     Write-Success "Python extracted successfully"
 }
@@ -150,7 +150,7 @@ finally {
 Write-Info "Installing Python packages for $Architecture..."
 
 # Use the bundled Python's pip to install packages
-$bundledPython = "python-bundle\python-env\python-dist\python.exe"
+$bundledPython = "python-bundle\python-dist\python.exe"
 
 if (-not (Test-Path $bundledPython)) {
     Write-Error-Message "Bundled Python not found at: $bundledPython"
@@ -169,49 +169,19 @@ Write-Info "Installing backend requirements for $Architecture..."
 # Copy FastAPI backend
 Write-Info "Copying FastAPI backend..."
 if (Test-Path "backend") {
-    New-Item -ItemType Directory -Path "python-bundle\python-env\backend" -Force | Out-Null
+    New-Item -ItemType Directory -Path "python-bundle\backend" -Force | Out-Null
     
     # Copy Python files and config (exclude models directory, we'll handle that separately)
     Write-Info "Copying backend Python files..."
-    Get-ChildItem -Path "backend" -Exclude "models","__pycache__","*.pyc" | Copy-Item -Destination "python-bundle\python-env\backend" -Recurse -Force
+    Get-ChildItem -Path "backend" -Exclude "models","__pycache__","*.pyc" | Copy-Item -Destination "python-bundle\backend" -Recurse -Force
     
-    # Create models directory structure
-    New-Item -ItemType Directory -Path "python-bundle\python-env\backend\models\vosk" -Force | Out-Null
-    New-Item -ItemType Directory -Path "python-bundle\python-env\backend\models\kokoro" -Force | Out-Null
+    # Create empty models directory structure
+    # Models are NOT copied into the Python bundle to avoid duplication
+    # They are extracted separately at runtime to ~/.nebulon-gpt/vosk-models/ and ~/.nebulon-gpt/huggingface/
+    New-Item -ItemType Directory -Path "python-bundle\backend\models\vosk" -Force | Out-Null
+    New-Item -ItemType Directory -Path "python-bundle\backend\models\kokoro" -Force | Out-Null
     
-    # Copy Vosk models
-    if (Test-Path "backend\models\vosk") {
-        Write-Info "Copying Vosk models..."
-        Copy-Item -Path "backend\models\vosk\*" -Destination "python-bundle\python-env\backend\models\vosk" -Recurse -Force
-        Write-Success "Vosk models copied"
-    }
-    
-    # Handle Kokoro models - reassemble and extract split zips if they exist
-    if (Test-Path "backend\models\kokoro\huggingface-cache.zip.001") {
-        Write-Info "Reassembling Kokoro model split zips..."
-        
-        # Get all zip parts and combine them
-        $zipParts = Get-ChildItem -Path "backend\models\kokoro" -Filter "huggingface-cache.zip.*" | Sort-Object Name
-        $outputZip = "python-bundle\python-env\backend\models\kokoro\huggingface-cache.zip"
-        
-        # Combine all parts into single zip
-        $outputStream = [System.IO.File]::OpenWrite($outputZip)
-        foreach ($part in $zipParts) {
-            $bytes = [System.IO.File]::ReadAllBytes($part.FullName)
-            $outputStream.Write($bytes, 0, $bytes.Length)
-        }
-        $outputStream.Close()
-        
-        Write-Info "Extracting Kokoro models..."
-        Expand-Archive -Path $outputZip -DestinationPath "python-bundle\python-env\backend\models\kokoro" -Force
-        Remove-Item $outputZip
-        Write-Success "Kokoro models extracted"
-    }
-    elseif (Test-Path "backend\models\kokoro\huggingface-cache") {
-        Write-Info "Copying Kokoro models (already extracted)..."
-        Copy-Item -Path "backend\models\kokoro\huggingface-cache" -Destination "python-bundle\python-env\backend\models\kokoro" -Recurse -Force
-        Write-Success "Kokoro models copied"
-    }
+    Write-Info "Empty models directories created (models extracted separately at runtime)"
     
     Write-Success "Backend copied successfully"
 }
@@ -222,7 +192,7 @@ else {
 
 # Calculate bundle size and create architecture-specific checksum
 Write-Info "Calculating bundle checksum for $Architecture..."
-$bundleSize = Calculate-DirectorySize "python-bundle\python-env"
+$bundleSize = Calculate-DirectorySize "python-bundle"
 $bundleSize | Out-File -FilePath "python-bundle\bundle-checksum-$Architecture.txt" -Encoding utf8
 
 Write-Success "Python bundle creation completed successfully for $Architecture!"
@@ -240,8 +210,8 @@ Write-Host "Bundle contents:" -ForegroundColor Magenta
 Write-Host "   - Standalone Python $PYTHON_VERSION from python-build-standalone" -ForegroundColor White
 Write-Host "   - All required packages (FastAPI, vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
 Write-Host "   - FastAPI unified backend (REST API + WebSocket endpoints)" -ForegroundColor White
-Write-Host "   - Vosk models for speech recognition" -ForegroundColor White
-Write-Host "   - Kokoro models for text-to-speech" -ForegroundColor White
 Write-Host "   - Checksum file: bundle-checksum-$Architecture.txt" -ForegroundColor White
+Write-Host ""
+Write-Host "Note: Models are packaged separately and extracted at runtime to avoid duplication" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Ready for distribution!" -ForegroundColor Green

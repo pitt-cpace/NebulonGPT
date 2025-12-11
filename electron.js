@@ -820,7 +820,7 @@ function detectPythonVersion(pythonBundleDir) {
   try {
     // Windows python-build-standalone uses Lib/site-packages directly (no versioned subdirectory)
     if (process.platform === 'win32') {
-      const libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'Lib');
+      const libDir = path.join(pythonBundleDir, 'python-dist', 'Lib');
       const sitePackagesDir = path.join(libDir, 'site-packages');
       if (fs.existsSync(sitePackagesDir)) {
         console.log(`Detected Windows Python with direct site-packages`);
@@ -828,7 +828,7 @@ function detectPythonVersion(pythonBundleDir) {
       }
     } else {
       // macOS/Linux: Try lowercase 'lib' with versioned subdirectory
-      const libDir = path.join(pythonBundleDir, 'python-env', 'python-dist', 'lib');
+      const libDir = path.join(pythonBundleDir, 'python-dist', 'lib');
       if (fs.existsSync(libDir)) {
         const pythonVersions = fs.readdirSync(libDir).filter(dir => dir.startsWith('python3.'));
         if (pythonVersions.length > 0) {
@@ -856,8 +856,8 @@ function startFastAPIBackend() {
     
     // Check if extracted Python executable exists in home directory
     const extractedPython = process.platform === 'win32' 
-      ? path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'python.exe')
-      : path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'bin', 'python3');
+      ? path.join(PATHS.pythonBundleDir, 'python-dist', 'python.exe')
+      : path.join(PATHS.pythonBundleDir, 'python-dist', 'bin', 'python3');
     
     // Dynamically detect Python version
     const pythonVersion = detectPythonVersion(PATHS.pythonBundleDir);
@@ -869,11 +869,11 @@ function startFastAPIBackend() {
     if (pythonVersion) {
       if (pythonVersion === 'direct') {
         // Windows: Direct site-packages in Lib/
-        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'Lib', 'site-packages');
+        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-dist', 'Lib', 'site-packages');
         console.log(`Using Windows direct site-packages`);
       } else {
         // macOS/Linux: Versioned subdirectory
-        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-env', 'python-dist', 'lib', pythonVersion, 'site-packages');
+        extractedPackages = path.join(PATHS.pythonBundleDir, 'python-dist', 'lib', pythonVersion, 'site-packages');
         console.log(`Using dynamic Python version: ${pythonVersion}`);
       }
       console.log(`Checking extracted packages: ${extractedPackages}`);
@@ -890,7 +890,7 @@ function startFastAPIBackend() {
       
       // Set up environment for extracted Python
       pythonEnv.PYTHONPATH = `${extractedPackages}`;
-      pythonEnv.PYTHONHOME = path.join(PATHS.pythonBundleDir, 'python-env/python-dist');
+      pythonEnv.PYTHONHOME = path.join(PATHS.pythonBundleDir, 'python-dist');
     } else {
       // No system Python fallback - bundled Python environment required
       const errorMsg = !fs.existsSync(extractedPython) 
@@ -923,7 +923,7 @@ function startFastAPIBackend() {
     };
 
     // Determine backend script path
-    const extractedBackendScript = path.join(PATHS.pythonBundleDir, 'python-env/backend/main.py');
+    const extractedBackendScript = path.join(PATHS.pythonBundleDir, 'backend/main.py');
     const devBackendScript = getResourcePath('backend/main.py');
     
     const backendScript = fs.existsSync(extractedBackendScript) ? extractedBackendScript : devBackendScript;
@@ -948,12 +948,12 @@ function startFastAPIBackend() {
     logStream.write(`${'='.repeat(80)}\n\n`);
 
     // Determine correct working directory
-    // For bundled: use python-bundle/python-env (contains backend/ subdirectory)
+    // For bundled: use python-bundle (contains backend/ subdirectory)
     // For dev: use project root (contains backend/ subdirectory)
     let workingDir;
     if (fs.existsSync(extractedBackendScript)) {
-      // Bundled mode: backend is in python-bundle/python-env/backend/
-      workingDir = path.join(PATHS.pythonBundleDir, 'python-env');
+      // Bundled mode: backend is in python-bundle/backend/
+      workingDir = PATHS.pythonBundleDir;
     } else {
       // Dev mode: backend is in project/backend/
       workingDir = path.dirname(path.dirname(backendScript)); // Go up two levels from main.py

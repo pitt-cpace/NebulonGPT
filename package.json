@@ -60,7 +60,9 @@
     "dist:mac-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && dotenv -e .env.development -- electron-builder --mac --arm64 && ./signing-scripts/notarize-app.sh arm64",
     "dist:mac-dmg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && dotenv -e .env.development -- electron-builder --mac dmg --arm64 && ./signing-scripts/notarize-app.sh arm64",
     "dist:mac-pkg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && dotenv -e .env.development -- electron-builder --mac pkg --arm64 && ./signing-scripts/notarize-app.sh arm64",
-    
+    "dist:mac-dmg-arm64-dev": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && CSC_IDENTITY_AUTO_DISCOVERY=false CSC_SKIP_NOTARIZATION=true electron-builder -c.mac.identity=null --mac dmg --arm64",
+    "dist:mac-pkg-arm64-dev": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && CSC_IDENTITY_AUTO_DISCOVERY=false CSC_SKIP_NOTARIZATION=true dotenv electron-builder --mac pkg --arm64",
+
 
     "dist:win": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64 && npm run copy-build-files-win && electron-builder --win",
     
@@ -115,7 +117,8 @@
       "node_modules/extract-zip/**/*",
       "installer.nsh",
       "Certification/**/*",
-      "backend/**/*"
+      "backend/**/*",
+      "!backend/models/**"
     ],
     "asarUnpack": [
       "build/Certification"
