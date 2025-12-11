@@ -5,12 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const extractZip = require('extract-zip');
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const multer = require('multer');
 const AdmZip = require('adm-zip');
-const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const isDev = require('electron-is-dev');
 
@@ -906,9 +901,15 @@ function startFastAPIBackend() {
     }
     
     // Set up environment variables for FastAPI backend
+    // In production, Python serves static files on port 3000
+    // In development, Python runs on port 3001 (React dev server on 3000)
+    const backendPort = isDev ? '3001' : '3000';
+    const serveStatic = isDev ? 'false' : 'true';
+    
     const env = {
       ...pythonEnv,
-      REST_API_PORT: '3001',
+      REST_API_PORT: backendPort,
+      SERVE_STATIC: serveStatic,
       DATA_DIR: PATHS.dataDir,
       VOSK_MODELS_DIR: PATHS.voskModelsDir,
       BUILD_DIR: PATHS.buildDir,
@@ -965,7 +966,7 @@ function startFastAPIBackend() {
     // Spawn FastAPI backend using uvicorn
     fastAPIBackendProcess = spawn(
       pythonCmd, 
-      ['-m', 'uvicorn', 'backend.main:app', '--host', '0.0.0.0', '--port', '3001'],
+      ['-m', 'uvicorn', 'backend.main:app', '--host', '0.0.0.0', '--port', backendPort],
       {
         env,
         cwd: workingDir,
@@ -1008,7 +1009,10 @@ function startFastAPIBackend() {
       logStream.write(message);
     });
 
-    console.log('FastAPI backend started, waiting for initialization...');
+    console.log(`FastAPI backend started on port ${backendPort}, waiting for initialization...`);
+    if (!isDev) {
+      console.log('Backend is serving static files from:', PATHS.buildDir);
+    }
     // Wait a bit for backend to start
     setTimeout(() => resolve(), 3000);
   });
@@ -1027,7 +1031,7 @@ function startHTTPSServer() {
     
     try {
       const https = require('https');
-      const HTTP_PORT = 3001;
+      const HTTP_PORT = isDev ? 3001 : 3000;
       const HTTPS_PORT = 3443;
       
       // Find SSL certificate paths in unpacked location
@@ -1063,10 +1067,10 @@ function startHTTPSServer() {
         rejectUnauthorized: false
       };
       
-      // Create HTTPS server that proxies to FastAPI backend on port 3001
+      // Create HTTPS server that proxies to FastAPI backend
       const httpsServer = https.createServer(sslOptions, (req, res) => {
         const axios = require('axios');
-        const targetUrl = `http://127.0.0.1:3001${req.url}`;
+        const targetUrl = `http://127.0.0.1:${HTTP_PORT}${req.url}`;
         
         console.log(`🔐 HTTPS proxy request: ${req.method} ${req.url}`);
         
@@ -1083,7 +1087,7 @@ function startHTTPSServer() {
             headers: {
               ...req.headers,
               // Remove headers that shouldn't be forwarded
-              host: 'localhost:3001'
+              host: `localhost:${HTTP_PORT}`
             },
             responseType: 'stream',
             timeout: 60000, // 60 second timeout
@@ -1154,7 +1158,7 @@ function startHTTPSServer() {
         });
         
         // Create target connection to FastAPI backend
-        const targetSocket = net.connect(3001, '127.0.0.1', () => {
+        const targetSocket = net.connect(HTTP_PORT, '127.0.0.1', () => {
           console.log(`📡 Connected to FastAPI backend for WebSocket upgrade: ${req.url}`);
           
           // Forward the original HTTP upgrade request to the target
@@ -1230,43 +1234,6 @@ function startHTTPSServer() {
   });
 }
 
-// Start Express server in production mode - ONLY for static file serving
-function startExpressServer() {
-  return new Promise((resolve, reject) => {
-    if (isDev) {
-      // In development, React dev server is already running
-      console.log('Development mode: Using React dev server on port 3000');
-      resolve();
-      return;
-    }
-
-    console.log('Starting Express server for static file serving only...');
-    
-    const expressApp = express();
-    const PORT = 3000;
-
-    // Serve static files from build directory
-    expressApp.use(express.static(PATHS.buildDir));
-
-    // Handle client-side routing - send index.html for all routes
-    // Frontend will connect directly to port 3001 for all API/WebSocket calls
-    expressApp.get('*', (req, res) => {
-      res.sendFile(path.join(PATHS.buildDir, 'index.html'));
-    });
-
-    // Start the server on all network interfaces (0.0.0.0)
-    httpServer = expressApp.listen(PORT, '0.0.0.0', () => {
-      console.log(`✅ Express server running on port ${PORT}`);
-      console.log(`   - Local: http://localhost:${PORT}`);
-      console.log(`   - Serving static files from: ${PATHS.buildDir}`);
-      console.log(`   - Frontend connects to FastAPI backend on port 3001`);
-      resolve();
-    }).on('error', (error) => {
-      console.error('Failed to start Express server:', error);
-      reject(error);
-    });
-  });
-}
 
 // Create the main window
 function createWindow() {
@@ -1579,11 +1546,6 @@ app.whenReady().then(async () => {
   
   // Load chats data
   loadChatsData();
-  
-  // Start Express server in production mode
-  if (!isDev) {
-    await startExpressServer();
-  }
   
   // Create window FIRST for faster startup
   console.log('Creating window immediately...');
