@@ -479,11 +479,27 @@ async def initialize_tts_pipeline():
         # Import Kokoro
         from kokoro import KPipeline
         
-        # Set cache directories
-        cache_dir = os.environ.get('HF_HOME', './backend/models/kokoro/huggingface-cache')
+        # Get cache directory from environment (Electron sets this to ~/.nebulon-gpt/huggingface)
+        cache_dir = os.environ.get('HF_HOME')
+        
+        if not cache_dir:
+            logger.error("HF_HOME environment variable not set!")
+            raise ValueError("HF_HOME not configured")
+        
+        logger.info(f"Using HuggingFace cache directory: {cache_dir}")
+        
+        # Ensure cache directories exist
+        os.makedirs(cache_dir, exist_ok=True)
+        os.makedirs(f"{cache_dir}/transformers", exist_ok=True)
+        os.makedirs(f"{cache_dir}/datasets", exist_ok=True)
+        
+        # Set cache directories explicitly
         os.environ["HF_HOME"] = cache_dir
         os.environ["TRANSFORMERS_CACHE"] = f"{cache_dir}/transformers"
         os.environ["HF_DATASETS_CACHE"] = f"{cache_dir}/datasets"
+        
+        logger.info(f"TRANSFORMERS_CACHE: {os.environ['TRANSFORMERS_CACHE']}")
+        logger.info(f"HF_DATASETS_CACHE: {os.environ['HF_DATASETS_CACHE']}")
         
         # Try offline first
         try:

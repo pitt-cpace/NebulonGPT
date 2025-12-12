@@ -151,21 +151,21 @@ echo "Using bundled Python: $BUNDLED_PYTHON"
 # Install packages using bundled pip
 $BUNDLED_PYTHON -m pip install --upgrade pip
 
-# Install PyTorch with platform-specific handling
-echo "Installing PyTorch for $TARGET_ARCH..."
-if [ "$TARGET_ARCH" = "x64" ]; then
-    # For Intel Macs (x64), explicitly install CPU-only PyTorch to ensure compatibility
-    echo "Installing Intel Mac (x64) compatible PyTorch..."
-    $BUNDLED_PYTHON -m pip install \
-        --upgrade --force-reinstall \
-        torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
-else
-    # For ARM64 Macs, install from standard PyPI
-    echo "Installing ARM64 Mac compatible PyTorch..."
-    $BUNDLED_PYTHON -m pip install \
-        --upgrade --force-reinstall \
-        torch==2.2.2 torchvision==0.17.2
-fi
+# # Install PyTorch with platform-specific handling
+# echo "Installing PyTorch for $TARGET_ARCH..."
+# if [ "$TARGET_ARCH" = "x64" ]; then
+#     # For Intel Macs (x64), explicitly install CPU-only PyTorch to ensure compatibility
+#     echo "Installing Intel Mac (x64) compatible PyTorch..."
+#     $BUNDLED_PYTHON -m pip install \
+#         --upgrade --force-reinstall \
+#         torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
+# else
+#     # For ARM64 Macs, install from standard PyPI
+#     echo "Installing ARM64 Mac compatible PyTorch..."
+#     $BUNDLED_PYTHON -m pip install \
+#         --upgrade --force-reinstall \
+#         torch==2.2.2 torchvision==0.17.2
+# fi
 
 # Install backend requirements
 echo "Installing backend requirements for $TARGET_ARCH..."
@@ -181,16 +181,6 @@ if [ -d 'backend' ]; then
     # Copy Python files and config (exclude models directory, we'll handle that separately)
     echo "Copying backend Python files..."
     rsync -av --exclude='models' --exclude='__pycache__' --exclude='*.pyc' backend/ python-bundle/backend/
-    
-    # Create empty models directory structure
-    # Models are NOT copied into the Python bundle to avoid duplication
-    # They are extracted separately at runtime to ~/.nebulon-gpt/vosk-models/ and ~/.nebulon-gpt/huggingface/
-    mkdir -p python-bundle/backend/models/vosk
-    mkdir -p python-bundle/backend/models/kokoro
-    
-    echo "Empty models directories created (models extracted separately at runtime)"
-    
-    echo "Backend copied successfully"
 else
     echo "ERROR: backend directory not found!"
     exit 1
@@ -255,7 +245,5 @@ echo "   • Standalone Python $PYTHON_VERSION from python-build-standalone"
 echo "   • All required packages (FastAPI, vosk, torch, spacy, kokoro, etc.)"
 echo "   • FastAPI unified backend (REST API + WebSocket endpoints)"
 echo "   • Checksum file: bundle-checksum-${TARGET_ARCH}.txt"
-echo ""
-echo "Note: Models are packaged separately and extracted at runtime to avoid duplication"
 echo ""
 echo "Ready for distribution!"

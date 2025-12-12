@@ -256,7 +256,8 @@ export const getWebSocketUrls = () => {
   // Scenario 1 & 2: Electron (production or dev) - always use direct connections
   if (isElectron()) {
     // Use current hostname to support IP address access (127.0.0.1, 10.211.33.32, etc.)
-    const hostname = window.location.hostname;
+    // Default to 'localhost' if hostname is empty (file:// protocol)
+    const hostname = window.location.hostname || 'localhost';
     console.log(`⚡ Electron detected - using direct WebSocket connections on ${hostname}`);
     return {
       vosk: `ws://${hostname}:3001/vosk`,  // Direct connection to unified backend

@@ -51,43 +51,64 @@ function Test-NeedsRebuild {
     $bundleDir = "python-bundle"
     $checksumFile = "python-bundle\bundle-checksum-$Architecture.txt"
     
+    Write-Info "   Checking if bundle needs rebuilding..."
+    Write-Info "   Bundle directory: $bundleDir"
+    Write-Info "   Checksum file: $checksumFile"
+    Write-Host ""
+    
+    # Check 1: Does bundle directory exist?
     if (-not (Test-Path $bundleDir)) {
-        Write-Info "Bundle directory not found, creating bundle..."
+        Write-Warning "Check 1 FAILED: Bundle directory not found"
         return $true
     }
+    Write-Success "Check 1 PASSED: Bundle directory exists"
     
+    # Check 2: Does checksum file exist?
     if (-not (Test-Path $checksumFile)) {
-        Write-Info "Checksum file not found, creating bundle..."
+        Write-Warning "Check 2 FAILED: Checksum file not found"
         return $true
     }
+    Write-Success "Check 2 PASSED: Checksum file exists"
     
+    # Check 3: Is current size >= saved size?
     try {
         $savedSize = [long](Get-Content $checksumFile -Raw).Trim()
         $currentSize = Calculate-DirectorySize $bundleDir
         
+        Write-Info "   Saved size: $savedSize bytes"
+        Write-Info "   Current size: $currentSize bytes"
+        Write-Host ""
+        
         if ($currentSize -lt $savedSize) {
-            Write-Warning "Bundle size is smaller than expected (saved: $savedSize, current: $currentSize), recreating bundle..."
+            Write-Warning "Check 3 FAILED: Bundle size is smaller than expected"
+            Write-Warning "   This indicates missing or corrupted files"
             return $true
         }
+        Write-Success "Check 3 PASSED: Bundle size is adequate"
+        Write-Host ""
         
-        Write-Success "Bundle is up to date (size: $currentSize bytes)"
+        Write-Success "All checks passed - bundle is valid!"
         return $false
     }
     catch {
-        Write-Info "Could not read checksum file, creating bundle..."
+        Write-Warning "Could not read checksum file, creating bundle..."
         return $true
     }
 }
 
-Write-Step "Building Python bundle for architecture: $Architecture"
+Write-Step "Checking Python bundle for Windows $Architecture..."
 Write-Info "You can specify architecture: .\build-python-bundle-win.ps1 -Architecture [x64]"
+Write-Host ""
 
 # Check if rebuild is needed
 if (-not (Test-NeedsRebuild)) {
+    Write-Host ""
     Write-Success "Python bundle already exists and is valid - skipping rebuild"
+    Write-Info "To force rebuild, delete: python-bundle or python-bundle\bundle-checksum-$Architecture.txt"
     exit 0
 }
 
+Write-Host ""
 Write-Step "Creating standalone Python bundle for Windows $Architecture..."
 
 # Clean up any existing bundle

@@ -901,15 +901,13 @@ function startFastAPIBackend() {
     }
     
     // Set up environment variables for FastAPI backend
-    // In production, Python serves static files on port 3000
-    // In development, Python runs on port 3001 (React dev server on 3000)
-    const backendPort = isDev ? '3001' : '3000';
-    const serveStatic = isDev ? 'false' : 'true';
+    // Python backend always runs on port 3001 for API endpoints only
+    // Electron serves static files directly (no need for Python to serve them)
+    const backendPort = '3001';
     
     const env = {
       ...pythonEnv,
       REST_API_PORT: backendPort,
-      SERVE_STATIC: serveStatic,
       DATA_DIR: PATHS.dataDir,
       VOSK_MODELS_DIR: PATHS.voskModelsDir,
       BUILD_DIR: PATHS.buildDir,
@@ -1010,9 +1008,8 @@ function startFastAPIBackend() {
     });
 
     console.log(`FastAPI backend started on port ${backendPort}, waiting for initialization...`);
-    if (!isDev) {
-      console.log('Backend is serving static files from:', PATHS.buildDir);
-    }
+    console.log(`Mode: ${isDev ? 'Development' : 'Production'}`);
+    console.log(`Static files served by: ${isDev ? 'React dev server' : 'Electron (file://)'}`);
     // Wait a bit for backend to start
     setTimeout(() => resolve(), 3000);
   });
@@ -1031,7 +1028,7 @@ function startHTTPSServer() {
     
     try {
       const https = require('https');
-      const HTTP_PORT = isDev ? 3001 : 3000;
+      const HTTP_PORT = 3001;
       const HTTPS_PORT = 3443;
       
       // Find SSL certificate paths in unpacked location
@@ -1257,8 +1254,14 @@ function createWindow() {
     show: true // Show immediately
   });
 
-  // Load the app - always use http://localhost:3000
-  const startUrl = 'http://localhost:3000';
+  // Load the app from local file system (instant loading!)
+  // In production, load directly from build files
+  // In development, React dev server is on port 3000
+  const startUrl = isDev 
+    ? 'http://localhost:3000'  // Dev: React dev server
+    : path.join(PATHS.buildDir, 'index.html');  // Production: Local file
+  
+  console.log(`Loading app from: ${isDev ? 'React dev server' : 'local build files'}`);
   
   // Enable context menu with spell checking support
   const { Menu } = require('electron');
@@ -1333,7 +1336,12 @@ function createWindow() {
     menu.popup({ window: mainWindow });
   });
 
-  mainWindow.loadURL(startUrl);
+  // Load from file or URL depending on mode
+  if (isDev) {
+    mainWindow.loadURL(startUrl);
+  } else {
+    mainWindow.loadFile(startUrl);
+  }
 
   // Force window to show and focus
   mainWindow.once('ready-to-show', () => {
@@ -1838,7 +1846,8 @@ ipcMain.handle('get-network-addresses', async () => {
   try {
     // Fetch network info from backend server API
     const axios = require('axios');
-    const response = await axios.get('http://127.0.0.1:3001/api/network-info');
+    const backendPort = isDev ? 3001 : 3000;
+    const response = await axios.get(`http://127.0.0.1:${backendPort}/api/network-info`);
     const { wifiIPs, ethernetIPs, httpsPort, httpPort } = response.data;
     
     const addresses = {
@@ -1853,9 +1862,10 @@ ipcMain.handle('get-network-addresses', async () => {
   } catch (error) {
     console.error('Error getting network addresses from backend:', error);
     // Fallback - generate addresses manually
+    const backendPort = isDev ? 3001 : 3000;
     const addresses = {
-      localhost: 'http://localhost:3001',
-      loopback: 'http://127.0.0.1:3001',
+      localhost: `http://localhost:${backendPort}`,
+      loopback: `http://127.0.0.1:${backendPort}`,
       wifi: [],
       ethernet: []
     };
