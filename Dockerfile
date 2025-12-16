@@ -88,7 +88,7 @@ RUN tr -d '\r' < /app/start-services.sh > /tmp/start-services-fixed.sh && \
 COPY Certification/ /app/Certification/
 
 # Expose ports
-EXPOSE 80
+EXPOSE 80 443
 
 # Default port mapping hint for Docker Desktop
 LABEL com.docker.desktop.default-port-mapping="3000:80"

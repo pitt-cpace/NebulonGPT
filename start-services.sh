@@ -11,9 +11,9 @@ echo "🌐 Nginx started with PID: $NGINX_PID"
 
 # Set environment variables for unified backend
 export PYTHONPATH="/app:$PYTHONPATH"
-export HF_HOME=/app/backend/models/kokoro/huggingface-cache
-export TRANSFORMERS_CACHE=/app/backend/models/kokoro/huggingface-cache/transformers
-export HF_DATASETS_CACHE=/app/backend/models/kokoro/huggingface-cache/datasets
+export HF_HOME=/app/.cache/huggingface
+export TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
+export HF_DATASETS_CACHE=/app/.cache/huggingface/datasets
 export HF_HUB_OFFLINE=1
 export VOSK_MODELS_DIR=/app/backend/models/vosk
 export DATA_DIR=./data
