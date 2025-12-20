@@ -1,0 +1,31 @@
+# NebulonGPT Unified Backend Requirements
+# Python 3.9+ required
+# Only base packages - dependencies will be auto-resolved by pip
+
+# FastAPI REST API Server
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+aiofiles>=23.2.1
+
+# Core Functionality
+vosk>=0.3.44
+kokoro>=0.7.16
+misaki[en]>=0.9.4
+websockets>=15.0
+
+# ML/AI Libraries
+torch>=2.1.0
+# torchvision>=0.10.0
+huggingface_hub>=0.24.6
+soundfile>=0.12.1
+
+# NLP
+spacy>=3.8.0
+
+# spaCy English language model
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+
+# Utilities
+netifaces>=0.11.0
+python-dotenv>=1.2.0

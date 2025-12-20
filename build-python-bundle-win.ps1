@@ -48,46 +48,67 @@ function Calculate-DirectorySize {
 }
 
 function Test-NeedsRebuild {
-    $bundleDir = "python-bundle\python-env"
+    $bundleDir = "python-bundle"
     $checksumFile = "python-bundle\bundle-checksum-$Architecture.txt"
     
+    Write-Info "   Checking if bundle needs rebuilding..."
+    Write-Info "   Bundle directory: $bundleDir"
+    Write-Info "   Checksum file: $checksumFile"
+    Write-Host ""
+    
+    # Check 1: Does bundle directory exist?
     if (-not (Test-Path $bundleDir)) {
-        Write-Info "Bundle directory not found, creating bundle..."
+        Write-Warning "Check 1 FAILED: Bundle directory not found"
         return $true
     }
+    Write-Success "Check 1 PASSED: Bundle directory exists"
     
+    # Check 2: Does checksum file exist?
     if (-not (Test-Path $checksumFile)) {
-        Write-Info "Checksum file not found, creating bundle..."
+        Write-Warning "Check 2 FAILED: Checksum file not found"
         return $true
     }
+    Write-Success "Check 2 PASSED: Checksum file exists"
     
+    # Check 3: Is current size >= saved size?
     try {
         $savedSize = [long](Get-Content $checksumFile -Raw).Trim()
         $currentSize = Calculate-DirectorySize $bundleDir
         
+        Write-Info "   Saved size: $savedSize bytes"
+        Write-Info "   Current size: $currentSize bytes"
+        Write-Host ""
+        
         if ($currentSize -lt $savedSize) {
-            Write-Warning "Bundle size is smaller than expected (saved: $savedSize, current: $currentSize), recreating bundle..."
+            Write-Warning "Check 3 FAILED: Bundle size is smaller than expected"
+            Write-Warning "   This indicates missing or corrupted files"
             return $true
         }
+        Write-Success "Check 3 PASSED: Bundle size is adequate"
+        Write-Host ""
         
-        Write-Success "Bundle is up to date (size: $currentSize bytes)"
+        Write-Success "All checks passed - bundle is valid!"
         return $false
     }
     catch {
-        Write-Info "Could not read checksum file, creating bundle..."
+        Write-Warning "Could not read checksum file, creating bundle..."
         return $true
     }
 }
 
-Write-Step "Building Python bundle for architecture: $Architecture"
+Write-Step "Checking Python bundle for Windows $Architecture..."
 Write-Info "You can specify architecture: .\build-python-bundle-win.ps1 -Architecture [x64]"
+Write-Host ""
 
 # Check if rebuild is needed
 if (-not (Test-NeedsRebuild)) {
+    Write-Host ""
     Write-Success "Python bundle already exists and is valid - skipping rebuild"
+    Write-Info "To force rebuild, delete: python-bundle or python-bundle\bundle-checksum-$Architecture.txt"
     exit 0
 }
 
+Write-Host ""
 Write-Step "Creating standalone Python bundle for Windows $Architecture..."
 
 # Clean up any existing bundle
@@ -98,7 +119,7 @@ if (Test-Path "python-bundle") {
 
 # Create directory structure
 Write-Info "Creating directory structure..."
-New-Item -ItemType Directory -Path "python-bundle\python-env" -Force | Out-Null
+New-Item -ItemType Directory -Path "python-bundle" -Force | Out-Null
 
 # Determine the correct python-build-standalone URL based on architecture
 if ($Architecture -eq "x64") {
@@ -133,7 +154,7 @@ try {
     
     # Move extracted Python to our bundle directory
     $pythonDir = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1
-    Move-Item -Path $pythonDir.FullName -Destination "python-bundle\python-env\python-dist"
+    Move-Item -Path $pythonDir.FullName -Destination "python-bundle\python-dist"
     
     Write-Success "Python extracted successfully"
 }
@@ -150,7 +171,7 @@ finally {
 Write-Info "Installing Python packages for $Architecture..."
 
 # Use the bundled Python's pip to install packages
-$bundledPython = "python-bundle\python-env\python-dist\python.exe"
+$bundledPython = "python-bundle\python-dist\python.exe"
 
 if (-not (Test-Path $bundledPython)) {
     Write-Error-Message "Bundled Python not found at: $bundledPython"
@@ -162,38 +183,37 @@ Write-Info "Using bundled Python: $bundledPython"
 # Install packages using bundled pip
 & $bundledPython -m pip install --upgrade pip
 
-& $bundledPython -m pip install --upgrade --force-reinstall -r requirements-bundle.txt
+# Install backend requirements
+Write-Info "Installing backend requirements for $Architecture..."
+& $bundledPython -m pip install --upgrade -r backend\requirements.txt
 
-# Install spaCy English model
-Write-Info "Installing spaCy English model for $Architecture..."
-& $bundledPython -m pip install --upgrade https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
-
-# Copy websocket servers
-Write-Info "Copying websocket servers..."
-if (Test-Path "Vosk-Server\websocket") {
-    New-Item -ItemType Directory -Path "python-bundle\python-env\vosk-server" -Force | Out-Null
+# Copy FastAPI backend
+Write-Info "Copying FastAPI backend..."
+if (Test-Path "backend") {
+    New-Item -ItemType Directory -Path "python-bundle\backend" -Force | Out-Null
     
-    # Copy all files except the models directory
-    Get-ChildItem -Path "Vosk-Server\websocket" -Exclude "models" | Copy-Item -Destination "python-bundle\python-env\vosk-server" -Recurse -Force
+    # Copy Python files and config (exclude models directory, we'll handle that separately)
+    Write-Info "Copying backend Python files..."
+    Get-ChildItem -Path "backend" -Exclude "models","__pycache__","*.pyc" | Copy-Item -Destination "python-bundle\backend" -Recurse -Force
     
-    Write-Success "Vosk server copied"
+    # Create empty models directory structure
+    # Models are NOT copied into the Python bundle to avoid duplication
+    # They are extracted separately at runtime to ~/.nebulon-gpt/vosk-models/ and ~/.nebulon-gpt/huggingface/
+    New-Item -ItemType Directory -Path "python-bundle\backend\models\vosk" -Force | Out-Null
+    New-Item -ItemType Directory -Path "python-bundle\backend\models\kokoro" -Force | Out-Null
+    
+    Write-Info "Empty models directories created (models extracted separately at runtime)"
+    
+    Write-Success "Backend copied successfully"
 }
 else {
-    Write-Warning "Skip: Vosk-Server\websocket not found"
-}
-
-if (Test-Path "Kokoro-TTS-Server\websocket") {
-    New-Item -ItemType Directory -Path "python-bundle\python-env\kokoro-tts" -Force | Out-Null
-    Copy-Item -Path "Kokoro-TTS-Server\websocket\*" -Destination "python-bundle\python-env\kokoro-tts" -Recurse -Force
-    Write-Success "Kokoro TTS server copied"
-}
-else {
-    Write-Warning "Skip: Kokoro-TTS-Server\websocket not found"
+    Write-Error-Message "ERROR: backend directory not found!"
+    exit 1
 }
 
 # Calculate bundle size and create architecture-specific checksum
 Write-Info "Calculating bundle checksum for $Architecture..."
-$bundleSize = Calculate-DirectorySize "python-bundle\python-env"
+$bundleSize = Calculate-DirectorySize "python-bundle"
 $bundleSize | Out-File -FilePath "python-bundle\bundle-checksum-$Architecture.txt" -Encoding utf8
 
 Write-Success "Python bundle creation completed successfully for $Architecture!"
@@ -209,8 +229,10 @@ Write-Success "Python bundle created and zipped successfully for $Architecture!"
 Write-Host ""
 Write-Host "Bundle contents:" -ForegroundColor Magenta
 Write-Host "   - Standalone Python $PYTHON_VERSION from python-build-standalone" -ForegroundColor White
-Write-Host "   - All required packages (vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
-Write-Host "   - Vosk ASR server" -ForegroundColor White
-Write-Host "   - Kokoro TTS server" -ForegroundColor White
+Write-Host "   - All required packages (FastAPI, vosk, torch, spacy, kokoro, etc.)" -ForegroundColor White
+Write-Host "   - FastAPI unified backend (REST API + WebSocket endpoints)" -ForegroundColor White
+Write-Host "   - Checksum file: bundle-checksum-$Architecture.txt" -ForegroundColor White
+Write-Host ""
+Write-Host "Note: Models are packaged separately and extracted at runtime to avoid duplication" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Ready for distribution!" -ForegroundColor Green

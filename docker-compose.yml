@@ -10,6 +10,7 @@ services:
     container_name: nebulon-gpt-integrated
     ports:
       - "3000:80"
+      - "3443:443"
     restart: unless-stopped
     networks:
       - ollama-network

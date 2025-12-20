@@ -1,0 +1,7 @@
+This installer will install NebulonGPT and its required dependency (Ollama), if it is not already present on your system.
+
+Please note: If this is your first time installing Ollama, you may need to manually start the Ollama service after the installation is complete. This ensures that NebulonGPT can communicate with the local language models properly.
+
+Ollama is a third-party application, and we are not responsible for its functionality or maintenance. You can learn more about Ollama at ollama.com.
+
+Thank you for choosing NebulonGPT.
