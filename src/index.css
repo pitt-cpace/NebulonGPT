@@ -37,6 +37,11 @@ body {
   color: var(--text-color);
 }
 
+/* Smooth theme transition for all elements */
+* {
+  transition: background-color 1s ease, color 1s ease, border-color 1s ease, fill 1s ease, stroke 1s ease !important;
+}
+
 code {
   font-family: 'JetBrains Mono', source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
