@@ -4854,6 +4854,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               'Dr. Quincy Gu',
               'Dr. Matthew Hanna',
               'Dr. Yanshan Wang',
+              'Dr. Mohammad K. Alexanderani',
               'Parth Sanghani',
               'Mohammadreza Moradi'
             ].map((contributor, index) => (
@@ -4884,7 +4885,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     fontSize: '1.2rem',
                   }}
                 >
-                  {contributor.split(' ').map(name => name.charAt(0)).join('').slice(0, 2)}
+                  {contributor.split(' ').filter(word => !['Prof.', 'Dr.'].includes(word) && !/^[A-Z]\.$/i.test(word)).map(name => name.charAt(0)).join('').slice(0, 2)}
                 </Box>
                 <Typography variant="body1" sx={{ fontWeight: 500 }}>
                   {contributor}
