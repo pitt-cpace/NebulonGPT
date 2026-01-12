@@ -576,7 +576,17 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Tooltip title={themeMode === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
               <IconButton
-                onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+                onClick={() => {
+                  const newTheme = themeMode === 'dark' ? 'light' : 'dark';
+                  setThemeMode(newTheme);
+                  setOriginalThemeMode(newTheme);
+                  // Save to localStorage immediately
+                  localStorage.setItem('themeMode', newTheme);
+                  // Dispatch theme change event immediately
+                  const themeEvent = new CustomEvent('themeChange', { detail: newTheme });
+                  window.dispatchEvent(themeEvent);
+                  console.log(`🎨 Theme changed immediately to: ${newTheme}`);
+                }}
                 color="inherit"
                 size="small"
               >
