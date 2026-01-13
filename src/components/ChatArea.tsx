@@ -1502,6 +1502,27 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           p: ({ children }) => <span>{children}</span>,
           strong: ({ children }) => <strong>{children}</strong>,
           em: ({ children }) => <em>{children}</em>,
+          // Override the default link renderer to open in external browser
+          a: ({ children, href, ...props }: any) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => {
+                e.preventDefault();
+                // Use electronApi to open in external browser
+                electronApi.openExternal(href);
+              }}
+              style={{
+                color: '#2196f3',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+              }}
+              {...props}
+            >
+              {children}
+            </a>
+          ),
           code: ({ children, inline, className }) => {
             let text = String(children);
             
