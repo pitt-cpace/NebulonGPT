@@ -1387,10 +1387,41 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     textContent = decodeHtmlEntities(textContent);
     
+    // Helper function to detect LaTeX patterns (with or without $ delimiters)
+    const containsLatexPattern = (text: string): boolean => {
+      // Check for standard LaTeX delimiters: $...$, $$...$$, \[...\], \(...\)
+      const hasDelimiters = /\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]+?\$\$|\$[^$\n]+\$/.test(text);
+      if (hasDelimiters) return true;
+      
+      // Check for LaTeX commands without delimiters (e.g., \frac{a}{b}, \int, \sum, etc.)
+      // This regex matches common LaTeX math commands
+      const hasLatexCommands = /\\(?:frac|sqrt|int|sum|prod|lim|sin|cos|tan|log|ln|exp|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|infty|partial|nabla|cdot|times|div|pm|mp|leq|geq|neq|approx|equiv|subset|supset|cup|cap|in|notin|forall|exists|rightarrow|leftarrow|Rightarrow|Leftarrow|text|mathrm|mathbf|mathit|vec|hat|bar|dot|ddot|overline|underline|overbrace|underbrace|begin|end)\b|\^[\{]?[0-9a-zA-Z]+[\}]?|_[\{]?[0-9a-zA-Z]+[\}]?/.test(text);
+      
+      return hasLatexCommands;
+    };
+    
     // Check if content is wrapped in backticks (inline code)
     const inlineCodeMatch = textContent.match(/^`([^`]+)`$/);
     if (inlineCodeMatch) {
-      // Render as inline code
+      const innerContent = inlineCodeMatch[1];
+      
+      // CRITICAL FIX: Check if the content inside backticks contains LaTeX
+      // If it does, render as LaTeX instead of plain code
+      if (containsLatexPattern(innerContent)) {
+        // The content has LaTeX - render it as math
+        // First check if it already has $ delimiters
+        const hasDelimiters = /\$[^$]+\$|\$\$[\s\S]+?\$\$/.test(innerContent);
+        
+        if (hasDelimiters) {
+          // Already has delimiters, render directly
+          return renderLatex(innerContent);
+        } else {
+          // No delimiters - wrap in $ for inline math rendering
+          return renderLatex(`$${innerContent}$`);
+        }
+      }
+      
+      // Not LaTeX - render as inline code
       return (
         <code style={{ 
           backgroundColor: 'rgba(0, 0, 0, 0.08)',
@@ -1400,7 +1431,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           fontFamily: 'monospace',
           wordBreak: 'break-word'
         }}>
-          {inlineCodeMatch[1]}
+          {innerContent}
         </code>
       );
     }
@@ -1409,11 +1440,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // BUT: Allow ReactMarkdown to handle mixed markdown+LaTeX content
     // Only use renderLatex for pure LaTeX content without markdown formatting
     const hasLatexDelimiters = /\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]+?\$\$|\$[^$\n]+\$/.test(textContent);
+    const hasLatexCommands = containsLatexPattern(textContent);
     const hasMarkdownFormatting = /\*\*[^*]+\*\*|__[^_]+__|^\*[^*]+\*$|^_[^_]+_$/.test(textContent);
     
-    // Only use renderLatex if content has LaTeX but NO markdown formatting
+    // Use renderLatex if content has LaTeX (delimiters OR commands) but NO markdown formatting
     // This allows bold/italic markdown to work alongside LaTeX
-    if (hasLatexDelimiters && !hasMarkdownFormatting) {
+    if ((hasLatexDelimiters || hasLatexCommands) && !hasMarkdownFormatting) {
+      // If has LaTeX commands but no delimiters, wrap in $ for inline math
+      if (hasLatexCommands && !hasLatexDelimiters) {
+        return renderLatex(`$${textContent}$`);
+      }
       // Render with renderLatex which handles all LaTeX delimiters correctly
       return renderLatex(textContent);
     }
