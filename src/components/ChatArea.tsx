@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTheme } from '@mui/material/styles';
 import katex from 'katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { dracula, oneDark, atomDark, materialDark, nightOwl, coldarkDark, oneLight, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useElementHeightVar } from '../hooks/useElementHeightVar';
 import { RO } from '../hooks/ResizeObserverManager';
 import remarkMath from 'remark-math';
@@ -231,6 +231,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onOpenSettings,
   isMobile,
 }) => {
+  // Get theme for syntax highlighting
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
+  
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
   const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
@@ -1580,8 +1584,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     );
   };
 
-  // Custom renderers for ReactMarkdown
-  const markdownComponents = {
+  // Custom renderers for ReactMarkdown - memoized to update when theme changes
+  const markdownComponents = React.useMemo(() => ({
     // Override paragraph renderer to use inline span instead of block-level p
     p: ({ node, children, ...props }: any) => <span {...props}>{children}</span>,
     // Override the default link renderer
@@ -1940,17 +1944,33 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           >
             <SyntaxHighlighter
               language={language || 'text'}
-              style={vscDarkPlus}
+              style={isDarkMode ? nightOwl : oneLight}
               customStyle={{
                 margin: 0,
-                borderRadius: '8px',
-                padding: '16px',
+                borderRadius: '12px',
+                padding: '20px',
                 fontSize: '0.9rem',
-                lineHeight: 1.5,
+                lineHeight: 1.6,
+                background: isDarkMode 
+                  ? 'linear-gradient(135deg, #011627 0%, #1d3b53 100%)' 
+                  : 'linear-gradient(135deg, #fafafa 0%, #f0f4f8 100%)',
+                boxShadow: isDarkMode 
+                  ? '0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)' 
+                  : '0 4px 16px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.8)',
+                border: isDarkMode ? 'none' : '1px solid rgba(0, 0, 0, 0.08)',
               }}
               showLineNumbers={content.split('\n').length > 3}
               wrapLines={true}
               wrapLongLines={true}
+              lineNumberStyle={{
+                color: isDarkMode ? 'rgba(99, 119, 138, 0.8)' : 'rgba(0, 0, 0, 0.3)',
+                paddingRight: '16px',
+                minWidth: '40px',
+                borderRight: isDarkMode 
+                  ? '1px solid rgba(99, 119, 138, 0.2)' 
+                  : '1px solid rgba(0, 0, 0, 0.08)',
+                marginRight: '16px',
+              }}
             >
               {content}
             </SyntaxHighlighter>
@@ -2019,7 +2039,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         </code>
       );
     },
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [isDarkMode, handleCopyCode]);
 
   // Function to preprocess LaTeX delimiters for proper rendering
   const preprocessLatexDelimiters = (content: string): string => {
@@ -3688,7 +3709,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
 
   // Memoized message component to prevent re-renders during streaming
-  const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean }>(({ message, chatMessages, isStreaming }) => {
+  const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean; isDark: boolean }>(({ message, chatMessages, isStreaming, isDark }) => {
     const isUser = message.role === 'user';
     
     // Extract thinking and body from assistant messages
@@ -4025,18 +4046,19 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       </Box>
     );
   }, (prevProps, nextProps) => {
-    // Only re-render if the message content changed or streaming status changed
+    // Re-render if message content, streaming status, or theme changed
     return prevProps.message.content === nextProps.message.content && 
-           prevProps.isStreaming === nextProps.isStreaming;
+           prevProps.isStreaming === nextProps.isStreaming &&
+           prevProps.isDark === nextProps.isDark;
   });
 
-  // Create a stable renderMessage that doesn't depend on loading
+  // Create a stable renderMessage that includes isDarkMode for theme changes
   const renderMessage = useCallback((message: MessageType, chatMessages?: MessageType[], currentlyLoading?: boolean) => {
     const isLastMessage = !!(chatMessages && message.id === chatMessages[chatMessages.length - 1]?.id);
     const isStreaming = currentlyLoading === true && isLastMessage;
     
-    return <MessageComponent message={message} chatMessages={chatMessages} isStreaming={isStreaming} />;
-  }, []);
+    return <MessageComponent message={message} chatMessages={chatMessages} isStreaming={isStreaming} isDark={isDarkMode} />;
+  }, [isDarkMode]);
 
   // Split messages into completed and streaming for better performance
   const { completedMessages, streamingMessage } = React.useMemo(() => {
