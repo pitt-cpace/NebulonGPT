@@ -2361,14 +2361,32 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     let currentIndex = 0;
     
     while (currentIndex < content.length) {
-      // Try to detect structured content in priority order
-      // Code blocks should be detected before tables to avoid conflicts
-      let detected = 
-        detectCodeBlock(content, currentIndex) ||
-        detectHtmlTable(content, currentIndex) ||
-        detectLatexTable(content, currentIndex) ||
-        detectWikiTable(content, currentIndex) ||
-        detectMarkdownTable(content, currentIndex);
+      // Try to detect ALL structured content types and find the EARLIEST one
+      // This ensures tables before code blocks are detected first
+      const candidates: ContentBlock[] = [];
+      
+      const codeBlock = detectCodeBlock(content, currentIndex);
+      if (codeBlock) candidates.push(codeBlock);
+      
+      const htmlTable = detectHtmlTable(content, currentIndex);
+      if (htmlTable) candidates.push(htmlTable);
+      
+      const latexTable = detectLatexTable(content, currentIndex);
+      if (latexTable) candidates.push(latexTable);
+      
+      const wikiTable = detectWikiTable(content, currentIndex);
+      if (wikiTable) candidates.push(wikiTable);
+      
+      const markdownTable = detectMarkdownTable(content, currentIndex);
+      if (markdownTable) candidates.push(markdownTable);
+      
+      // Find the candidate with the earliest start index
+      let detected: ContentBlock | null = null;
+      if (candidates.length > 0) {
+        detected = candidates.reduce((earliest, current) => 
+          current.startIndex < earliest.startIndex ? current : earliest
+        );
+      }
       
       if (detected) {
         // Add any plain text before this block
