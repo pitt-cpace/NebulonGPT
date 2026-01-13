@@ -1400,11 +1400,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
     
     // CRITICAL FIX: Check for LaTeX patterns BEFORE other processing
-    // This ensures LaTeX in tables is rendered properly
-    // Check for both backslash delimiters and dollar signs
+    // BUT: Allow ReactMarkdown to handle mixed markdown+LaTeX content
+    // Only use renderLatex for pure LaTeX content without markdown formatting
     const hasLatexDelimiters = /\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]+?\$\$|\$[^$\n]+\$/.test(textContent);
+    const hasMarkdownFormatting = /\*\*[^*]+\*\*|__[^_]+__|^\*[^*]+\*$|^_[^_]+_$/.test(textContent);
     
-    if (hasLatexDelimiters) {
+    // Only use renderLatex if content has LaTeX but NO markdown formatting
+    // This allows bold/italic markdown to work alongside LaTeX
+    if (hasLatexDelimiters && !hasMarkdownFormatting) {
       // Render with renderLatex which handles all LaTeX delimiters correctly
       return renderLatex(textContent);
     }
