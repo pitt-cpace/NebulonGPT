@@ -1982,14 +1982,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 position: 'absolute',
                 top: 8,
                 right: 8,
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                color: 'rgba(255, 255, 255, 0.7)',
+                backgroundColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+                color: isDarkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.6)',
                 px: 1,
                 py: 0.25,
                 borderRadius: '4px',
                 fontSize: '0.7rem',
                 fontFamily: 'monospace',
                 textTransform: 'lowercase',
+                fontWeight: 500,
               }}
             >
               {language}
