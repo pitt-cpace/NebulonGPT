@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from
 import { createPortal } from 'react-dom';
 import { useTheme } from '@mui/material/styles';
 import katex from 'katex';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useElementHeightVar } from '../hooks/useElementHeightVar';
 import { RO } from '../hooks/ResizeObserverManager';
 import remarkMath from 'remark-math';
@@ -1919,18 +1921,60 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         }
       }
       
+      // Get the language from the className (e.g., "language-python" -> "python")
+      const language = match ? match[1] : '';
+      
       return !inline ? (
         <Box sx={{ position: 'relative', mb: 2 }}>
+          {/* Syntax highlighted code block */}
           <Box
-            component="pre"
-            sx={styles.codeBlock}
-            className={className}
-            {...props}
+            sx={{
+              borderRadius: '8px',
+              overflow: 'hidden',
+              fontSize: '0.9rem',
+              '& pre': {
+                margin: 0,
+                borderRadius: '8px',
+              },
+            }}
           >
-            <code className={className} {...props}>
-              {children}
-            </code>
+            <SyntaxHighlighter
+              language={language || 'text'}
+              style={vscDarkPlus}
+              customStyle={{
+                margin: 0,
+                borderRadius: '8px',
+                padding: '16px',
+                fontSize: '0.9rem',
+                lineHeight: 1.5,
+              }}
+              showLineNumbers={content.split('\n').length > 3}
+              wrapLines={true}
+              wrapLongLines={true}
+            >
+              {content}
+            </SyntaxHighlighter>
           </Box>
+          {/* Language badge */}
+          {language && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                color: 'rgba(255, 255, 255, 0.7)',
+                px: 1,
+                py: 0.25,
+                borderRadius: '4px',
+                fontSize: '0.7rem',
+                fontFamily: 'monospace',
+                textTransform: 'lowercase',
+              }}
+            >
+              {language}
+            </Box>
+          )}
           {/* Enhanced copy button for code blocks */}
           <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
             <IconButton
