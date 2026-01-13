@@ -2088,9 +2088,67 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   };
 
   const detectMarkdownTable = (content: string, startIndex: number = 0): ContentBlock | null => {
+    // First, preprocess content to handle multi-line LaTeX within table cells
+    // This is needed for tables with LaTeX matrices or multi-line formulas
+    const preprocessTableContent = (text: string): string => {
+      // Look for table-like content and normalize multi-line LaTeX within cells
+      const lines = text.split('\n');
+      const normalizedLines: string[] = [];
+      let i = 0;
+      
+      while (i < lines.length) {
+        const line = lines[i];
+        
+        // Check if this looks like a table row (starts with |)
+        if (line.trim().startsWith('|')) {
+          let currentRow = line;
+          
+          // Check if we have unclosed LaTeX delimiters in this line
+          // Count \( and \) occurrences, also check for \begin without \end
+          const countOccurrences = (str: string, pattern: string) => {
+            let count = 0;
+            let pos = 0;
+            while ((pos = str.indexOf(pattern, pos)) !== -1) {
+              count++;
+              pos += pattern.length;
+            }
+            return count;
+          };
+          
+          let openParens = countOccurrences(currentRow, '\\(');
+          let closeParens = countOccurrences(currentRow, '\\)');
+          let openBegins = countOccurrences(currentRow, '\\begin{');
+          let closeEnds = countOccurrences(currentRow, '\\end{');
+          
+          // Keep joining lines until LaTeX is balanced
+          while ((openParens > closeParens || openBegins > closeEnds) && i + 1 < lines.length) {
+            i++;
+            const nextLine = lines[i];
+            // Join with a space instead of newline to preserve content
+            currentRow += ' ' + nextLine.trim();
+            
+            // Update counts
+            openParens += countOccurrences(nextLine, '\\(');
+            closeParens += countOccurrences(nextLine, '\\)');
+            openBegins += countOccurrences(nextLine, '\\begin{');
+            closeEnds += countOccurrences(nextLine, '\\end{');
+          }
+          
+          normalizedLines.push(currentRow);
+        } else {
+          normalizedLines.push(line);
+        }
+        i++;
+      }
+      
+      return normalizedLines.join('\n');
+    };
+    
+    // Preprocess the content to handle multi-line LaTeX
+    const searchContent = preprocessTableContent(content.substring(startIndex));
+    
     // Regex that matches markdown tables with both hyphens and em/en dashes in separators
     const markdownTableRegex = /\|.+\|\n\|[\-–—:\s|]+\|\n(?:\|.+\|\n?)+/;
-    const searchContent = content.substring(startIndex);
     const match = searchContent.match(markdownTableRegex);
     
     if (match && match.index !== undefined) {
@@ -2108,6 +2166,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           let inBackticks = false;
           let inDollarSigns = false;
           let inLatexParens = false; // Track \(...\) delimiters
+          let inLatexEnv = 0; // Track nested \begin{...} \end{...} environments
           
           // Remove leading/trailing pipes if present
           let processLine = line.trim();
@@ -2118,6 +2177,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             const char = processLine[i];
             const prevChar = i > 0 ? processLine[i - 1] : '';
             const nextChar = i < processLine.length - 1 ? processLine[i + 1] : '';
+            
+            // Track \begin{...} and \end{...} LaTeX environments
+            if (char === '\\' && processLine.substring(i, i + 7) === '\\begin{') {
+              inLatexEnv++;
+              current += char;
+              continue;
+            } else if (char === '\\' && processLine.substring(i, i + 5) === '\\end{') {
+              inLatexEnv = Math.max(0, inLatexEnv - 1);
+              current += char;
+              continue;
+            }
             
             // Track \(...\) LaTeX inline math delimiters
             if (char === '\\' && nextChar === '(' && !inBackticks && !inDollarSigns) {
@@ -2132,18 +2202,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             }
             
             // Track backticks
-            if (char === '`' && !inDollarSigns && !inLatexParens) {
+            if (char === '`' && !inDollarSigns && !inLatexParens && inLatexEnv === 0) {
               inBackticks = !inBackticks;
               current += char;
             }
             // Track dollar signs
-            else if (char === '$' && !inBackticks && !inLatexParens) {
+            else if (char === '$' && !inBackticks && !inLatexParens && inLatexEnv === 0) {
               inDollarSigns = !inDollarSigns;
               current += char;
             }
-            // Split on pipe only when not inside backticks, dollar signs, or LaTeX parens
+            // Split on pipe only when not inside any delimiters
             // Also check if pipe is escaped with backslash (\|)
-            else if (char === '|' && !inBackticks && !inDollarSigns && !inLatexParens && prevChar !== '\\') {
+            else if (char === '|' && !inBackticks && !inDollarSigns && !inLatexParens && inLatexEnv === 0 && prevChar !== '\\') {
               cells.push(current);
               current = '';
             } else {
