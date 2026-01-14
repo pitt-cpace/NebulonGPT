@@ -1746,8 +1746,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           
           if (tableMatch) {
             const tableContent = tableMatch[1];
-            // Remove all \hline commands and trim
-            const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+            // Remove all LaTeX table formatting commands: \hline, \toprule, \midrule, \bottomrule, \cline{...}
+            const cleanedContent = tableContent
+              .replace(/\\hline/g, '')
+              .replace(/\\toprule/g, '')
+              .replace(/\\midrule/g, '')
+              .replace(/\\bottomrule/g, '')
+              .replace(/\\cline\{[^}]*\}/g, '')
+              .trim();
             
             // Split by \\ and filter out empty lines
             const lines = cleanedContent
@@ -2189,7 +2195,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     
     if (match && match.index !== undefined) {
       const tableContent = match[1];
-      const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+      // Remove all LaTeX table formatting commands: \hline, \toprule, \midrule, \bottomrule, \cline{...}
+      const cleanedContent = tableContent
+        .replace(/\\hline/g, '')
+        .replace(/\\toprule/g, '')
+        .replace(/\\midrule/g, '')
+        .replace(/\\bottomrule/g, '')
+        .replace(/\\cline\{[^}]*\}/g, '')
+        .trim();
       const lines = cleanedContent.split('\\\\').map(line => line.trim()).filter(line => line.length > 0);
       
       if (lines.length >= 1) {
