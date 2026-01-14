@@ -32,7 +32,7 @@ export class VoskRecognitionService {
   
   // Silence detection for auto-stop
   private silenceDetectionEnabled = true;
-  private silenceTimeoutNormal = 2500; // 2 seconds of silence before auto-stop in normal mode
+  private silenceTimeoutNormal = 2000; // 2 seconds of silence before auto-stop in normal mode
   private silenceTimeoutFullVoice = 1500; // 1.5 seconds of silence before auto-stop in full voice mode
   private lastAudioTime = 0;
   private silenceTimer: number | null = null;
