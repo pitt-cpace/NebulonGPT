@@ -5534,6 +5534,22 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             <Typography variant="body2" sx={{ fontWeight: 500, mb: 1 }}>
               💡 How to connect from another device:
             </Typography>
+            {/* Quick Access with QR Code - Red highlighted section */}
+            <Box sx={{ 
+              mt: 2, 
+              p: 1.5, 
+              backgroundColor: 'rgba(64, 81, 237, 0.08)',
+              borderRadius: 1,
+              border: '2px solid',
+              borderColor: 'error.main',
+            }}>
+              <Typography variant="body2" sx={{ 
+                color: 'rgba(237, 64, 211, 1)',
+                fontWeight: 600,
+              }}>
+                📱 <strong>Quick Access with QR Code:</strong> Click the QR code icon next to any address above to generate a scannable code. Then, open your mobile device's camera app and point it at the QR code to instantly access the application — no typing required!
+              </Typography>
+            </Box>
             <Typography variant="body2" color="text.secondary">
               1. Ensure both devices are on the same network (e.g., connected to the same WiFi or mobile hotspot)
             </Typography>
@@ -5551,9 +5567,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               🔒 <strong>Why HTTPS & Self-Signed Certificate?</strong> Network addresses use HTTPS with a self-signed certificate to enable secure connections and allow microphone access for voice features. The certificate warning is expected and safe to accept.
             </Typography>
             
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, fontStyle: 'italic' }}>
-              📱 <strong>Quick Access with QR Code:</strong> Click the QR code icon next to any address to generate a scannable code. Simply open your mobile device's camera app and point it at the QR code to instantly access the application - no typing required!
-            </Typography>
           </Box>
         </DialogContent>
         <DialogActions>
