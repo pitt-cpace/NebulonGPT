@@ -4725,7 +4725,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 >
                   {/* Main indicator content */}
                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
-                    {/* Large clickable microphone icon - click to mute/unmute */}
+                    {/* Large clickable microphone button - click to mute/unmute */}
                     <IconButton
                       onClick={() => {
                         const newMutedState = !isMuted;
@@ -4741,39 +4741,47 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        width: '60px',
-                        height: '60px',
+                        width: '64px',
+                        height: '64px',
                         borderRadius: '50%',
-                        backgroundColor: isMuted ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)',
-                        animation: isMuted ? 'none' : 'bounce 1.5s infinite',
-                        transition: 'all 0.3s ease-in-out',
+                        backgroundColor: isMuted ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.25)',
+                        border: '2px solid',
+                        borderColor: isMuted ? 'rgba(255, 255, 255, 0.3)' : 'rgba(255, 255, 255, 0.5)',
+                        boxShadow: isMuted 
+                          ? 'inset 0 2px 4px rgba(0, 0, 0, 0.3)' 
+                          : '0 4px 12px rgba(0, 0, 0, 0.2), inset 0 -2px 4px rgba(0, 0, 0, 0.1)',
+                        transition: 'all 0.2s ease-in-out',
                         cursor: 'pointer',
                         '&:hover': {
-                          backgroundColor: isMuted ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.35)',
-                          transform: 'scale(1.1)',
+                          backgroundColor: isMuted ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.35)',
+                          borderColor: isMuted ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.7)',
+                          transform: 'scale(1.05)',
+                          boxShadow: isMuted 
+                            ? 'inset 0 2px 6px rgba(0, 0, 0, 0.4)' 
+                            : '0 6px 16px rgba(0, 0, 0, 0.25), inset 0 -2px 4px rgba(0, 0, 0, 0.1)',
                         },
                         '&:active': {
                           transform: 'scale(0.95)',
-                        },
-                        '@keyframes bounce': {
-                          '0%, 20%, 50%, 80%, 100%': {
-                            transform: 'translateY(0)',
-                          },
-                          '40%': {
-                            transform: 'translateY(-5px)',
-                          },
-                          '60%': {
-                            transform: 'translateY(-2px)',
-                          },
+                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.3)',
                         },
                       }}
                     >
                       {isMuted ? (
-                        <MicOffIcon sx={{ fontSize: 32, color: 'rgba(255, 255, 255, 0.7)' }} />
+                        <MicOffIcon sx={{ fontSize: 30, color: 'rgba(255, 255, 255, 0.6)' }} />
                       ) : (
-                        <MicIcon sx={{ fontSize: 32, color: 'white' }} />
+                        <MicIcon sx={{ fontSize: 30, color: 'white' }} />
                       )}
                     </IconButton>
+                    
+                    {/* Tap to mute/unmute hint */}
+                    <Typography variant="caption" sx={{ 
+                      fontSize: '0.7rem', 
+                      opacity: 0.7, 
+                      textAlign: 'center',
+                      mt: -0.5
+                    }}>
+                      {isMuted ? 'Tap to unmute' : 'Tap to mute'}
+                    </Typography>
                     
                     {/* Title */}
                     <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.1rem', textAlign: 'center' }}>
