@@ -4696,18 +4696,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     zIndex: 1100, // Above input (1000) but below topbar (1300)
                     backgroundColor: isTurningOff ? 'rgba(158, 158, 158, 0.95)' : 'rgba(244, 67, 54, 0.95)',
                     color: 'white',
-                    padding: '20px',
-                    borderRadius: '16px',
+                    padding: '10px',
+                    borderRadius: '10px',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: 2,
+                    gap: 0.75,
                     boxShadow: isTurningOff 
-                      ? '0 8px 32px rgba(158, 158, 158, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)'
-                      : '0 8px 32px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                      ? '0 4px 16px rgba(158, 158, 158, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)'
+                      : '0 4px 16px rgba(244, 67, 54, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)',
                     backdropFilter: 'blur(20px)',
-                    border: isTurningOff ? '2px solid rgba(158, 158, 158, 0.8)' : '2px solid rgba(244, 67, 54, 0.8)',
-                    minWidth: '200px',
+                    border: isTurningOff ? '1px solid rgba(158, 158, 158, 0.8)' : '1px solid rgba(244, 67, 54, 0.8)',
+                    minWidth: '120px',
                     animation: isTurningOff ? 'none' : 'pulseRed 2s infinite',
                     transition: 'all 0.5s ease-in-out',
                     '@keyframes pulseRed': {
@@ -4724,8 +4724,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   }}
                 >
                   {/* Main indicator content */}
-                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
-                    {/* Large clickable microphone button - click to mute/unmute */}
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                    {/* Clickable microphone button - click to mute/unmute */}
                     <IconButton
                       onClick={() => {
                         const newMutedState = !isMuted;
@@ -4741,73 +4741,68 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        width: '64px',
-                        height: '64px',
+                        width: '48px',
+                        height: '48px',
                         borderRadius: '50%',
                         backgroundColor: isMuted ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.25)',
                         border: '2px solid',
                         borderColor: isMuted ? 'rgba(255, 255, 255, 0.3)' : 'rgba(255, 255, 255, 0.5)',
                         boxShadow: isMuted 
-                          ? 'inset 0 2px 4px rgba(0, 0, 0, 0.3)' 
-                          : '0 4px 12px rgba(0, 0, 0, 0.2), inset 0 -2px 4px rgba(0, 0, 0, 0.1)',
+                          ? 'inset 0 1px 3px rgba(0, 0, 0, 0.3)' 
+                          : '0 3px 8px rgba(0, 0, 0, 0.2), inset 0 -1px 3px rgba(0, 0, 0, 0.1)',
                         transition: 'all 0.2s ease-in-out',
                         cursor: 'pointer',
                         '&:hover': {
                           backgroundColor: isMuted ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.35)',
                           borderColor: isMuted ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.7)',
                           transform: 'scale(1.05)',
-                          boxShadow: isMuted 
-                            ? 'inset 0 2px 6px rgba(0, 0, 0, 0.4)' 
-                            : '0 6px 16px rgba(0, 0, 0, 0.25), inset 0 -2px 4px rgba(0, 0, 0, 0.1)',
                         },
                         '&:active': {
                           transform: 'scale(0.95)',
-                          boxShadow: 'inset 0 2px 8px rgba(0, 0, 0, 0.3)',
                         },
                       }}
                     >
                       {isMuted ? (
-                        <MicOffIcon sx={{ fontSize: 30, color: 'rgba(255, 255, 255, 0.6)' }} />
+                        <MicOffIcon sx={{ fontSize: 35, color: 'rgba(255, 255, 255, 0.6)' }} />
                       ) : (
-                        <MicIcon sx={{ fontSize: 30, color: 'white' }} />
+                        <MicIcon sx={{ fontSize: 35, color: 'white' }} />
                       )}
                     </IconButton>
                     
                     {/* Tap to mute/unmute hint */}
                     <Typography variant="caption" sx={{ 
-                      fontSize: '0.7rem', 
+                      fontSize: '0.55rem', 
                       opacity: 0.7, 
                       textAlign: 'center',
-                      mt: -0.5
+                      mt: -0.25
                     }}>
                       {isMuted ? 'Tap to unmute' : 'Tap to mute'}
                     </Typography>
                     
                     {/* Title */}
-                    <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.1rem', textAlign: 'center' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 'bold', fontSize: '0.7rem', textAlign: 'center' }}>
                       Full Voice Mode
                     </Typography>
                     
                     {/* Status text - changes based on TTS state */}
-                    <Typography variant="body2" sx={{ fontSize: '0.9rem', opacity: 0.9, textAlign: 'center' }}>
+                    <Typography variant="caption" sx={{ fontSize: '0.55rem', opacity: 0.9, textAlign: 'center' }}>
                       {isTTSPaused ? (
-                        '⏸️ Audio Paused - Listening...'
+                        '⏸️ Paused'
                       ) : ttsQueueStatus.isPlaying ? (
-                        '🔊 Playing Audio - Listening...'
+                        '🔊 Playing'
                       ) : (
-                        '🎙️ Listening for your voice...'
+                        '🎙️ Listening...'
                       )}
                     </Typography>
                     
                     {/* Helpful tip about "stop stop" command */}
                     <Typography variant="caption" sx={{ 
-                      fontSize: '0.75rem', 
+                      fontSize: '0.5rem', 
                       opacity: 0.8, 
                       textAlign: 'center',
                       fontStyle: 'italic',
-                      mt: 0.5
                     }}>
-                      💡 Say "stop stop" to stop listening
+                      Say "stop stop" to stop
                     </Typography>
                     
                     {/* Real-time audio waveform visualization */}
