@@ -50,6 +50,9 @@ export class VoskRecognitionService {
   private currentAudioLevel = 0;
   private audioLevelCallbacks: ((level: number) => void)[] = [];
   
+  // Microphone mute state
+  private isMuted = false;
+  
   // Event callbacks
   private onResultCallback: ((result: VoskResult) => void) | null = null;
   private onErrorCallback: ((error: string) => void) | null = null;
@@ -1310,6 +1313,42 @@ export class VoskRecognitionService {
    */
   public clearAudioLevelCallbacks(): void {
     this.audioLevelCallbacks = [];
+  }
+
+  // ========================================
+  // MICROPHONE MUTE METHODS
+  // ========================================
+
+  /**
+   * Mute or unmute the microphone
+   * This disables/enables the audio track to stop/resume sending audio data
+   */
+  public setMuted(muted: boolean): void {
+    this.isMuted = muted;
+    
+    if (this.mediaStream) {
+      // Disable/enable all audio tracks
+      this.mediaStream.getAudioTracks().forEach(track => {
+        track.enabled = !muted;
+      });
+      
+      console.log(muted ? '🔇 Microphone muted' : '🔊 Microphone unmuted');
+    }
+  }
+
+  /**
+   * Get current mute state
+   */
+  public getMuted(): boolean {
+    return this.isMuted;
+  }
+
+  /**
+   * Toggle mute state
+   */
+  public toggleMute(): boolean {
+    this.setMuted(!this.isMuted);
+    return this.isMuted;
   }
 }
 

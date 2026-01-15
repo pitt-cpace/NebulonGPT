@@ -44,6 +44,7 @@ import {
   Stop as StopIcon,
   Menu as MenuIcon,
   Mic as MicIcon,
+  MicOff as MicOffIcon,
   MoreVert as MoreVertIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   Add as AddIcon,
@@ -263,6 +264,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const [detectionSensitivity, setDetectionSensitivity] = useState<number>(100); // Default sensitivity display value
   const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
+  const [isMuted, setIsMuted] = useState(false); // Mute state for Full Voice Mode
   const onClearInputAreaRef = useRef<(() => void) | null>(null);
   const onGetAttachmentsRef = useRef<(() => FileAttachment[]) | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -4723,8 +4725,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 >
                   {/* Main indicator content */}
                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
-                    {/* Large animated microphone icon */}
-                    <Box
+                    {/* Large clickable microphone icon - click to mute/unmute */}
+                    <IconButton
+                      onClick={() => {
+                        const newMutedState = !isMuted;
+                        setIsMuted(newMutedState);
+                        
+                        // Mute/unmute the actual microphone audio track
+                        if (voskRecognition) {
+                          voskRecognition.setMuted(newMutedState);
+                        }
+                      }}
+                      title={isMuted ? 'Click to unmute microphone' : 'Click to mute microphone'}
                       sx={{
                         display: 'flex',
                         alignItems: 'center',
@@ -4732,8 +4744,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         width: '60px',
                         height: '60px',
                         borderRadius: '50%',
-                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                        animation: 'bounce 1.5s infinite',
+                        backgroundColor: isMuted ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)',
+                        animation: isMuted ? 'none' : 'bounce 1.5s infinite',
+                        transition: 'all 0.3s ease-in-out',
+                        cursor: 'pointer',
+                        '&:hover': {
+                          backgroundColor: isMuted ? 'rgba(0, 0, 0, 0.4)' : 'rgba(255, 255, 255, 0.35)',
+                          transform: 'scale(1.1)',
+                        },
+                        '&:active': {
+                          transform: 'scale(0.95)',
+                        },
                         '@keyframes bounce': {
                           '0%, 20%, 50%, 80%, 100%': {
                             transform: 'translateY(0)',
@@ -4747,8 +4768,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         },
                       }}
                     >
-                      <MicIcon sx={{ fontSize: 32, color: 'white' }} />
-                    </Box>
+                      {isMuted ? (
+                        <MicOffIcon sx={{ fontSize: 32, color: 'rgba(255, 255, 255, 0.7)' }} />
+                      ) : (
+                        <MicIcon sx={{ fontSize: 32, color: 'white' }} />
+                      )}
+                    </IconButton>
                     
                     {/* Title */}
                     <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.1rem', textAlign: 'center' }}>
