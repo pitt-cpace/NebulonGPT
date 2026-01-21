@@ -158,13 +158,13 @@ if [ "$TARGET_ARCH" = "x64" ]; then
     echo "📦 Installing Intel Mac (x64) compatible PyTorch..."
     $BUNDLED_PYTHON -m pip install \
         --upgrade --force-reinstall \
-        torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
+        torch>=2.2.2 torchvision>=0.17.2 --index-url https://download.pytorch.org/whl/cpu
 else
     # For ARM64 Macs, install from standard PyPI
     echo "📦 Installing ARM64 Mac compatible PyTorch..."
     $BUNDLED_PYTHON -m pip install \
         --upgrade --force-reinstall \
-        torch==2.2.2 torchvision==0.17.2
+        torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0
 fi
 
 # Install remaining packages from requirements (excluding torch and torchvision)
