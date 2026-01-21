@@ -133,17 +133,48 @@ export function useStickyAutoScroll({
 
 
   // 3) MutationObserver for content changes during streaming
+  // Calls smooth scroll every 1.2 seconds during streaming instead of on every chunk
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     
-    const mo = new MutationObserver(() => {
-      // Auto-scroll ONLY if pinned (respects user scroll position)
-      // This works during generation AND normal mode
+    const SCROLL_INTERVAL_MS = 1000; // Smooth scroll every 1.2 seconds
+    let scrollIntervalId: NodeJS.Timeout | null = null;
+    let hasPendingMutations = false;
+    
+    // Start the scroll interval when mutations are detected
+    const startScrollInterval = () => {
+      if (scrollIntervalId) return; // Already running
+      
+      // Call scroll immediately on first mutation
       if (isPinnedRef.current) {
-        if (endRef.current) {
-          endRef.current.scrollIntoView({ behavior: 'auto' });
+        scrollToBottom('smooth');
+      }
+      
+      // Then set up interval for subsequent scrolls
+      scrollIntervalId = setInterval(() => {
+        if (isPinnedRef.current && hasPendingMutations) {
+          scrollToBottom('smooth');
+          hasPendingMutations = false; // Reset until next mutation
         }
+      }, SCROLL_INTERVAL_MS);
+    };
+    
+    // Stop the scroll interval when no more mutations
+    const stopScrollInterval = () => {
+      if (scrollIntervalId) {
+        clearInterval(scrollIntervalId);
+        scrollIntervalId = null;
+      }
+    };
+    
+    const mo = new MutationObserver(() => {
+      // Mark that we have mutations pending
+      hasPendingMutations = true;
+      
+      // Auto-scroll ONLY if pinned (respects user scroll position)
+      if (isPinnedRef.current) {
+        startScrollInterval();
       }
     });
     
@@ -154,8 +185,11 @@ export function useStickyAutoScroll({
       characterData: true,
     });
     
-    return () => mo.disconnect();
-  }, [containerRef, endRef, chatId]);
+    return () => {
+      mo.disconnect();
+      stopScrollInterval();
+    };
+  }, [containerRef, endRef, chatId, scrollToBottom]);
 
   // 4) Follow layout shifts (tables/images loading) - for non-streaming changes
   useEffect(() => {
