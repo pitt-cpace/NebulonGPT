@@ -592,6 +592,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       return;
     }
 
+    // Always reset muted state when starting mic - ensure mic is unmuted
+    setIsMuted(false);
+    voskRecognition.setMuted(false);
+
     try {
       const modelCheck = await voskRecognition.checkModelAvailability();
       if (!modelCheck.hasModels) {
