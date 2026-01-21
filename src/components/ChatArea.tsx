@@ -4570,12 +4570,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               bgcolor: 'background.default', // Theme-aware background color
               // Responsive paddingTop: mobile gets 130px, desktop gets 60px
             paddingTop: {
-              xs: 'calc(var(--chat-topbar-h, 0px) + 160px)', // Mobile
-              sm: 'calc(var(--chat-topbar-h, 0px) + 60px)',  // Desktop
+              xs: 'calc(var(--chat-topbar-h, 0px) + 80px)', // Mobile
+              sm: 'calc(var(--chat-topbar-h, 0px) + 80px)',  // Desktop
             },
             paddingLeft: '16px',
             paddingRight: '16px',
-            paddingBottom: 'calc(var(--chat-input-h, 88px) + 80px)',
+            paddingBottom: 'calc(var(--chat-input-h, 88px) + 150px)',
               overflowY: 'auto',
               overscrollBehavior: 'contain',
               WebkitOverflowScrolling: 'touch',
