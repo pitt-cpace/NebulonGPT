@@ -336,14 +336,21 @@ async function extractKokoroCache() {
       else {
         try {
           const currentCacheSize = await calculateDirectorySize(PATHS.hfCacheDir);
-          const savedCacheSize = fs.readFileSync(checksumFile, 'utf8').trim();
+          const savedCacheSize = parseInt(fs.readFileSync(checksumFile, 'utf8').trim()) || 0;
           
-          if (savedCacheSize === currentCacheSize.toString()) {
+          // Force re-extraction if:
+          // 1. Saved size is 0 (previous extraction failed)
+          // 2. Current cache size is 0 (folder is empty)
+          // 3. Current size is less than saved size (files missing)
+          if (savedCacheSize === 0 || currentCacheSize === 0 || currentCacheSize < savedCacheSize) {
+            console.log(`HuggingFace cache needs extraction (saved: ${savedCacheSize}, current: ${currentCacheSize}), extracting...`);
+            needsExtraction = true;
+          } else if (savedCacheSize === currentCacheSize) {
             console.log('HuggingFace cache size unchanged, skipping extraction');
             needsExtraction = false;
           } else {
-            console.log(`HuggingFace cache size changed (${savedCacheSize} -> ${currentCacheSize}), extracting...`);
-            needsExtraction = true;
+            console.log(`HuggingFace cache size changed (${savedCacheSize} -> ${currentCacheSize}), skipping (more files added)`);
+            needsExtraction = false;
           }
         } catch (error) {
           console.log('Could not read cache checksum file, extracting...');
@@ -538,15 +545,16 @@ async function extractVoskModels() {
       const voskModelsSource = getResourcePath('models/vosk');
       let voskModelsDir = null;
       
-      if (fs.existsSync(voskModelsSource)) {
+      // Check if primary path exists AND has content (not just an empty directory)
+      if (fs.existsSync(voskModelsSource) && fs.readdirSync(voskModelsSource).length > 0) {
         console.log(`Processing Vosk models from: ${voskModelsSource}`);
         voskModelsDir = voskModelsSource;
       } else {
-        console.log('Vosk models source not found at:', voskModelsSource);
+        console.log('Vosk models source not found or empty at:', voskModelsSource);
         // Try alternative path for development
         const devVoskModelsSource = getResourcePath('backend/models/vosk');
-        if (fs.existsSync(devVoskModelsSource)) {
-          console.log('Found Vosk models at dev path, extracting...');
+        if (fs.existsSync(devVoskModelsSource) && fs.readdirSync(devVoskModelsSource).length > 0) {
+          console.log('Found Vosk models at dev path:', devVoskModelsSource);
           voskModelsDir = devVoskModelsSource;
         } else {
           console.log('No Vosk models found at either path');
@@ -574,14 +582,21 @@ async function extractVoskModels() {
       else {
         try {
           const currentExtractedSize = await calculateDirectorySize(PATHS.voskModelsDir);
-          const savedSize = fs.readFileSync(checksumFile, 'utf8').trim();
+          const savedSize = parseInt(fs.readFileSync(checksumFile, 'utf8').trim()) || 0;
           
-          if (savedSize === currentExtractedSize.toString()) {
+          // Force re-extraction if:
+          // 1. Saved size is 0 (previous extraction failed)
+          // 2. Current extracted size is 0 (folder is empty)
+          // 3. Current size is less than saved size (files missing)
+          if (savedSize === 0 || currentExtractedSize === 0 || currentExtractedSize < savedSize) {
+            console.log(`Vosk models need extraction (saved: ${savedSize}, current: ${currentExtractedSize}), extracting...`);
+            needsExtraction = true;
+          } else if (savedSize === currentExtractedSize) {
             console.log('Vosk models size unchanged, skipping extraction');
             needsExtraction = false;
           } else {
-            console.log(`Vosk models size changed (${savedSize} -> ${currentExtractedSize}), extracting...`);
-            needsExtraction = true;
+            console.log(`Vosk models size changed (${savedSize} -> ${currentExtractedSize}), skipping (more files added)`);
+            needsExtraction = false;
           }
         } catch (error) {
           console.log('Could not read Vosk checksum file, extracting...');
