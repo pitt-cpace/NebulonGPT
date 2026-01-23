@@ -1064,18 +1064,32 @@ function startHTTPSServer() {
       const httpsServer = https.createServer(sslOptions, (req, res) => {
         const axios = require('axios');
         
-        // Determine target port based on request path
-        const isApiRequest = req.url.startsWith('/api/') || 
-                            req.url.startsWith('/vosk') || 
-                            req.url.startsWith('/tts') || 
-                            req.url === '/health';
+        // Check if this is an Ollama API request (proxy to Ollama at 11434)
+        const isOllamaRequest = req.url.startsWith('/api/ollama');
         
-        // In dev mode, web requests go to React dev server (3000), API to backend (3001)
-        // In production, everything goes to backend (3001) which serves static files
-        const targetPort = isApiRequest ? HTTP_PORT : (isDev ? 3000 : HTTP_PORT);
-        const targetUrl = `http://127.0.0.1:${targetPort}${req.url}`;
+        // Determine target based on request path
+        let targetUrl;
+        let targetPort;
         
-        console.log(`🔐 HTTPS proxy request: ${req.method} ${req.url} -> port ${targetPort}`);
+        if (isOllamaRequest) {
+          // Ollama requests: strip /api/ollama prefix and proxy to Ollama server
+          const ollamaPath = req.url.replace('/api/ollama', '/api');
+          targetUrl = `http://127.0.0.1:11434${ollamaPath}`;
+          targetPort = 11434;
+          console.log(`🔐 HTTPS Ollama proxy: ${req.method} ${req.url} -> ${targetUrl}`);
+        } else {
+          // Other API requests or web app
+          const isApiRequest = req.url.startsWith('/api/') || 
+                              req.url.startsWith('/vosk') || 
+                              req.url.startsWith('/tts') || 
+                              req.url === '/health';
+          
+          // In dev mode, web requests go to React dev server (3000), API to backend (3001)
+          // In production, everything goes to backend (3001) which serves static files
+          targetPort = isApiRequest ? HTTP_PORT : (isDev ? 3000 : HTTP_PORT);
+          targetUrl = `http://127.0.0.1:${targetPort}${req.url}`;
+          console.log(`🔐 HTTPS proxy request: ${req.method} ${req.url} -> port ${targetPort}`);
+        }
         
         // Collect request body for non-GET/HEAD requests
         let body = '';
