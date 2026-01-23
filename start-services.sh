@@ -12,22 +12,23 @@ export OLLAMA_URL="${OLLAMA_URL:-http://host.docker.internal:11434}"
 
 echo "Configuring Ollama URL: $OLLAMA_URL"
 
-# Process nginx config with envsubst to replace ${OLLAMA_URL}
-envsubst '${OLLAMA_URL}' < /etc/nginx/sites-available/default > /tmp/nginx-temp.conf
+# Process nginx config template with envsubst to replace ${OLLAMA_URL}
+# Use temporary location first to avoid conflicts
+envsubst '${OLLAMA_URL}' < /etc/nginx/templates/nginx.conf.template > /tmp/nginx.conf.processed
 
 # Conditionally add custom header if environment variables are provided
 if [ -n "$OLLAMA_CUSTOM_HEADER_NAME" ] && [ -n "$OLLAMA_CUSTOM_HEADER_VALUE" ]; then
     echo "Custom header configured: $OLLAMA_CUSTOM_HEADER_NAME"
     # Use sed to replace the placeholder with the actual header directive
-    sed -i "s|# __CUSTOM_HEADER_PLACEHOLDER__|proxy_set_header $OLLAMA_CUSTOM_HEADER_NAME \"$OLLAMA_CUSTOM_HEADER_VALUE\";|g" /tmp/nginx-temp.conf
+    sed -i "s|# __CUSTOM_HEADER_PLACEHOLDER__|proxy_set_header $OLLAMA_CUSTOM_HEADER_NAME \"$OLLAMA_CUSTOM_HEADER_VALUE\";|g" /tmp/nginx.conf.processed
 else
     echo "No custom header configured (optional)"
     # Remove the placeholder line
-    sed -i "s|        # __CUSTOM_HEADER_PLACEHOLDER__||g" /tmp/nginx-temp.conf
+    sed -i "s|        # __CUSTOM_HEADER_PLACEHOLDER__||g" /tmp/nginx.conf.processed
 fi
 
-# Move the processed config to final location
-mv /tmp/nginx-temp.conf /etc/nginx/sites-available/default
+# Copy the processed config to final location (use cp instead of mv to avoid busy filesystem)
+cp /tmp/nginx.conf.processed /etc/nginx/sites-available/default && rm -f /tmp/nginx.conf.processed
 
 echo "Nginx configuration processed successfully"
 

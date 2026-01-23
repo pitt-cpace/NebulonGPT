@@ -60,8 +60,10 @@ COPY backend/ /app/backend/
 COPY --from=frontend-build /app/build ./build
 RUN ls -la /app/build && echo "Build files copied successfully" || echo "ERROR: Build files not found"
 
-# Copy nginx config
-COPY nginx.conf /etc/nginx/sites-available/default
+# Copy nginx config template (will be processed at runtime)
+# Remove default nginx config to avoid conflicts
+RUN mkdir -p /etc/nginx/templates && rm -f /etc/nginx/sites-available/default
+COPY nginx.conf /etc/nginx/templates/nginx.conf.template
 
 # Copy Vosk models (for extraction at runtime)
 COPY backend/models/vosk /app/vosk-models-source/
