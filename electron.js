@@ -1015,15 +1015,9 @@ function startFastAPIBackend() {
   });
 }
 
-// Start HTTPS server for network access in production
+// Start HTTPS server for network access (both dev and production)
 function startHTTPSServer() {
   return new Promise((resolve, reject) => {
-    if (isDev) {
-      console.log('Development mode: HTTPS server managed separately');
-      resolve();
-      return;
-    }
-
     console.log('Starting HTTPS server for network access...');
     
     try {
@@ -1064,12 +1058,24 @@ function startHTTPSServer() {
         rejectUnauthorized: false
       };
       
-      // Create HTTPS server that proxies to FastAPI backend
+      // Create HTTPS server that proxies to appropriate backend
+      // - API calls (/api/*, /vosk, /tts, /health) go to FastAPI backend (port 3001)
+      // - Web app requests go to React dev server (port 3000) in dev mode
       const httpsServer = https.createServer(sslOptions, (req, res) => {
         const axios = require('axios');
-        const targetUrl = `http://127.0.0.1:${HTTP_PORT}${req.url}`;
         
-        console.log(`🔐 HTTPS proxy request: ${req.method} ${req.url}`);
+        // Determine target port based on request path
+        const isApiRequest = req.url.startsWith('/api/') || 
+                            req.url.startsWith('/vosk') || 
+                            req.url.startsWith('/tts') || 
+                            req.url === '/health';
+        
+        // In dev mode, web requests go to React dev server (3000), API to backend (3001)
+        // In production, everything goes to backend (3001) which serves static files
+        const targetPort = isApiRequest ? HTTP_PORT : (isDev ? 3000 : HTTP_PORT);
+        const targetUrl = `http://127.0.0.1:${targetPort}${req.url}`;
+        
+        console.log(`🔐 HTTPS proxy request: ${req.method} ${req.url} -> port ${targetPort}`);
         
         // Collect request body for non-GET/HEAD requests
         let body = '';
@@ -1570,14 +1576,12 @@ async function initializeBackgroundServices() {
     // Extract bundled resources in background
     await extractBundledResources();
     
-    // Start HTTPS server for network access (production only)
-    if (!isDev) {
-      await startHTTPSServer();
-    }
-    
     // Start unified FastAPI backend (replaces separate Vosk and TTS servers)
     console.log('Starting FastAPI unified backend in background...');
     await startFastAPIBackend();
+    
+    // Start HTTPS server for network access (both dev and production)
+    await startHTTPSServer();
     
     console.log('✅ All background services started successfully');
   } catch (error) {
