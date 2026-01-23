@@ -328,6 +328,101 @@ async def delete_model(model_name: str):
 # REST API ENDPOINTS - NETWORK INFO
 # =============================================================================
 
+def get_macos_wifi_interfaces():
+    """Get WiFi interface names on macOS using networksetup"""
+    wifi_interfaces = set()
+    try:
+        # Get hardware ports mapping
+        result = subprocess.run(
+            ['networksetup', '-listallhardwareports'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            current_is_wifi = False
+            for line in lines:
+                if 'Hardware Port:' in line:
+                    port_name = line.split('Hardware Port:')[1].strip().lower()
+                    # Check if this hardware port is WiFi
+                    current_is_wifi = any(w in port_name for w in ['wi-fi', 'wifi', 'airport', 'wireless'])
+                elif 'Device:' in line and current_is_wifi:
+                    device = line.split('Device:')[1].strip()
+                    if device:
+                        wifi_interfaces.add(device)
+                    current_is_wifi = False
+    except Exception as e:
+        logger.debug(f"Could not get macOS WiFi interfaces: {e}")
+    return wifi_interfaces
+
+def get_linux_interface_type(interface: str) -> str:
+    """Determine interface type on Linux"""
+    interface_lower = interface.lower()
+    
+    # Check for wireless indicators in name
+    if any(p in interface_lower for p in ['wlan', 'wlp', 'wl', 'wifi', 'wlo']):
+        return 'wifi'
+    
+    # Check /sys/class/net for wireless capability
+    try:
+        wireless_path = f'/sys/class/net/{interface}/wireless'
+        if os.path.exists(wireless_path):
+            return 'wifi'
+    except:
+        pass
+    
+    # Check for ethernet indicators
+    if any(p in interface_lower for p in ['eth', 'enp', 'eno', 'ens']):
+        return 'ethernet'
+    
+    return 'unknown'
+
+def get_windows_wifi_interfaces():
+    """Get WiFi interface names on Windows using netsh"""
+    wifi_interfaces = set()
+    try:
+        # Use netsh to get wireless interfaces
+        result = subprocess.run(
+            ['netsh', 'wlan', 'show', 'interfaces'],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            shell=True
+        )
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            for line in lines:
+                # Look for "Name" line which contains interface name
+                if 'Name' in line and ':' in line:
+                    name = line.split(':', 1)[1].strip()
+                    if name:
+                        wifi_interfaces.add(name)
+                        logger.debug(f"Windows WiFi interface found: {name}")
+    except Exception as e:
+        logger.debug(f"Could not get Windows WiFi interfaces via netsh: {e}")
+    
+    # Fallback: Use WMI via PowerShell if netsh didn't work
+    if not wifi_interfaces:
+        try:
+            ps_command = "Get-NetAdapter | Where-Object {$_.PhysicalMediaType -like '*Wireless*' -or $_.InterfaceDescription -like '*Wi-Fi*' -or $_.InterfaceDescription -like '*Wireless*'} | Select-Object -ExpandProperty Name"
+            result = subprocess.run(
+                ['powershell', '-Command', ps_command],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split('\n'):
+                    name = line.strip()
+                    if name:
+                        wifi_interfaces.add(name)
+                        logger.debug(f"Windows WiFi interface found via PowerShell: {name}")
+        except Exception as e:
+            logger.debug(f"Could not get Windows WiFi interfaces via PowerShell: {e}")
+    
+    return wifi_interfaces
+
 @app.get("/api/network-info")
 async def get_network_info():
     """Get network addresses"""
@@ -338,26 +433,66 @@ async def get_network_info():
         ethernet_ips = []
         https_port = int(os.environ.get('HTTPS_PORT', 3443))
         
+        # Determine OS and get WiFi interfaces
+        is_macos = platform.system() == 'Darwin'
+        is_linux = platform.system() == 'Linux'
+        is_windows = platform.system() == 'Windows'
+        
+        macos_wifi_interfaces = set()
+        windows_wifi_interfaces = set()
+        
+        if is_macos:
+            macos_wifi_interfaces = get_macos_wifi_interfaces()
+            logger.debug(f"macOS WiFi interfaces: {macos_wifi_interfaces}")
+        elif is_windows:
+            windows_wifi_interfaces = get_windows_wifi_interfaces()
+            logger.debug(f"Windows WiFi interfaces: {windows_wifi_interfaces}")
+        
         for interface in netifaces.interfaces():
             try:
+                # Skip virtual/internal interfaces
+                interface_lower = interface.lower()
+                if any(skip in interface_lower for skip in ['lo', 'docker', 'veth', 'br-', 'vmnet', 'vbox', 'awdl', 'llw', 'utun', 'gif', 'stf', 'anpi', 'bridge', 'loopback']):
+                    continue
+                
                 addrs = netifaces.ifaddresses(interface)
                 if netifaces.AF_INET not in addrs:
                     continue
                 
                 for addr_info in addrs[netifaces.AF_INET]:
                     ip = addr_info.get('addr')
-                    if not ip or ip.startswith('127.'):
+                    if not ip or ip.startswith('127.') or ip.startswith('169.254.'):
                         continue
                     
                     address = f"https://{ip}:{https_port}"
-                    interface_lower = interface.lower()
                     
-                    if any(p in interface_lower for p in ['wlan', 'wl', 'wifi', 'wi-fi', 'air', 'awdl', 'bridge']):
+                    # Determine if WiFi or Ethernet
+                    is_wifi = False
+                    
+                    if is_macos:
+                        # On macOS, check against known WiFi interfaces
+                        is_wifi = interface in macos_wifi_interfaces
+                    elif is_linux:
+                        # On Linux, use interface naming conventions and /sys
+                        is_wifi = get_linux_interface_type(interface) == 'wifi'
+                    elif is_windows:
+                        # On Windows, check against known WiFi interfaces or use patterns
+                        is_wifi = interface in windows_wifi_interfaces or any(p in interface_lower for p in ['wlan', 'wifi', 'wireless', 'wi-fi'])
+                    else:
+                        # Unknown OS - use name patterns as fallback
+                        is_wifi = any(p in interface_lower for p in ['wlan', 'wifi', 'wireless', 'wi-fi'])
+                    
+                    if is_wifi:
                         wifi_ips.append(address)
+                        logger.debug(f"WiFi interface {interface}: {ip}")
                     else:
                         ethernet_ips.append(address)
-            except:
+                        logger.debug(f"Ethernet interface {interface}: {ip}")
+            except Exception as e:
+                logger.debug(f"Error processing interface {interface}: {e}")
                 continue
+        
+        logger.info(f"Network detection - WiFi: {wifi_ips}, Ethernet: {ethernet_ips}")
         
         return {
             'wifiIPs': wifi_ips,
