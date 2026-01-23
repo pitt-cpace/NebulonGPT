@@ -1073,16 +1073,76 @@ function startHTTPSServer() {
         rejectUnauthorized: false
       };
       
-      // Create HTTPS server that proxies to appropriate backend
-      // - API calls (/api/*, /vosk, /tts, /health) go to FastAPI backend (port 3001)
-      // - Web app requests go to React dev server (port 3000) in dev mode
+      // Create HTTPS server that:
+      // - In dev mode: proxies web requests to React dev server (3000), API to backend (3001)
+      // - In production: serves static files directly, proxies API to backend (3001)
       const httpsServer = https.createServer(sslOptions, (req, res) => {
         const axios = require('axios');
         
-        // Check if this is an Ollama API request (proxy to Ollama at 11434)
+        // Check if this is an API request that should be proxied
         const isOllamaRequest = req.url.startsWith('/api/ollama');
+        const isApiRequest = req.url.startsWith('/api/') || 
+                            req.url.startsWith('/vosk') || 
+                            req.url.startsWith('/tts') || 
+                            req.url === '/health';
         
-        // Determine target based on request path
+        // In production mode, serve static files directly for non-API requests
+        if (!isDev && !isOllamaRequest && !isApiRequest) {
+          // Serve static files from build directory
+          let filePath = req.url === '/' ? '/index.html' : req.url;
+          
+          // Remove query string if present
+          filePath = filePath.split('?')[0];
+          
+          // Security: prevent directory traversal
+          filePath = filePath.replace(/\.\./g, '');
+          
+          const fullPath = path.join(PATHS.buildDir, filePath);
+          
+          // Check if file exists
+          if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+            // Determine content type
+            const ext = path.extname(fullPath).toLowerCase();
+            const contentTypes = {
+              '.html': 'text/html',
+              '.js': 'application/javascript',
+              '.css': 'text/css',
+              '.json': 'application/json',
+              '.png': 'image/png',
+              '.jpg': 'image/jpeg',
+              '.jpeg': 'image/jpeg',
+              '.gif': 'image/gif',
+              '.svg': 'image/svg+xml',
+              '.ico': 'image/x-icon',
+              '.woff': 'font/woff',
+              '.woff2': 'font/woff2',
+              '.ttf': 'font/ttf',
+              '.eot': 'application/vnd.ms-fontobject',
+              '.map': 'application/json'
+            };
+            
+            const contentType = contentTypes[ext] || 'application/octet-stream';
+            
+            console.log(`📁 HTTPS serving static file: ${filePath}`);
+            
+            const fileStream = fs.createReadStream(fullPath);
+            res.writeHead(200, { 'Content-Type': contentType });
+            fileStream.pipe(res);
+            return;
+          } else {
+            // File not found - serve index.html for SPA routing
+            const indexPath = path.join(PATHS.buildDir, 'index.html');
+            if (fs.existsSync(indexPath)) {
+              console.log(`📁 HTTPS serving index.html for SPA route: ${req.url}`);
+              const fileStream = fs.createReadStream(indexPath);
+              res.writeHead(200, { 'Content-Type': 'text/html' });
+              fileStream.pipe(res);
+              return;
+            }
+          }
+        }
+        
+        // Proxy API requests
         let targetUrl;
         let targetPort;
         
@@ -1092,18 +1152,16 @@ function startHTTPSServer() {
           targetUrl = `http://127.0.0.1:11434${ollamaPath}`;
           targetPort = 11434;
           console.log(`🔐 HTTPS Ollama proxy: ${req.method} ${req.url} -> ${targetUrl}`);
-        } else {
-          // Other API requests or web app
-          const isApiRequest = req.url.startsWith('/api/') || 
-                              req.url.startsWith('/vosk') || 
-                              req.url.startsWith('/tts') || 
-                              req.url === '/health';
-          
-          // In dev mode, web requests go to React dev server (3000), API to backend (3001)
-          // In production, everything goes to backend (3001) which serves static files
-          targetPort = isApiRequest ? HTTP_PORT : (isDev ? 3000 : HTTP_PORT);
+        } else if (isApiRequest) {
+          // API requests go to FastAPI backend
+          targetPort = HTTP_PORT;
           targetUrl = `http://127.0.0.1:${targetPort}${req.url}`;
-          console.log(`🔐 HTTPS proxy request: ${req.method} ${req.url} -> port ${targetPort}`);
+          console.log(`🔐 HTTPS API proxy: ${req.method} ${req.url} -> port ${targetPort}`);
+        } else {
+          // Dev mode: proxy web requests to React dev server
+          targetPort = 3000;
+          targetUrl = `http://127.0.0.1:${targetPort}${req.url}`;
+          console.log(`🔐 HTTPS dev proxy: ${req.method} ${req.url} -> port ${targetPort}`);
         }
         
         // Collect request body for non-GET/HEAD requests
