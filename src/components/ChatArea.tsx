@@ -73,6 +73,7 @@ import { getSuggestedPrompts } from '../services/api';
 import { VoskRecognitionService } from '../services/vosk';
 import { ttsService } from '../services/ttsService';
 import { electronApi } from '../services/electronApi';
+import { getNetworkInfo } from '../services/backendApi';
 import { useStickyAutoScroll } from '../hooks/useStickyAutoScroll';
 import { getTextDirectionStyles, analyzeMixedContent } from '../services/rtlDetection';
 import { OllamaStatus } from '../services/ollamaStatus';
@@ -4468,16 +4469,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     
                     // Fetch network addresses from server (server returns full HTTPS URLs)
                     try {
-                      const response = await fetch('/api/network-info');
-                      if (response.ok) {
-                        const data = await response.json();
-                        // Use WiFi and Ethernet arrays from server
-                        if (data.wifiIPs && Array.isArray(data.wifiIPs)) {
-                          addresses.wifi = data.wifiIPs;
-                        }
-                        if (data.ethernetIPs && Array.isArray(data.ethernetIPs)) {
-                          addresses.ethernet = data.ethernetIPs;
-                        }
+                      const data = await getNetworkInfo();
+                      // Use WiFi and Ethernet arrays from server
+                      if (data.wifiIPs && Array.isArray(data.wifiIPs)) {
+                        addresses.wifi = data.wifiIPs;
+                      }
+                      if (data.ethernetIPs && Array.isArray(data.ethernetIPs)) {
+                        addresses.ethernet = data.ethernetIPs;
                       }
                     } catch (error) {
                       console.log('Could not fetch network IPs from server:', error);

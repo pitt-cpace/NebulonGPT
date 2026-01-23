@@ -10,25 +10,20 @@ const getBaseURL = (): string => {
   const customUrl = localStorage.getItem('ollamaApiUrl');
   if (customUrl && customUrl.trim() !== '') {
     // Custom URL is already normalized with /api appended
+    console.log(`Using custom Ollama URL from settings: ${customUrl.trim()}`);
     return customUrl.trim();
   }
   
-  // Otherwise, use default logic
-  // IMPORTANT: If page is loaded via HTTPS, we MUST use proxy to avoid mixed content errors
-  // Browser blocks HTTP requests from HTTPS pages for security
-  const isHttps = window.location.protocol === 'https:';
-  
-  if (isHttps) {
-    // Always use proxy when on HTTPS to avoid mixed content blocking
-    console.log('🔒 Using Ollama proxy (HTTPS page - mixed content protection)');
-    return '/api/ollama';
+  // Electron app: Direct connection to Ollama
+  if (isElectron()) {
+    const ollamaUrl = process.env.REACT_APP_OLLAMA_URL || 'http://localhost:11434';
+    console.log(`[Electron] Using direct Ollama URL: ${ollamaUrl}/api`);
+    return `${ollamaUrl}/api`;
   }
   
-  // For HTTP pages: In Electron, connect directly to Ollama
-  // In Docker/web, use the proxied path through server
-  return isElectron() 
-    ? 'http://localhost:11434/api' // Direct connection to Ollama in Electron (HTTP only)
-    : '/api/ollama'; // Always use proxy through Node server (works in dev and production)
+  // Browser/Docker: Use nginx proxy (respects runtime OLLAMA_URL env var)
+  console.log('[Browser/Docker] Using nginx proxy: /api/ollama');
+  return '/api/ollama';
 };
 
 // Function to get the API key from localStorage
@@ -542,5 +537,8 @@ export const fetchModelDetails = async (modelName: string): Promise<any> => {
     return null;
   }
 };
+
+// Export the api instance for use in other services
+export { api as ollamaApi };
 
 export default api;

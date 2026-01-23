@@ -1,0 +1,148 @@
+#!/bin/bash
+
+echo "Setting up NebulonGPT resources..." >&2
+
+# Show notification that setup is starting
+osascript -e 'display notification "Setting up application resources..." with title "NebulonGPT Installer"' 2>/dev/null
+
+# Get the user who invoked the installer
+CURRENT_USER="${USER}"
+if [ "$CURRENT_USER" = "root" ]; then
+    # If running as root, get the actual user
+    CURRENT_USER=$(stat -f "%Su" /dev/console)
+fi
+
+USER_HOME=$(eval echo ~$CURRENT_USER)
+NEBULON_DIR="$USER_HOME/.nebulon-gpt"
+RESOURCES_DIR="/Applications/NebulonGPT.app/Contents/Resources"
+
+echo "Target directory: $NEBULON_DIR" >&2
+
+# Create .nebulon-gpt directory with proper ownership
+mkdir -p "$NEBULON_DIR"
+chown -R "$CURRENT_USER:staff" "$NEBULON_DIR"
+
+# Extract Python bundle
+if [ -f "$RESOURCES_DIR/python-bundle.zip" ]; then
+    if [ ! -d "$NEBULON_DIR/python-bundle" ]; then
+        echo "Extracting Python bundle (~500MB)..." >&2
+        osascript -e 'display notification "Extracting Python environment (this may take a moment)..." with title "NebulonGPT Installer"' 2>/dev/null
+        
+        unzip -q "$RESOURCES_DIR/python-bundle.zip" -d "$NEBULON_DIR"
+        chown -R "$CURRENT_USER:staff" "$NEBULON_DIR/python-bundle"
+        
+        echo "Python bundle extracted" >&2
+        osascript -e 'display notification "Python environment ready ✓" with title "NebulonGPT Installer"' 2>/dev/null
+    else
+        echo "Python bundle already exists" >&2
+    fi
+fi
+
+# Extract Vosk models
+if [ -d "$RESOURCES_DIR/models/vosk" ]; then
+    if [ ! -d "$NEBULON_DIR/vosk-models" ]; then
+        echo "Extracting Vosk speech models..." >&2
+        osascript -e 'display notification "Installing speech recognition models..." with title "NebulonGPT Installer"' 2>/dev/null
+        
+        mkdir -p "$NEBULON_DIR/vosk-models"
+        
+        # Copy zip files
+        find "$RESOURCES_DIR/models/vosk" -name "*.zip*" -exec cp {} "$NEBULON_DIR/vosk-models/" \;
+        
+        # Concatenate split zips and extract
+        cd "$NEBULON_DIR/vosk-models"
+        for base in $(ls *.zip.* 2>/dev/null | sed 's/\.zip\..*//' | sort -u); do
+            if [ -f "${base}.zip.001" ]; then
+                echo "Processing $base..." >&2
+                cat ${base}.zip.* > ${base}.zip
+                unzip -q ${base}.zip
+                rm ${base}.zip*
+            fi
+        done
+        
+        chown -R "$CURRENT_USER:staff" "$NEBULON_DIR/vosk-models"
+        echo "Vosk models extracted" >&2
+        osascript -e 'display notification "Speech recognition models ready ✓" with title "NebulonGPT Installer"' 2>/dev/null
+    else
+        echo "Vosk models already exist" >&2
+    fi
+fi
+
+# Extract Kokoro TTS cache
+if [ -d "$RESOURCES_DIR/models/kokoro" ]; then
+    if [ ! -d "$NEBULON_DIR/huggingface" ]; then
+        echo "Extracting Kokoro TTS cache..." >&2
+        osascript -e 'display notification "Installing text-to-speech models..." with title "NebulonGPT Installer"' 2>/dev/null
+        
+        mkdir -p "$NEBULON_DIR/huggingface"
+        
+        # Copy zip files
+        find "$RESOURCES_DIR/models/kokoro" -name "*.zip*" -exec cp {} "$NEBULON_DIR/huggingface/" \;
+        
+        # Concatenate split zips and extract
+        cd "$NEBULON_DIR/huggingface"
+        for base in $(ls *.zip.* 2>/dev/null | sed 's/\.zip\..*//' | sort -u); do
+            if [ -f "${base}.zip.001" ]; then
+                echo "Processing $base..." >&2
+                cat ${base}.zip.* > ${base}.zip
+                unzip -q ${base}.zip -d "$NEBULON_DIR"
+                rm ${base}.zip*
+            fi
+        done
+        
+        # Rename huggingface-cache to huggingface if needed
+        if [ -d "$NEBULON_DIR/huggingface-cache" ]; then
+            mv "$NEBULON_DIR/huggingface-cache"/* "$NEBULON_DIR/huggingface/" 2>/dev/null
+            rmdir "$NEBULON_DIR/huggingface-cache" 2>/dev/null
+        fi
+        
+        chown -R "$CURRENT_USER:staff" "$NEBULON_DIR/huggingface"
+        echo "TTS cache extracted" >&2
+        osascript -e 'display notification "Text-to-speech models ready ✓" with title "NebulonGPT Installer"' 2>/dev/null
+    else
+        echo "TTS cache already exists" >&2
+    fi
+fi
+
+# Check and start Ollama if installed but not running
+if [ -d "/Applications/Ollama.app" ]; then
+    echo "Checking Ollama status..." >&2
+    
+    # Check if Ollama is already running
+    if pgrep -f "Ollama" > /dev/null 2>&1; then
+        echo "Ollama is already running" >&2
+        OLLAMA_STATUS="running"
+    else
+        echo "Ollama is installed but not running. Starting..." >&2
+        osascript -e 'display notification "Starting Ollama service..." with title "NebulonGPT Installer"' 2>/dev/null
+        
+        # Start Ollama as the current user
+        sudo -u "$CURRENT_USER" open -a "Ollama" 2>/dev/null
+        
+        # Wait a moment for it to start
+        sleep 3
+        
+        # Verify it started
+        if pgrep -f "Ollama" > /dev/null 2>&1; then
+            echo "Ollama started successfully" >&2
+            osascript -e 'display notification "Ollama service started " with title "NebulonGPT Installer"' 2>/dev/null
+            OLLAMA_STATUS="started "
+        else
+            echo "Warning: Ollama did not start automatically" >&2
+            osascript -e 'display notification "Please start Ollama manually" with title "NebulonGPT Installer"' 2>/dev/null
+            OLLAMA_STATUS="installed (not running)"
+        fi
+    fi
+else
+    OLLAMA_STATUS="not installed"
+fi
+
+echo "NebulonGPT setup complete!" >&2
+echo "" >&2
+echo "Installation Summary:" >&2
+echo "- Application: /Applications/NebulonGPT.app" >&2
+echo "- User Data: $NEBULON_DIR" >&2
+echo "- Ollama: $OLLAMA_STATUS" >&2
+
+# Show final completion notification
+osascript -e 'display notification "Installation complete! NebulonGPT is ready to use." with title "NebulonGPT Installer"' 2>/dev/null

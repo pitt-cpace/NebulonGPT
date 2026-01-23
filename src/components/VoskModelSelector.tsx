@@ -19,8 +19,8 @@ import {
   Storage as StorageIcon,
 } from '@mui/icons-material';
 import { VoskRecognitionService } from '../services/vosk';
-import axios from 'axios';
 import { isElectron, electronApi } from '../services/electronApi';
+import { getAllVoskModels } from '../services/backendApi';
 
 interface VoskModelSelectorProps {
   voskRecognition: VoskRecognitionService | null;
@@ -274,11 +274,11 @@ const VoskModelSelector: React.FC<VoskModelSelectorProps> = ({
             setModelDetails(detailsMap);
           }
         } else {
-          // Use HTTP API for web/Docker version
-          const response = await axios.get(`${API_BASE}/api/vosk/models/all`);
-          if (response.data.models) {
+          // Use backendApi service
+          const response = await getAllVoskModels();
+          if (response.models) {
             const detailsMap: { [key: string]: any } = {};
-            response.data.models.forEach((model: any) => {
+            response.models.forEach((model: any) => {
               detailsMap[model.name] = {
                 size: formatFileSize(model.size),
                 type: model.type,

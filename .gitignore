@@ -1,3 +1,6 @@
+## VOsk and Kokoro Models
+backend/models/
+backend/models/!*.zip
 
 # Logs
 logs

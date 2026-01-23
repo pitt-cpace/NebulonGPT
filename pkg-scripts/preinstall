@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# Log to system installer log
+echo "=== NebulonGPT PKG Installer ===" >&2
+echo "Checking for Ollama dependency..." >&2
+
+# Show notification that we're checking
+osascript -e 'display notification "Checking for required dependencies..." with title "NebulonGPT Installer"' 2>/dev/null
+
+# Check if Ollama is already installed by checking direct paths
+# (PATH is restricted in PKG installer sandbox, so we check actual files)
+if [ -d "/Applications/Ollama.app" ] || [ -f "/usr/local/bin/ollama" ]; then
+    # Try to get version from CLI if available
+    if [ -f "/usr/local/bin/ollama" ]; then
+        OLLAMA_VERSION=$(/usr/local/bin/ollama --version 2>/dev/null | head -n 1)
+    else
+        OLLAMA_VERSION="installed"
+    fi
+    echo "Ollama is already installed: $OLLAMA_VERSION" >&2
+    
+    # Notify user - Ollama exists
+    osascript -e 'display notification "Ollama is already installed" with title "NebulonGPT Installer"' 2>/dev/null
+    
+else
+    echo "Ollama not found. Installing..." >&2
+    
+    # Show dialog that we're installing Ollama
+    osascript -e 'display dialog "Installing Ollama (required for AI features)\n\nThis may take a few minutes...\n\nPlease wait..." with title "NebulonGPT Installer" buttons {"OK"} default button "OK" with icon note giving up after 5' 2>/dev/null &
+    
+    # Download and install Ollama for macOS using DMG
+    echo "Downloading Ollama DMG..." >&2
+    DMG_PATH="/tmp/Ollama.dmg"
+    
+    if curl -L -o "$DMG_PATH" https://ollama.com/download/Ollama.dmg; then
+        echo "DMG downloaded successfully" >&2
+        
+        # Mount the DMG
+        echo "Mounting Ollama DMG..." >&2
+        MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse 2>&1)
+        MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep "Volumes" | awk '{print $3}')
+        
+        if [ -n "$MOUNT_POINT" ] && [ -d "$MOUNT_POINT/Ollama.app" ]; then
+            echo "Copying Ollama.app to /Applications..." >&2
+
+            
+            # Copy the app
+            cp -R "$MOUNT_POINT/Ollama.app" /Applications/
+            
+            # Unmount the DMG
+            echo "Unmounting DMG..." >&2
+            hdiutil detach "$MOUNT_POINT" -quiet
+            
+            # Clean up downloaded DMG
+            rm -f "$DMG_PATH"
+            
+            # Create symlink for CLI access
+            echo "Creating CLI symlink..." >&2
+            mkdir -p /usr/local/bin
+            ln -sf /Applications/Ollama.app/Contents/Resources/ollama /usr/local/bin/ollama
+            
+            # Verify installation
+            if [ -f /usr/local/bin/ollama ]; then
+                OLLAMA_VERSION=$(/usr/local/bin/ollama --version 2>/dev/null | head -n 1)
+                echo "Ollama installed successfully: $OLLAMA_VERSION" >&2
+                
+                # Notify success
+                osascript -e 'display notification "Ollama installed successfully" with title "NebulonGPT Installer"' 2>/dev/null
+            else
+                echo "Warning: Ollama CLI symlink could not be created" >&2
+            fi
+        else
+            echo "Warning: Could not mount Ollama DMG or find Ollama.app" >&2
+            hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
+            rm -f "$DMG_PATH"
+            
+            # Show warning dialog
+            osascript -e 'display dialog "Ollama installation could not be completed.\n\nYou can install it manually after NebulonGPT installation from:\n\nhttps://ollama.com" with title "NebulonGPT Installer" buttons {"OK"} default button "OK" with icon caution' 2>/dev/null
+            
+            exit 0  # Don't fail the installation
+        fi
+    else
+        echo "Warning: Failed to download Ollama DMG" >&2
+        rm -f "$DMG_PATH"
+        
+        # Show warning dialog
+        osascript -e 'display dialog "Ollama installation could not be completed.\n\nYou can install it manually after NebulonGPT installation from:\n\nhttps://ollama.com" with title "NebulonGPT Installer" buttons {"OK"} default button "OK" with icon caution' 2>/dev/null
+        
+        exit 0  # Don't fail the installation
+    fi
+fi
+
+echo "Proceeding with NebulonGPT installation..." >&2
