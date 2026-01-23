@@ -1171,14 +1171,27 @@ function startHTTPSServer() {
         });
         
         req.on('end', () => {
+          // Build headers for the proxy request
+          const proxyHeaders = { ...req.headers };
+          
+          // Remove/modify headers that shouldn't be forwarded or cause issues
+          delete proxyHeaders['host'];
+          delete proxyHeaders['origin'];
+          delete proxyHeaders['referer'];
+          
+          // Set appropriate host header based on target
+          if (isOllamaRequest) {
+            proxyHeaders['host'] = 'localhost:11434';
+            // Ollama needs these headers to accept requests
+            proxyHeaders['origin'] = 'http://localhost:11434';
+          } else {
+            proxyHeaders['host'] = `localhost:${targetPort}`;
+          }
+          
           const config = {
             method: req.method,
             url: targetUrl,
-            headers: {
-              ...req.headers,
-              // Remove headers that shouldn't be forwarded
-              host: `localhost:${HTTP_PORT}`
-            },
+            headers: proxyHeaders,
             responseType: 'stream',
             timeout: 60000, // 60 second timeout
             validateStatus: () => true, // Accept all status codes
