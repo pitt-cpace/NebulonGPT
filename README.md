@@ -140,14 +140,14 @@ Nebulon-GPT supports runtime configuration through environment variables. These 
 
 **Default configuration (Ollama on host machine):**
 ```bash
-docker run -p 3000:80 nebulon-gpt-integrated
+docker run -p 3000:80 nebulon-gpt
 ```
 
 **Custom Ollama URL:**
 ```bash
 docker run -p 3000:80 \
   -e OLLAMA_URL=http://192.168.1.100:11434 \
-  nebulon-gpt-integrated
+  nebulon-gpt
 ```
 
 **With API key authentication:**
@@ -156,7 +156,7 @@ docker run -p 3000:80 \
   -e OLLAMA_URL=http://api.example.com:11434 \
   -e OLLAMA_CUSTOM_HEADER_NAME=X-API-Key \
   -e OLLAMA_CUSTOM_HEADER_VALUE=your-secret-key \
-  nebulon-gpt-integrated
+  nebulon-gpt
 ```
 
 **With Bearer token:**
@@ -165,7 +165,7 @@ docker run -p 3000:80 \
   -e OLLAMA_URL=https://secure-ollama.example.com \
   -e OLLAMA_CUSTOM_HEADER_NAME=Authorization \
   -e OLLAMA_CUSTOM_HEADER_VALUE="Bearer your-token-here" \
-  nebulon-gpt-integrated
+  nebulon-gpt
 ```
 
 **Using docker-compose.yml:**
@@ -187,7 +187,7 @@ OLLAMA_CUSTOM_HEADER_VALUE=your-secret-key
 EOF
 
 # Run with env file
-docker run -p 3000:80 --env-file .env nebulon-gpt-integrated
+docker run -p 3000:80 --env-file .env nebulon-gpt
 ```
 
 ## Development
@@ -239,7 +239,7 @@ If you encounter issues:
      - Add memory limits to docker-compose.yml if needed:
        ```yaml
        services:
-         nebulon-gpt-integrated:
+         nebulon-gpt:
            mem_limit: 16g
        ```
 
