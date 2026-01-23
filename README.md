@@ -88,7 +88,107 @@ docker run -d --name ollama-ui \
 
 ## Configuration
 
-The UI connects to your local Ollama instance running on port 11434 by default. If your Ollama instance is running on a different port or host, you can modify the `REACT_APP_OLLAMA_API_URL` environment variable in the `docker-compose.yml` file or pass it directly to the `docker run` command.
+### Environment Variables
+
+Nebulon-GPT supports runtime configuration through environment variables. These can be set when starting the container.
+
+#### Ollama LLM Configuration (Runtime - Configurable without rebuild)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OLLAMA_URL` | No | `http://host.docker.internal:11434` | URL of your Ollama LLM server (runtime configurable) |
+| `OLLAMA_CUSTOM_HEADER_NAME` | No | _(none)_ | Name of custom HTTP header for Ollama requests (e.g., `X-API-Key`, `Authorization`) |
+| `OLLAMA_CUSTOM_HEADER_VALUE` | No | _(none)_ | Value of custom HTTP header (e.g., API key or Bearer token) |
+
+#### Backend Services Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REST_API_PORT` | `3001` | Internal FastAPI backend REST API port |
+| `HTTPS_PORT` | `3443` | HTTPS port for secure network access |
+| `DATA_DIR` | `./data` | Directory for storing chat data |
+| `VOSK_MODELS_DIR` | `./models/vosk` | Directory containing Vosk speech recognition models |
+
+#### Machine Learning & AI Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HF_HOME` | `/app/.cache/huggingface` | Hugging Face cache directory for model storage |
+| `TRANSFORMERS_CACHE` | `/app/.cache/huggingface/transformers` | Transformers library cache directory |
+| `HF_DATASETS_CACHE` | `/app/.cache/huggingface/datasets` | Hugging Face datasets cache directory |
+| `HF_HUB_OFFLINE` | `1` | Run Hugging Face in offline mode (0=online, 1=offline) |
+| `KOKORO_SERVER_HOST` | `0.0.0.0` | Kokoro TTS server host address |
+| `KOKORO_SERVER_PORT` | `2701` | Kokoro TTS server port |
+
+#### Frontend Build Variables (Build-time only - deprecated for Ollama config)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REACT_APP_OLLAMA_API_URL` | `http://localhost:11434` | ⚠️ **Deprecated**: Use `OLLAMA_URL` instead for runtime config |
+| `REACT_APP_VOSK_SERVER_URL` | `ws://localhost:3000/vosk` | Vosk WebSocket URL (build-time) |
+| `REACT_APP_TTS_SERVER_URL` | `ws://localhost:3000/tts` | TTS WebSocket URL (build-time) |
+| `NODE_ENV` | `production` | Node environment mode |
+
+#### System Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PYTHONUNBUFFERED` | `1` | Disable Python output buffering for real-time logs |
+| `PYTHONPATH` | `/app:$PYTHONPATH` | Python module search path |
+
+### Configuration Examples
+
+**Default configuration (Ollama on host machine):**
+```bash
+docker run -p 3000:80 nebulon-gpt-integrated
+```
+
+**Custom Ollama URL:**
+```bash
+docker run -p 3000:80 \
+  -e OLLAMA_URL=http://192.168.1.100:11434 \
+  nebulon-gpt-integrated
+```
+
+**With API key authentication:**
+```bash
+docker run -p 3000:80 \
+  -e OLLAMA_URL=http://api.example.com:11434 \
+  -e OLLAMA_CUSTOM_HEADER_NAME=X-API-Key \
+  -e OLLAMA_CUSTOM_HEADER_VALUE=your-secret-key \
+  nebulon-gpt-integrated
+```
+
+**With Bearer token:**
+```bash
+docker run -p 3000:80 \
+  -e OLLAMA_URL=https://secure-ollama.example.com \
+  -e OLLAMA_CUSTOM_HEADER_NAME=Authorization \
+  -e OLLAMA_CUSTOM_HEADER_VALUE="Bearer your-token-here" \
+  nebulon-gpt-integrated
+```
+
+**Using docker-compose.yml:**
+```yaml
+environment:
+  - OLLAMA_URL=http://192.168.1.100:11434
+  - OLLAMA_CUSTOM_HEADER_NAME=X-API-Key
+  - OLLAMA_CUSTOM_HEADER_VALUE=your-secret-key
+  - HF_HUB_OFFLINE=0  # Enable online mode for model downloads
+```
+
+**Using environment file (.env):**
+```bash
+# Create .env file
+cat > .env <<EOF
+OLLAMA_URL=http://192.168.1.100:11434
+OLLAMA_CUSTOM_HEADER_NAME=X-API-Key
+OLLAMA_CUSTOM_HEADER_VALUE=your-secret-key
+EOF
+
+# Run with env file
+docker run -p 3000:80 --env-file .env nebulon-gpt-integrated
+```
 
 ## Development
 

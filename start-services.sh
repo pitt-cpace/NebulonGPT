@@ -1,13 +1,41 @@
 #!/bin/sh
 
 echo "Starting NebulonGPT"
-echo "imestamp: $(date)"
+echo "Timestamp: $(date)"
 
-# Start NGINX first
-echo "🌐 Starting Nginx..."
+# ============================================================================
+# RUNTIME CONFIGURATION - Process Nginx Config with Environment Variables
+# ============================================================================
+
+# Set default Ollama URL if not provided
+export OLLAMA_URL="${OLLAMA_URL:-http://host.docker.internal:11434}"
+
+echo "Configuring Ollama URL: $OLLAMA_URL"
+
+# Process nginx config with envsubst to replace ${OLLAMA_URL}
+envsubst '${OLLAMA_URL}' < /etc/nginx/sites-available/default > /tmp/nginx-temp.conf
+
+# Conditionally add custom header if environment variables are provided
+if [ -n "$OLLAMA_CUSTOM_HEADER_NAME" ] && [ -n "$OLLAMA_CUSTOM_HEADER_VALUE" ]; then
+    echo "Custom header configured: $OLLAMA_CUSTOM_HEADER_NAME"
+    # Use sed to replace the placeholder with the actual header directive
+    sed -i "s|# __CUSTOM_HEADER_PLACEHOLDER__|proxy_set_header $OLLAMA_CUSTOM_HEADER_NAME \"$OLLAMA_CUSTOM_HEADER_VALUE\";|g" /tmp/nginx-temp.conf
+else
+    echo "No custom header configured (optional)"
+    # Remove the placeholder line
+    sed -i "s|        # __CUSTOM_HEADER_PLACEHOLDER__||g" /tmp/nginx-temp.conf
+fi
+
+# Move the processed config to final location
+mv /tmp/nginx-temp.conf /etc/nginx/sites-available/default
+
+echo "Nginx configuration processed successfully"
+
+# Start NGINX
+echo "Starting Nginx..."
 nginx &
 NGINX_PID=$!
-echo "🌐 Nginx started with PID: $NGINX_PID"
+echo "Nginx started with PID: $NGINX_PID"
 
 # Set environment variables for unified backend
 export PYTHONPATH="/app:$PYTHONPATH"

@@ -10,14 +10,20 @@ const getBaseURL = (): string => {
   const customUrl = localStorage.getItem('ollamaApiUrl');
   if (customUrl && customUrl.trim() !== '') {
     // Custom URL is already normalized with /api appended
+    console.log(`Using custom Ollama URL from settings: ${customUrl.trim()}`);
     return customUrl.trim();
   }
   
-  // Use environment variable for Ollama URL
-  // Falls back to localhost:11434 if not set
-  const ollamaUrl = process.env.REACT_APP_OLLAMA_URL || 'http://localhost:11434';
-  console.log(`Using Ollama URL: ${ollamaUrl}/api`);
-  return `${ollamaUrl}/api`;
+  // Electron app: Direct connection to Ollama
+  if (isElectron()) {
+    const ollamaUrl = process.env.REACT_APP_OLLAMA_URL || 'http://localhost:11434';
+    console.log(`[Electron] Using direct Ollama URL: ${ollamaUrl}/api`);
+    return `${ollamaUrl}/api`;
+  }
+  
+  // Browser/Docker: Use nginx proxy (respects runtime OLLAMA_URL env var)
+  console.log('[Browser/Docker] Using nginx proxy: /api/ollama');
+  return '/api/ollama';
 };
 
 // Function to get the API key from localStorage
