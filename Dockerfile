@@ -35,7 +35,7 @@ WORKDIR /app
 # Install system dependencies (no interactive output)
 RUN apt-get update && apt-get install -y \
     wget unzip libatomic1 build-essential \
-    git curl nginx pkg-config \
+    git curl nginx pkg-config gettext-base \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment early
