@@ -310,7 +310,8 @@ Write-Info "Installing Kokoro TTS dependencies (skipping spacy - requires LLVM).
     "scipy>=1.13.0" `
     "loguru>=0.7.0" `
     "regex>=2024.0.0" `
-    "addict>=2.4.0"
+    "addict>=2.4.0" `
+    "num2words>=0.5.13"
 
 # Install misaki without extras (avoids spacy dependency)
 Write-Info "Installing misaki (base only, without spacy dependency)..."
@@ -330,8 +331,9 @@ try {
     Write-Warning "Optional TTS components could not be installed (this is okay)"
 }
 
-Write-Info "Skipping spacy installation (requires LLVM compiler on Windows)"
-Write-Warning "TTS may have limited text normalization without spacy, but will still function"
+# Install spacy 3.7.2 (has pre-built wheels for Windows - no compilation needed)
+Write-Info "Installing spacy 3.7.2 for TTS text processing..."
+& $bundledPython -m pip install --upgrade @pipFlags "spacy==3.7.2"
 
 # Copy FastAPI backend
 Write-Info "Copying FastAPI backend..."
