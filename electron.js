@@ -1081,9 +1081,10 @@ function startHTTPSServer() {
         
         // Check if this is an API request that should be proxied
         const isOllamaRequest = req.url.startsWith('/api/ollama');
+        // WebSocket endpoints are exactly /vosk or /tts (not files like /vosk-audio-processor.js)
+        const isWebSocketEndpoint = req.url === '/vosk' || req.url === '/tts';
         const isApiRequest = req.url.startsWith('/api/') || 
-                            req.url.startsWith('/vosk') || 
-                            req.url.startsWith('/tts') || 
+                            isWebSocketEndpoint || 
                             req.url === '/health';
         
         // In production mode, serve static files directly for non-API requests
