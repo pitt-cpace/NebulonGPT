@@ -60,11 +60,29 @@ export const isElectron = () => {
 // Check if server is Electron-based (for network access detection)
 // This should be called during app initialization
 export const checkElectronServer = async (): Promise<boolean> => {
+  // First check if we're directly in Electron (via preload script)
+  if (window.electronAPI || window.isElectron) {
+    serverTypeCache = {
+      isElectron: true,
+      checkedAt: Date.now()
+    };
+    console.log('🔍 Server type detection: Electron (via preload API)');
+    return true;
+  }
+  
   try {
+    // Only check server-info endpoint for additional detection
+    // Use AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    
     const response = await fetch('/api/server-info', { 
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal
     });
+    
+    clearTimeout(timeoutId);
     
     if (response.ok) {
       const data = await response.json();
@@ -79,17 +97,18 @@ export const checkElectronServer = async (): Promise<boolean> => {
       console.log(`🔍 Server type detection: ${isElectronServer ? 'Electron' : 'Web/Docker'}`);
       return isElectronServer;
     }
-  } catch (error) {
-    // If endpoint doesn't exist, it's not an Electron server
-    console.log('🔍 Server type detection: Not Electron (no server-info endpoint)');
+  } catch {
+    // Silently handle - endpoint doesn't exist or timed out (expected for non-Electron)
   }
   
-  // Update cache with negative result
+  // Update cache with negative result (not Electron, which is expected for web/Docker)
   serverTypeCache = {
     isElectron: false,
     checkedAt: Date.now()
   };
   
+  // Log quietly without error styling
+  console.log('🔍 Running on web server - using proxy for Ollama');
   return false;
 };
 
