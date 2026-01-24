@@ -152,7 +152,7 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "icon": "public/icon.icns",
+      "icon": "public/AppLogo.icns",
       "target": [
         "dmg",
         "pkg"
