@@ -24,6 +24,7 @@ const getBackendURL = (): string => {
     return process.env.REACT_APP_BACKEND_URL;
   }
   
+  
   // Check for React development server indicators (webpack dev server)
   const hasWebpackDevServer = (
     (window as any).webpackHotUpdate !== undefined ||
