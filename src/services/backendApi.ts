@@ -1,8 +1,25 @@
 import axios from 'axios';
 
-// Get backend URL from environment variable
+// Get backend URL based on how the app is being accessed
 const getBackendURL = (): string => {
-  // First check if explicitly set via environment variable
+  const hostname = window.location.hostname;
+  const port = window.location.port;
+  const protocol = window.location.protocol;
+  
+  // Check if accessing via network (not localhost/127.0.0.1)
+  // This takes priority because remote devices can't reach "localhost"
+  const isNetworkAccess = hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.startsWith('192.168.') === false;
+  const isRemoteIP = hostname !== 'localhost' && hostname !== '127.0.0.1';
+  
+  // For network/remote access: use the same host (HTTPS proxy handles routing)
+  if (isRemoteIP) {
+    const host = window.location.host; // includes hostname:port
+    const networkUrl = `${protocol}//${host}`;
+    console.log(`Using Backend URL (network access): ${networkUrl}`);
+    return networkUrl;
+  }
+  
+  // For localhost access, check if explicitly set via environment variable
   if (process.env.REACT_APP_BACKEND_URL) {
     console.log(`Using Backend URL from env: ${process.env.REACT_APP_BACKEND_URL}`);
     return process.env.REACT_APP_BACKEND_URL;
@@ -18,7 +35,7 @@ const getBackendURL = (): string => {
   );
   
   // Check if this is development mode
-  const isDevelopmentMode = hasWebpackDevServer || (window.location.port === '3000' && hasWebpackDevServer);
+  const isDevelopmentMode = hasWebpackDevServer || (port === '3000' && hasWebpackDevServer);
   
   // For development: use direct connection to backend on port 3001
   if (isDevelopmentMode) {
@@ -27,8 +44,7 @@ const getBackendURL = (): string => {
     return devUrl;
   }
   
-  // For Docker/production: use current host which is proxied through Nginx
-  const protocol = window.location.protocol;
+  // For Docker/production on localhost: use current host which is proxied
   const host = window.location.host; // includes hostname:port
   const prodUrl = `${protocol}//${host}`;
   console.log(`Using Backend URL (Docker/production mode): ${prodUrl}`);
