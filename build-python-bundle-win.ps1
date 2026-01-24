@@ -137,34 +137,120 @@ $PBS_URL = "https://github.com/indygreg/python-build-standalone/releases/downloa
 Write-Info "Downloading from: $PBS_URL"
 
 # Download python-build-standalone
-$tempDir = New-TemporaryFile | ForEach-Object { Remove-Item $_; New-Item -ItemType Directory -Path $_ }
+# Create temp directory using GUID (avoids PowerShell temp-file weirdness)
+$tempDir = Join-Path $env:TEMP ([System.Guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 try {
-    $tarGzPath = Join-Path $tempDir.FullName "python.tar.gz"
-    Invoke-WebRequest -Uri $PBS_URL -OutFile $tarGzPath -UseBasicParsing
+    $tarGzPath = Join-Path $tempDir "python.tar.gz"
+    Write-Info "Downloading Python (this may take a few minutes)..."
     
+    # Use more reliable download with progress preference disabled for speed
+    $ProgressPreference = 'SilentlyContinue'
+    Invoke-WebRequest -Uri $PBS_URL -OutFile $tarGzPath -UseBasicParsing
+    $ProgressPreference = 'Continue'
+    
+    Write-Info "Download complete. File size: $((Get-Item $tarGzPath).Length) bytes"
     Write-Info "Extracting standalone Python..."
     
     # Extract tar.gz using tar command (available in Windows 10+)
-    $extractPath = Join-Path $tempDir.FullName "extracted"
+    $extractPath = Join-Path $tempDir "extracted"
+    
+    # Ensure clean extraction directory
+    if (Test-Path $extractPath) {
+        Remove-Item -Recurse -Force $extractPath
+    }
     New-Item -ItemType Directory -Path $extractPath -Force | Out-Null
     
-    # Use tar to extract (Windows 10+ has built-in tar)
-    tar -xzf $tarGzPath -C $extractPath
+    Write-Info "Extract path: $extractPath"
+    
+    # Method 1: Try using PowerShell to decompress gzip, then tar to extract
+    # This avoids issues with Windows tar's gzip handling
+    try {
+        Write-Info "Attempting two-step extraction (gzip decompress + tar extract)..."
+        
+        $tarPath = Join-Path $tempDir "python.tar"
+        
+        # Decompress gzip using .NET
+        $gzipStream = [System.IO.Compression.GZipStream]::new(
+            [System.IO.File]::OpenRead($tarGzPath),
+            [System.IO.Compression.CompressionMode]::Decompress
+        )
+        $tarStream = [System.IO.File]::Create($tarPath)
+        $gzipStream.CopyTo($tarStream)
+        $tarStream.Close()
+        $gzipStream.Close()
+        
+        Write-Info "Gzip decompression complete. Tar file size: $((Get-Item $tarPath).Length) bytes"
+        
+        # Now extract the tar file
+        Push-Location $extractPath
+        $tarResult = & tar.exe -xf $tarPath 2>&1
+        $tarExitCode = $LASTEXITCODE
+        Pop-Location
+        
+        if ($tarExitCode -ne 0) {
+            Write-Warning "tar.exe returned exit code $tarExitCode"
+            Write-Warning "tar output: $tarResult"
+            throw "tar extraction failed with exit code $tarExitCode"
+        }
+        
+        Write-Info "Tar extraction complete"
+    }
+    catch {
+        Write-Warning "Two-step extraction failed: $($_.Exception.Message)"
+        Write-Info "Falling back to direct tar.exe extraction..."
+        
+        # Fallback: Try direct extraction with tar.exe
+        Push-Location $extractPath
+        $tarResult = & tar.exe -xzf $tarGzPath 2>&1
+        $tarExitCode = $LASTEXITCODE
+        Pop-Location
+        
+        if ($tarExitCode -ne 0) {
+            throw "tar extraction failed: $tarResult"
+        }
+    }
     
     # Move extracted Python to our bundle directory
     $pythonDir = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1
-    Move-Item -Path $pythonDir.FullName -Destination "python-bundle\python-dist"
+    
+    if (-not $pythonDir) {
+        throw "No Python directory found after extraction"
+    }
+    
+    Write-Info "Found extracted Python directory: $($pythonDir.Name)"
+    
+    # Ensure destination doesn't exist (clean up from previous partial runs)
+    $destPath = "python-bundle\python-dist"
+    if (Test-Path $destPath) {
+        Write-Info "Removing existing python-dist directory..."
+        Remove-Item -Recurse -Force $destPath -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500  # Give filesystem time to release handles
+    }
+    
+    # Use Copy-Item + Remove-Item instead of Move-Item (more reliable across volumes)
+    Write-Info "Copying Python to bundle directory..."
+    Copy-Item -Path $pythonDir.FullName -Destination $destPath -Recurse -Force
+    
+    # Verify copy was successful
+    if (-not (Test-Path "$destPath\python.exe")) {
+        throw "Python copy failed - python.exe not found in destination"
+    }
     
     Write-Success "Python extracted successfully"
 }
 catch {
     Write-Error-Message "Failed to download or extract python-build-standalone: $($_.Exception.Message)"
-    Remove-Item -Recurse -Force $tempDir
+    if (Test-Path $tempDir) {
+        Remove-Item -Recurse -Force $tempDir
+    }
     exit 1
 }
 finally {
-    Remove-Item -Recurse -Force $tempDir
+    if (Test-Path $tempDir) {
+        Remove-Item -Recurse -Force $tempDir
+    }
 }
 
 # Install Python packages into the standalone Python
@@ -180,12 +266,72 @@ if (-not (Test-Path $bundledPython)) {
 
 Write-Info "Using bundled Python: $bundledPython"
 
+# Common pip flags to suppress warnings about scripts not on PATH
+$pipFlags = @("--no-warn-script-location", "--disable-pip-version-check")
+
 # Install packages using bundled pip
-& $bundledPython -m pip install --upgrade pip
+& $bundledPython -m pip install --upgrade pip @pipFlags
 
 # Install backend requirements
+# Note: spacy requires LLVM/clang to compile on Windows, which is typically not available
+# We install packages in groups to handle dependencies properly
 Write-Info "Installing backend requirements for $Architecture..."
-& $bundledPython -m pip install --upgrade -r backend\requirements.txt
+
+# Group 1: Core packages that install cleanly
+Write-Info "Installing core packages (FastAPI, uvicorn, websockets, etc.)..."
+& $bundledPython -m pip install --upgrade @pipFlags `
+    "fastapi>=0.104.1" `
+    "uvicorn[standard]>=0.24.0" `
+    "python-multipart>=0.0.6" `
+    "aiofiles>=23.2.1" `
+    "websockets>=15.0" `
+    "netifaces>=0.11.0" `
+    "python-dotenv>=1.2.0"
+
+# Group 2: Vosk (speech recognition)
+Write-Info "Installing Vosk ASR..."
+& $bundledPython -m pip install --upgrade @pipFlags "vosk>=0.3.44"
+
+# Group 3: ML/AI packages (torch is large, ~240MB)
+Write-Info "Installing ML/AI packages (torch, transformers, huggingface_hub)..."
+& $bundledPython -m pip install --upgrade @pipFlags `
+    "torch>=2.1.0" `
+    "huggingface_hub>=0.24.6" `
+    "soundfile>=0.12.1" `
+    "transformers>=4.0.0"
+
+# Group 4: Kokoro TTS and dependencies
+# Note: kokoro depends on misaki[en] which depends on spacy
+# spacy cannot be compiled on Windows without LLVM, so we skip it
+# Instead, we install kokoro's core dependencies manually
+Write-Info "Installing Kokoro TTS dependencies (skipping spacy - requires LLVM)..."
+& $bundledPython -m pip install --upgrade @pipFlags `
+    "numpy>=1.26.0" `
+    "scipy>=1.13.0" `
+    "loguru>=0.7.0" `
+    "regex>=2024.0.0" `
+    "addict>=2.4.0"
+
+# Install misaki without extras (avoids spacy dependency)
+Write-Info "Installing misaki (base only, without spacy dependency)..."
+& $bundledPython -m pip install --upgrade --no-deps @pipFlags "misaki>=0.9.4"
+
+# Install kokoro without dependency resolution (we've manually installed deps)
+Write-Info "Installing kokoro TTS..."
+& $bundledPython -m pip install --upgrade --no-deps @pipFlags "kokoro>=0.7.16"
+
+# Install phonemizer and espeak for TTS (optional, kokoro can work without)
+# Use try/catch to handle any errors gracefully for these optional components
+Write-Info "Installing optional TTS components..."
+try {
+    & $bundledPython -m pip install --upgrade @pipFlags "phonemizer-fork>=3.3.0" "espeakng-loader>=0.2.4" 2>&1 | Out-Null
+    Write-Success "Optional TTS components installed"
+} catch {
+    Write-Warning "Optional TTS components could not be installed (this is okay)"
+}
+
+Write-Info "Skipping spacy installation (requires LLVM compiler on Windows)"
+Write-Warning "TTS may have limited text normalization without spacy, but will still function"
 
 # Copy FastAPI backend
 Write-Info "Copying FastAPI backend..."
