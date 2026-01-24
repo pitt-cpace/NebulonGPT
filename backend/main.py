@@ -379,49 +379,62 @@ def get_linux_interface_type(interface: str) -> str:
     return 'unknown'
 
 def get_windows_wifi_interfaces():
-    """Get WiFi interface names on Windows using netsh"""
-    wifi_interfaces = set()
+    """Get WiFi interface GUIDs on Windows using multiple detection methods"""
+    wifi_interface_guids = set()
+    interface_guid_to_description = {}  # Map interface GUID to description
+    
+    # Method 1: Use PowerShell Get-NetAdapter with InterfaceGuid for comprehensive detection
     try:
-        # Use netsh to get wireless interfaces
+        # Get all adapters with their GUIDs and descriptions - GUIDs match what netifaces returns
+        ps_command = "Get-NetAdapter | Select-Object Name,InterfaceDescription,PhysicalMediaType,InterfaceGuid | ConvertTo-Json"
         result = subprocess.run(
-            ['netsh', 'wlan', 'show', 'interfaces'],
+            ['powershell', '-Command', ps_command],
             capture_output=True,
             text=True,
-            timeout=5,
-            shell=True
+            timeout=10
         )
-        if result.returncode == 0:
-            lines = result.stdout.split('\n')
-            for line in lines:
-                # Look for "Name" line which contains interface name
-                if 'Name' in line and ':' in line:
-                    name = line.split(':', 1)[1].strip()
-                    if name:
-                        wifi_interfaces.add(name)
-                        logger.debug(f"Windows WiFi interface found: {name}")
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                adapters = json.loads(result.stdout)
+                # Handle both single adapter (dict) and multiple adapters (list)
+                if isinstance(adapters, dict):
+                    adapters = [adapters]
+                
+                for adapter in adapters:
+                    name = adapter.get('Name', '')
+                    description = (adapter.get('InterfaceDescription', '') or '').lower()
+                    media_type = (adapter.get('PhysicalMediaType', '') or '').lower()
+                    interface_guid = adapter.get('InterfaceGuid', '')
+                    
+                    if not interface_guid:
+                        continue
+                    
+                    # Normalize GUID format to match netifaces (with curly braces)
+                    if not interface_guid.startswith('{'):
+                        interface_guid = '{' + interface_guid + '}'
+                    interface_guid = interface_guid.upper()
+                    
+                    interface_guid_to_description[interface_guid] = description
+                    
+                    # Check if this is a WiFi adapter based on description or media type
+                    is_wifi = any(w in description for w in [
+                        'wi-fi', 'wifi', 'wireless', '802.11', 'wlan',
+                        'wi-fi direct', 'wifi direct', 'mobile hotspot'
+                    ]) or any(w in media_type for w in [
+                        'wireless', '802.11', 'native 802.11'
+                    ])
+                    
+                    if is_wifi:
+                        wifi_interface_guids.add(interface_guid)
+                        logger.info(f"Windows WiFi interface found: {name} (GUID: {interface_guid}, desc: {description})")
+                    else:
+                        logger.debug(f"Windows non-WiFi interface: {name} (GUID: {interface_guid}, desc: {description})")
+            except json.JSONDecodeError:
+                logger.debug("Failed to parse PowerShell JSON output")
     except Exception as e:
-        logger.debug(f"Could not get Windows WiFi interfaces via netsh: {e}")
+        logger.debug(f"Could not get Windows interfaces via PowerShell: {e}")
     
-    # Fallback: Use WMI via PowerShell if netsh didn't work
-    if not wifi_interfaces:
-        try:
-            ps_command = "Get-NetAdapter | Where-Object {$_.PhysicalMediaType -like '*Wireless*' -or $_.InterfaceDescription -like '*Wi-Fi*' -or $_.InterfaceDescription -like '*Wireless*'} | Select-Object -ExpandProperty Name"
-            result = subprocess.run(
-                ['powershell', '-Command', ps_command],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
-                    name = line.strip()
-                    if name:
-                        wifi_interfaces.add(name)
-                        logger.debug(f"Windows WiFi interface found via PowerShell: {name}")
-        except Exception as e:
-            logger.debug(f"Could not get Windows WiFi interfaces via PowerShell: {e}")
-    
-    return wifi_interfaces
+    return wifi_interface_guids, interface_guid_to_description
 
 @app.get("/api/network-info")
 async def get_network_info():
@@ -440,20 +453,29 @@ async def get_network_info():
         
         macos_wifi_interfaces = set()
         windows_wifi_interfaces = set()
+        windows_interface_descriptions = {}
         
         if is_macos:
             macos_wifi_interfaces = get_macos_wifi_interfaces()
             logger.debug(f"macOS WiFi interfaces: {macos_wifi_interfaces}")
         elif is_windows:
-            windows_wifi_interfaces = get_windows_wifi_interfaces()
-            logger.debug(f"Windows WiFi interfaces: {windows_wifi_interfaces}")
+            windows_wifi_interfaces, windows_interface_descriptions = get_windows_wifi_interfaces()
+            logger.info(f"Windows WiFi interfaces: {windows_wifi_interfaces}")
+            logger.info(f"Windows interface descriptions: {windows_interface_descriptions}")
         
         for interface in netifaces.interfaces():
             try:
-                # Skip virtual/internal interfaces
+                # Skip virtual/internal interfaces (but NOT on Windows - we need to check descriptions)
                 interface_lower = interface.lower()
-                if any(skip in interface_lower for skip in ['lo', 'docker', 'veth', 'br-', 'vmnet', 'vbox', 'awdl', 'llw', 'utun', 'gif', 'stf', 'anpi', 'bridge', 'loopback']):
-                    continue
+                
+                # On Windows, we only skip clearly virtual interfaces
+                if is_windows:
+                    if any(skip in interface_lower for skip in ['docker', 'veth', 'vmnet', 'vbox', 'loopback']):
+                        continue
+                else:
+                    # On macOS/Linux, skip more interfaces
+                    if any(skip in interface_lower for skip in ['lo', 'docker', 'veth', 'br-', 'vmnet', 'vbox', 'awdl', 'llw', 'utun', 'gif', 'stf', 'anpi', 'bridge', 'loopback']):
+                        continue
                 
                 addrs = netifaces.ifaddresses(interface)
                 if netifaces.AF_INET not in addrs:
@@ -476,8 +498,42 @@ async def get_network_info():
                         # On Linux, use interface naming conventions and /sys
                         is_wifi = get_linux_interface_type(interface) == 'wifi'
                     elif is_windows:
-                        # On Windows, check against known WiFi interfaces or use patterns
-                        is_wifi = interface in windows_wifi_interfaces or any(p in interface_lower for p in ['wlan', 'wifi', 'wireless', 'wi-fi'])
+                        # On Windows, netifaces returns interface GUIDs like {13698B45-A730-4370-B54B-228754DCB913}
+                        # Normalize the interface name to uppercase for comparison
+                        interface_upper = interface.upper()
+                        
+                        # Method 1: Check against known WiFi interface GUIDs from PowerShell
+                        if interface_upper in windows_wifi_interfaces:
+                            is_wifi = True
+                            logger.info(f"Interface {interface} ({ip}) -> WiFi (matched by GUID)")
+                        
+                        # Method 2: Check interface description for WiFi keywords
+                        elif interface_upper in windows_interface_descriptions:
+                            desc = windows_interface_descriptions[interface_upper]
+                            if any(w in desc for w in ['wi-fi', 'wifi', 'wireless', '802.11', 'wlan', 'wi-fi direct']):
+                                is_wifi = True
+                                logger.info(f"Interface {interface} ({ip}) -> WiFi (description: {desc})")
+                        
+                        # Method 3: Windows Mobile Hotspot IP range (192.168.137.x is default)
+                        elif ip.startswith('192.168.137.'):
+                            is_wifi = True
+                            logger.info(f"Interface {interface} ({ip}) -> WiFi (Windows hotspot IP range)")
+                        
+                        # Method 4: Check for common Windows WiFi adapter naming patterns
+                        elif any(p in interface_lower for p in ['wlan', 'wifi', 'wireless', 'wi-fi']):
+                            is_wifi = True
+                            logger.info(f"Interface {interface} ({ip}) -> WiFi (name pattern)")
+                        
+                        # Method 5: Check for "Local Area Connection*" which is often used by Mobile Hotspot
+                        elif 'local area connection' in interface_lower and '*' in interface:
+                            # Check if description indicates it's WiFi Direct
+                            desc = windows_interface_descriptions.get(interface_upper, '')
+                            if 'wi-fi direct' in desc or 'microsoft wi-fi' in desc:
+                                is_wifi = True
+                                logger.info(f"Interface {interface} ({ip}) -> WiFi (Mobile Hotspot)")
+                        
+                        if not is_wifi:
+                            logger.info(f"Interface {interface} ({ip}) -> Ethernet (no WiFi indicators)")
                     else:
                         # Unknown OS - use name patterns as fallback
                         is_wifi = any(p in interface_lower for p in ['wlan', 'wifi', 'wireless', 'wi-fi'])

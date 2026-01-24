@@ -1951,8 +1951,8 @@ ipcMain.handle('get-network-addresses', async () => {
   try {
     // Fetch network info from backend server API
     const axios = require('axios');
-    const backendPort = isDev ? 3001 : 3000;
-    const response = await axios.get(`http://127.0.0.1:${backendPort}/api/network-info`);
+    const backendPort = 3001; // Backend always runs on 3001
+    const response = await axios.get(`http://127.0.0.1:${backendPort}/api/network-info`, { timeout: 3000 });
     const { wifiIPs, ethernetIPs, httpsPort, httpPort } = response.data;
     
     const addresses = {
@@ -1965,9 +1965,9 @@ ipcMain.handle('get-network-addresses', async () => {
     console.log('🌐 Network addresses from backend:', addresses);
     return addresses;
   } catch (error) {
-    console.error('Error getting network addresses from backend:', error);
-    // Fallback - generate addresses manually
-    const backendPort = isDev ? 3001 : 3000;
+    console.error('Error getting network addresses from backend:', error.message);
+    // Fallback - generate addresses manually with improved Windows detection
+    const backendPort = 3001;
     const addresses = {
       localhost: `http://localhost:${backendPort}`,
       loopback: `http://127.0.0.1:${backendPort}`,
@@ -1977,10 +1977,83 @@ ipcMain.handle('get-network-addresses', async () => {
     
     const networkInterfaces = os.networkInterfaces();
     
-    // Get WiFi interface names using platform-specific commands
-    let wifiInterfaceNames = new Set();
+    // Enhanced Windows interface detection using PowerShell (more reliable than wmic)
+    let windowsWifiInterfaces = new Set();
+    let windowsInterfaceDescriptions = new Map();
     
-    // For macOS: use networksetup to get accurate WiFi interfaces
+    if (process.platform === 'win32') {
+      try {
+        // Use PowerShell Get-NetAdapter for comprehensive detection
+        const psCommand = 'Get-NetAdapter | Select-Object Name,InterfaceDescription,PhysicalMediaType | ConvertTo-Json';
+        const psOutput = execSync(`powershell -Command "${psCommand}"`, { encoding: 'utf8', timeout: 10000 });
+        
+        if (psOutput.trim()) {
+          const adapters = JSON.parse(psOutput);
+          // Handle both single adapter (object) and multiple adapters (array)
+          const adapterList = Array.isArray(adapters) ? adapters : [adapters];
+          
+          for (const adapter of adapterList) {
+            const name = adapter.Name || '';
+            const description = (adapter.InterfaceDescription || '').toLowerCase();
+            const mediaType = (adapter.PhysicalMediaType || '').toLowerCase();
+            
+            if (!name) continue;
+            
+            windowsInterfaceDescriptions.set(name, description);
+            
+            // Check if this is a WiFi adapter based on description or media type
+            const isWifiAdapter = 
+              description.includes('wi-fi') || 
+              description.includes('wifi') || 
+              description.includes('wireless') || 
+              description.includes('802.11') || 
+              description.includes('wlan') ||
+              description.includes('wi-fi direct') ||
+              description.includes('wifi direct') ||
+              mediaType.includes('wireless') ||
+              mediaType.includes('802.11') ||
+              mediaType.includes('native 802.11');
+            
+            if (isWifiAdapter) {
+              windowsWifiInterfaces.add(name);
+              console.log(`🔍 Windows WiFi interface (PowerShell): ${name} → ${description}`);
+            } else {
+              console.log(`🔍 Windows Ethernet interface (PowerShell): ${name} → ${description}`);
+            }
+          }
+        }
+      } catch (psError) {
+        console.warn('Could not run PowerShell command for Windows interface detection:', psError.message);
+        
+        // Fallback to wmic if PowerShell fails
+        try {
+          const wmicOutput = execSync('wmic path win32_networkadapter where "NetConnectionStatus=2" get NetConnectionID,Description /format:csv', { encoding: 'utf8' });
+          
+          const lines = wmicOutput.split('\n').filter(line => line.trim() && !line.startsWith('Node'));
+          for (const line of lines) {
+            const parts = line.split(',');
+            if (parts.length >= 3) {
+              const description = (parts[1] || '').trim().toLowerCase();
+              const connectionId = (parts[2] || '').trim();
+              
+              if (description && connectionId) {
+                windowsInterfaceDescriptions.set(connectionId, description);
+                
+                if (description.includes('wi-fi') || description.includes('wireless') || description.includes('802.11')) {
+                  windowsWifiInterfaces.add(connectionId);
+                  console.log(`🔍 Windows WiFi interface (wmic): ${connectionId} → ${description}`);
+                }
+              }
+            }
+          }
+        } catch (wmicError) {
+          console.warn('Could not run wmic command either:', wmicError.message);
+        }
+      }
+    }
+    
+    // Get WiFi interface names using platform-specific commands (macOS)
+    let macosWifiInterfaces = new Set();
     if (process.platform === 'darwin') {
       try {
         const output = execSync('networksetup -listallhardwareports', { encoding: 'utf8' });
@@ -1993,7 +2066,8 @@ ipcMain.handle('get-network-addresses', async () => {
             if (i + 1 < lines.length && lines[i + 1].includes('Device:')) {
               const deviceMatch = lines[i + 1].match(/Device:\s*(\S+)/);
               if (deviceMatch) {
-                wifiInterfaceNames.add(deviceMatch[1]);
+                macosWifiInterfaces.add(deviceMatch[1]);
+                console.log(`🔍 Detected WiFi interface on macOS: ${deviceMatch[1]}`);
               }
             }
           }
@@ -2012,29 +2086,78 @@ ipcMain.handle('get-network-addresses', async () => {
         // Get all IPv4 addresses that are not internal
         if (iface.family === 'IPv4' && !iface.internal) {
           const address = `https://${iface.address}:3443`;
+          const ipAddress = iface.address;
           
-          // Check if this interface was identified as WiFi by platform-specific command
-          if (wifiInterfaceNames.has(interfaceName)) {
+          console.log(`📡 Processing interface: ${interfaceName} → ${ipAddress}`);
+          
+          let isWiFi = false;
+          
+          // Enhanced Windows-specific detection
+          if (process.platform === 'win32') {
+            const description = windowsInterfaceDescriptions.get(interfaceName) || '';
+            
+            // Method 1: Check against known WiFi interfaces from PowerShell/wmic
+            if (windowsWifiInterfaces.has(interfaceName)) {
+              console.log(`  ✅ Classified as WiFi (known WiFi interface: ${interfaceName})`);
+              isWiFi = true;
+            }
+            // Method 2: Check interface description for WiFi keywords
+            else if (description && (
+              description.includes('wi-fi') || 
+              description.includes('wifi') || 
+              description.includes('wireless') || 
+              description.includes('802.11') || 
+              description.includes('wlan') ||
+              description.includes('wi-fi direct')
+            )) {
+              console.log(`  ✅ Classified as WiFi (description: ${description})`);
+              isWiFi = true;
+            }
+            // Method 3: Windows Mobile Hotspot IP range (192.168.137.x is default)
+            else if (ipAddress.startsWith('192.168.137.')) {
+              console.log(`  ✅ Classified as WiFi (Windows hotspot IP range: ${ipAddress})`);
+              isWiFi = true;
+            }
+            // Method 4: Check for "Local Area Connection*" which is often used by Mobile Hotspot
+            else if (lowerName.includes('local area connection') && lowerName.includes('*')) {
+              // This is likely a Mobile Hotspot interface
+              if (description.includes('wi-fi direct') || description.includes('microsoft wi-fi')) {
+                console.log(`  ✅ Classified as WiFi (Mobile Hotspot: ${interfaceName})`);
+                isWiFi = true;
+              }
+            }
+            
+            if (!isWiFi) {
+              console.log(`  ℹ️ Classified as Ethernet (no WiFi indicators: ${interfaceName})`);
+            }
+          }
+          
+          // macOS-specific detection
+          else if (process.platform === 'darwin') {
+            if (macosWifiInterfaces.has(interfaceName)) {
+              console.log(`  ✅ Classified as WiFi (macOS platform detection: ${interfaceName})`);
+              isWiFi = true;
+            }
+          }
+          
+          // Cross-platform pattern-based detection (Linux and fallback)
+          if (!isWiFi && process.platform !== 'win32') {
+            // Standard WiFi interface patterns
+            if (/^(wlan|wlp|wl|wifi|wi-?fi|air|airport|wlx|wireless|wi_fi|wlan\d+)/i.test(lowerName)) {
+              console.log(`  ✅ Classified as WiFi (name pattern: ${interfaceName})`);
+              isWiFi = true;
+            }
+            // AWDL (Apple Wireless Direct Link)
+            else if (lowerName.includes('awdl')) {
+              console.log(`  ✅ Classified as WiFi (AWDL: ${interfaceName})`);
+              isWiFi = true;
+            }
+          }
+          
+          // Classification result
+          if (isWiFi) {
             addresses.wifi.push(address);
-          }
-          // Detect WiFi by interface name patterns
-          else if (/^(wlan|wlp|wl|wifi|wi-?fi|air|airport|wlx|wireless|wi_fi|wlan\d+)/i.test(lowerName)) {
-            addresses.wifi.push(address);
-          }
-          // Detect WiFi by AWDL (Apple Wireless Direct Link)
-          else if (lowerName.includes('awdl')) {
-            addresses.wifi.push(address);
-          }
-          // Bridge interfaces - for hotspot scenarios
-          else if (lowerName.includes('bridge')) {
-            addresses.wifi.push(address);
-          }
-          // Detect Ethernet by name patterns
-          else if (/^(eth|enp|en|eno|ens|em|ethernet|lan|enx|usb|eth\d+)/i.test(lowerName)) {
-            addresses.ethernet.push(address);
-          }
-          // Fallback: unknown interfaces go to Ethernet
-          else {
+          } else {
             addresses.ethernet.push(address);
           }
         }
