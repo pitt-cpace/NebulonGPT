@@ -1,27 +1,53 @@
 import axios from 'axios';
 
-// Inline Electron detection to avoid circular dependency with electronApi.ts
-const isElectronEnvironment = (): boolean => {
-  return !!(
-    (window as any).isElectron || 
-    (window as any).electronAPI || 
-    (window as any).require ||
-    (window.navigator?.userAgent?.includes('Electron'))
-  );
-};
-
-// Get backend URL from environment variable
+// Get backend URL based on how the app is being accessed
 const getBackendURL = (): string => {
-  // Electron mode: Use direct connection to backend
-  if (isElectronEnvironment()) {
-    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
-    console.log(`[Electron] Using Backend URL: ${backendUrl}`);
-    return backendUrl;
+  const hostname = window.location.hostname;
+  const port = window.location.port;
+  const protocol = window.location.protocol;
+  
+  // Check if accessing via network (not localhost/127.0.0.1)
+  // This takes priority because remote devices can't reach "localhost"
+  const isRemoteIP = hostname !== 'localhost' && hostname !== '127.0.0.1';
+  
+  // For network/remote access: use the same host (HTTPS proxy handles routing)
+  if (isRemoteIP) {
+    const host = window.location.host; // includes hostname:port
+    const networkUrl = `${protocol}//${host}`;
+    console.log(`Using Backend URL (network access): ${networkUrl}`);
+    return networkUrl;
   }
   
-  // Docker/Browser mode: Use relative paths (nginx proxy handles routing)
-  console.log('[Docker/Browser] Using nginx proxy for backend (relative paths)');
-  return '';  // Empty base URL = relative paths like /api/chats
+  // For localhost access, check if explicitly set via environment variable
+  if (process.env.REACT_APP_BACKEND_URL) {
+    console.log(`Using Backend URL from env: ${process.env.REACT_APP_BACKEND_URL}`);
+    return process.env.REACT_APP_BACKEND_URL;
+  }
+  
+  // Check for React development server indicators (webpack dev server)
+  const hasWebpackDevServer = (
+    (window as any).webpackHotUpdate !== undefined ||
+    (window as any).__webpack_dev_server__ !== undefined ||
+    document.querySelector('script[src*="webpack"]') !== null ||
+    document.querySelector('script[src*="hot-update"]') !== null ||
+    document.querySelector('script[src*="sockjs-node"]') !== null
+  );
+  
+  // Check if this is development mode
+  const isDevelopmentMode = hasWebpackDevServer || (port === '3000' && hasWebpackDevServer);
+  
+  // For development: use direct connection to backend on port 3001
+  if (isDevelopmentMode) {
+    const devUrl = 'http://localhost:3001';
+    console.log(`Using Backend URL (dev mode): ${devUrl}`);
+    return devUrl;
+  }
+  
+  // For Docker/production on localhost: use current host which is proxied
+  const host = window.location.host; // includes hostname:port
+  const prodUrl = `${protocol}//${host}`;
+  console.log(`Using Backend URL (Docker/production mode): ${prodUrl}`);
+  return prodUrl;
 };
 
 // Create axios instance for backend API
@@ -131,6 +157,15 @@ export const checkHealth = async () => {
     console.error('Error checking backend health:', error);
     throw error;
   }
+};
+
+// WebSocket URL helpers
+export const getVoskWebSocketURL = (): string => {
+  return process.env.REACT_APP_VOSK_WS_URL || 'ws://localhost:3001/vosk';
+};
+
+export const getTTSWebSocketURL = (): string => {
+  return process.env.REACT_APP_TTS_WS_URL || 'ws://localhost:3001/tts';
 };
 
 export default backendApi;
