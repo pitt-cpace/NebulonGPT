@@ -1,10 +1,27 @@
 import axios from 'axios';
 
+// Inline Electron detection to avoid circular dependency with electronApi.ts
+const isElectronEnvironment = (): boolean => {
+  return !!(
+    (window as any).isElectron || 
+    (window as any).electronAPI || 
+    (window as any).require ||
+    (window.navigator?.userAgent?.includes('Electron'))
+  );
+};
+
 // Get backend URL from environment variable
 const getBackendURL = (): string => {
-  const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
-  console.log(`Using Backend URL: ${backendUrl}`);
-  return backendUrl;
+  // Electron mode: Use direct connection to backend
+  if (isElectronEnvironment()) {
+    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
+    console.log(`[Electron] Using Backend URL: ${backendUrl}`);
+    return backendUrl;
+  }
+  
+  // Docker/Browser mode: Use relative paths (nginx proxy handles routing)
+  console.log('[Docker/Browser] Using nginx proxy for backend (relative paths)');
+  return '';  // Empty base URL = relative paths like /api/chats
 };
 
 // Create axios instance for backend API
@@ -114,15 +131,6 @@ export const checkHealth = async () => {
     console.error('Error checking backend health:', error);
     throw error;
   }
-};
-
-// WebSocket URL helpers
-export const getVoskWebSocketURL = (): string => {
-  return process.env.REACT_APP_VOSK_WS_URL || 'ws://localhost:3001/vosk';
-};
-
-export const getTTSWebSocketURL = (): string => {
-  return process.env.REACT_APP_TTS_WS_URL || 'ws://localhost:3001/tts';
 };
 
 export default backendApi;
