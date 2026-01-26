@@ -23,10 +23,6 @@ services:
       # Custom header for Ollama requests (optional - uncomment and set if needed)
       # - OLLAMA_CUSTOM_HEADER_NAME=X-API-Key
       # - OLLAMA_CUSTOM_HEADER_VALUE=your-secret-key-here
-      # Frontend build-time environment variables (deprecated - use OLLAMA_URL instead)
-      - REACT_APP_OLLAMA_API_URL=http://host.docker.internal:11434
-      - REACT_APP_VOSK_SERVER_URL=ws://localhost:3000/vosk
-      - REACT_APP_TTS_SERVER_URL=ws://localhost:3000/tts
       # Python services environment variables
       - PYTHONUNBUFFERED=1
       - HF_HOME=/app/.cache/huggingface
