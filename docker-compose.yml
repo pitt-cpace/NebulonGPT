@@ -15,12 +15,11 @@ services:
     networks:
       - ollama-network
     volumes:
-      - ./nginx.conf:/etc/nginx/sites-available/default
       - chat-data:/app/data
     environment:
       - NODE_ENV=production
       # Ollama Configuration (Runtime - configures nginx proxy at container startup)
-      - OLLAMA_URL=http://host.docker.internal:11434
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
       # Custom header for Ollama requests (optional - uncomment and set if needed)
       # - OLLAMA_CUSTOM_HEADER_NAME=X-API-Key
       # - OLLAMA_CUSTOM_HEADER_VALUE=your-secret-key-here
