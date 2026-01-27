@@ -202,18 +202,29 @@ async function extractPythonBundle() {
         console.log('No Python bundle checksum file found, extracting...');
         needsExtraction = true;
       }
-      // Step 3: Only re-extract if checksum is bigger than current size (files missing)
+      // Step 3: Check if critical Python executable exists AND size is adequate
       else {
         try {
-          const currentExtractedSize = await calculateDirectorySize(pythonBundleDir);
-          const savedSize = parseInt(fs.readFileSync(checksumFile, 'utf8').trim());
+          // First, verify the Python executable actually exists
+          const pythonExecutable = process.platform === 'win32' 
+            ? path.join(pythonBundleDir, 'python-dist', 'python.exe')
+            : path.join(pythonBundleDir, 'python-dist', 'bin', 'python3');
           
-          if (savedSize > currentExtractedSize) {
-            console.log(`Python bundle incomplete (expected: ${savedSize}, current: ${currentExtractedSize}), extracting...`);
+          if (!fs.existsSync(pythonExecutable)) {
+            console.log(`Python executable not found at ${pythonExecutable}, extracting...`);
             needsExtraction = true;
           } else {
-            console.log('Python bundle size adequate, skipping extraction');
-            needsExtraction = false;
+            // Python executable exists, now check size
+            const currentExtractedSize = await calculateDirectorySize(pythonBundleDir);
+            const savedSize = parseInt(fs.readFileSync(checksumFile, 'utf8').trim());
+            
+            if (savedSize > currentExtractedSize) {
+              console.log(`Python bundle incomplete (expected: ${savedSize}, current: ${currentExtractedSize}), extracting...`);
+              needsExtraction = true;
+            } else {
+              console.log('Python bundle size adequate and executable exists, skipping extraction');
+              needsExtraction = false;
+            }
           }
         } catch (error) {
           console.log('Could not read Python bundle checksum file, extracting...');
