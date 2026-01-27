@@ -19,11 +19,16 @@ Var ModelGraniteCheckbox
 Var DisclaimerCheckbox
 Var InstallButton
 Var OllamaInstalled
+Var OllamaRunning
 Var InstallOllama
 Var InstallModelGPTOSS
 Var InstallModelMistral
 Var InstallModelGranite
 Var DisclaimerAccepted
+Var ModelGPTOSSExists
+Var ModelMistralExists
+Var ModelGraniteExists
+Var NeedToInstallAnything
 
 ; Macro: Extract Python Bundle
 !macro ExtractPythonBundle
@@ -179,41 +184,55 @@ Var DisclaimerAccepted
 
 ; ============================================
 ; Macro: Download and Install Ollama
-; Downloads Ollama installer and runs it
+; Downloads Ollama installer with progress and runs it
 ; ============================================
 !macro DownloadAndInstallOllama
-  ${If} $InstallOllama == "1"
-    DetailPrint "Downloading Ollama installer..."
+  ; First check if Ollama is already installed
+  ${If} $OllamaInstalled == "1"
+    DetailPrint "Ollama is already installed - skipping download"
+  ${ElseIf} $InstallOllama == "1"
+    DetailPrint "Downloading Ollama installer (~1.2GB)..."
+    DetailPrint "Please wait, this may take several minutes..."
+    DetailPrint ""
     
-    ; Download Ollama installer using PowerShell
+    ; Download Ollama installer using PowerShell with progress output
     ReadEnvStr $0 "TEMP"
-    nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri \"https://ollama.com/download/OllamaSetup.exe\" -OutFile \"$0\OllamaSetup.exe\""'
+    
+    ; Download using HttpWebRequest with manual progress tracking
+    nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url = \"https://ollama.com/download/OllamaSetup.exe\"; $dest = \"$0\OllamaSetup.exe\"; try { $req = [System.Net.HttpWebRequest]::Create($url); $resp = $req.GetResponse(); $total = $resp.ContentLength; Write-Host (\"Total size: {0:N0} MB\" -f ($total/1MB)); $stream = $resp.GetResponseStream(); $file = [System.IO.File]::Create($dest); $buffer = New-Object byte[] 1048576; $downloaded = 0; $lastPct = 0; while(($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) { $file.Write($buffer, 0, $read); $downloaded += $read; $pct = [int](($downloaded / $total) * 100); if($pct -ge $lastPct + 1) { $lastPct = $pct; Write-Host (\"Downloading: {0}%% - {1:N0} MB / {2:N0} MB\" -f $pct, ($downloaded/1MB), ($total/1MB)) } }; $file.Close(); $stream.Close(); $resp.Close(); Write-Host \"Download complete!\" } catch { Write-Host \"Error: $($_.Exception.Message)\"; Write-Host \"Trying curl fallback...\"; curl.exe -L -o $dest $url --progress-bar 2>&1; Write-Host \"Download complete!\" }"'
     Pop $1
     
     ${If} $1 == 0
-      DetailPrint "✓ Ollama downloaded successfully"
-      DetailPrint "Installing Ollama (this may take a moment)..."
+      DetailPrint "Ollama downloaded successfully (1.2GB)"
+      DetailPrint ""
+      DetailPrint "Installing Ollama..."
+      DetailPrint "Running Ollama Setup (this may take 1-2 minutes)..."
+      DetailPrint "Installing: 0% - Starting installer..."
       
       ; Run Ollama installer very silently (no UI at all)
       nsExec::ExecToLog '"$0\OllamaSetup.exe" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES'
       Pop $1
       
       ${If} $1 == 0
+        DetailPrint "Installing: 100% - Complete"
         DetailPrint "✓ Ollama installed successfully"
         
         ; Wait for installation to complete
+        DetailPrint "Waiting for installation to complete..."
         Sleep 3000
         
         ; Start Ollama
+        DetailPrint ""
         DetailPrint "Starting Ollama service..."
         ReadEnvStr $2 "LOCALAPPDATA"
         nsExec::Exec '"$2\Programs\Ollama\ollama.exe" serve'
         Pop $1
         
         ; Wait for Ollama to start
+        DetailPrint "Waiting for Ollama to initialize..."
         Sleep 5000
         
-        DetailPrint "✓ Ollama service started"
+        DetailPrint "✓ Ollama service started and ready"
       ${Else}
         DetailPrint "⚠ Ollama installation may have failed"
         DetailPrint "⚠ Please install Ollama manually from https://ollama.ai"
@@ -230,7 +249,7 @@ Var DisclaimerAccepted
 
 ; ============================================
 ; Macro: Pull Selected Ollama Models
-; Downloads the selected AI models
+; Downloads the selected AI models with clean progress output
 ; ============================================
 !macro PullOllamaModels
   ; Find Ollama executable
@@ -240,50 +259,62 @@ Var DisclaimerAccepted
   IfFileExists "$3" PullModels SkipModelPull
   
   PullModels:
-    ; Pull GPT-OSS 20B Model (using qwen2.5:14b as a high-performance model)
+    ; Pull GPT-OSS 20B Model (only if selected and doesn't already exist - checked in customInstall)
     ${If} $InstallModelGPTOSS == "1"
-      DetailPrint "Pulling GPT-OSS 20B Model (this may take several minutes)..."
-      DetailPrint "Downloading high-performance AI model (~8GB)..."
-      nsExec::ExecToLog '"$3" pull qwen2.5:14b'
+    ${AndIf} $ModelGPTOSSExists == "0"
+      DetailPrint ""
+      DetailPrint "Downloading GPT-OSS 20B Model..."
+      DetailPrint "This may take several minutes depending on your internet connection..."
+      ; Use ollama pull directly - simpler and more reliable
+      nsExec::ExecToLog '"$3" pull gpt-oss:20b'
       Pop $1
       ${If} $1 == 0
         DetailPrint "✓ GPT-OSS 20B Model installed successfully"
       ${Else}
         DetailPrint "⚠ Failed to pull GPT-OSS 20B Model"
+        DetailPrint "Try running: ollama pull gpt-oss:20b"
       ${EndIf}
     ${EndIf}
     
     ; Pull Mistral 7B Model
     ${If} $InstallModelMistral == "1"
-      DetailPrint "Pulling Mistral 7B Model (this may take several minutes)..."
-      DetailPrint "Downloading lightweight AI model (~4GB)..."
+    ${AndIf} $ModelMistralExists == "0"
+      DetailPrint ""
+      DetailPrint "Downloading Mistral 7B Model..."
+      DetailPrint "This may take several minutes depending on your internet connection..."
+      ; Use ollama pull directly - simpler and more reliable
       nsExec::ExecToLog '"$3" pull mistral:7b'
       Pop $1
       ${If} $1 == 0
         DetailPrint "✓ Mistral 7B Model installed successfully"
       ${Else}
         DetailPrint "⚠ Failed to pull Mistral 7B Model"
+        DetailPrint "Try running: ollama pull mistral:7b"
       ${EndIf}
     ${EndIf}
     
     ; Pull Granite4 Tiny-H Model (using granite3.1-moe as ultra-lightweight)
     ${If} $InstallModelGranite == "1"
-      DetailPrint "Pulling Granite4 Tiny-H Model (this may take a few minutes)..."
-      DetailPrint "Downloading ultra-lightweight AI model (~1GB)..."
+    ${AndIf} $ModelGraniteExists == "0"
+      DetailPrint ""
+      DetailPrint "Downloading Granite4 Tiny-H Model..."
+      DetailPrint "This may take several minutes depending on your internet connection..."
+      ; Use ollama pull directly - simpler and more reliable
       nsExec::ExecToLog '"$3" pull granite3.1-moe:1b'
       Pop $1
       ${If} $1 == 0
         DetailPrint "✓ Granite4 Tiny-H Model installed successfully"
       ${Else}
         DetailPrint "⚠ Failed to pull Granite4 Tiny-H Model"
+        DetailPrint "Try running: ollama pull granite3.1-moe:1b"
       ${EndIf}
     ${EndIf}
     
     Goto ModelPullDone
   
   SkipModelPull:
-    DetailPrint "⚠ Ollama not found, skipping model installation"
-    DetailPrint "⚠ Please install models manually using 'ollama pull <model>'"
+    DetailPrint "Ollama not found, skipping model installation"
+    DetailPrint "Please install models manually using 'ollama pull <model>'"
   
   ModelPullDone:
 !macroend
@@ -854,63 +885,162 @@ FunctionEnd
   SetDetailsPrint both
   
   ; ============================================
-  ; STEP 0: Component Selection with RAM Detection
+  ; STEP 0: Smart Check - Only show message if something needs to be installed
   ; ============================================
   
-  ; Check if Ollama is already installed
+  ; Initialize check variables
+  StrCpy $OllamaInstalled "0"
+  StrCpy $OllamaRunning "0"
+  StrCpy $ModelGPTOSSExists "0"
+  StrCpy $ModelMistralExists "0"
+  StrCpy $ModelGraniteExists "0"
+  StrCpy $NeedToInstallAnything "0"
+  
+  ; Check if Ollama is installed
   !insertmacro CheckOllamaInstalled
   
   ; Detect system RAM and auto-select appropriate model
   Call DetectRAMAndSelectModel
   
-  ; Build model selection summary
+  ; If Ollama is installed, check if it's running and check for models
+  ${If} $OllamaInstalled == "1"
+    ; Check if Ollama is running
+    nsExec::ExecToStack 'tasklist /FI "IMAGENAME eq ollama.exe" /NH'
+    Pop $0  ; Return code
+    Pop $1  ; Output
+    ${If} $1 != "INFO: No tasks are running which match the specified criteria."
+      StrCpy $OllamaRunning "1"
+    ${EndIf}
+    
+    ; Get list of installed models to check which exist
+    ReadEnvStr $0 "LOCALAPPDATA"
+    StrCpy $3 "$0\Programs\Ollama\ollama.exe"
+    
+    ; Need to start Ollama temporarily to check models if not running
+    ${If} $OllamaRunning == "0"
+      ; Start Ollama silently to check models
+      nsExec::Exec '"$3" serve'
+      Sleep 3000
+    ${EndIf}
+    
+    ; Get model list
+    nsExec::ExecToStack '"$3" list'
+    Pop $0  ; Return code
+    Pop $1  ; Model list output
+    
+    ; Check if gpt-oss:20b exists
+    nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$1\" -match \"gpt-oss:20b\") { exit 0 } else { exit 1 }"'
+    Pop $0
+    ${If} $0 == 0
+      StrCpy $ModelGPTOSSExists "1"
+    ${EndIf}
+    
+    ; Check if mistral:7b exists
+    nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$1\" -match \"mistral:7b\") { exit 0 } else { exit 1 }"'
+    Pop $0
+    ${If} $0 == 0
+      StrCpy $ModelMistralExists "1"
+    ${EndIf}
+    
+    ; Check if granite3.1-moe:1b exists
+    nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$1\" -match \"granite3.1-moe:1b\") { exit 0 } else { exit 1 }"'
+    Pop $0
+    ${If} $0 == 0
+      StrCpy $ModelGraniteExists "1"
+    ${EndIf}
+  ${EndIf}
+  
+  ; Build list of components to install (only show what's needed)
   StrCpy $4 ""
+  
+  ; Check if Ollama needs to be installed
+  ${If} $OllamaInstalled == "0"
+    StrCpy $4 "$4$\r$\n  • Ollama (Required) - needs to be installed"
+    StrCpy $NeedToInstallAnything "1"
+    StrCpy $InstallOllama "1"
+  ${EndIf}
+  
+  ; Check if selected model needs to be downloaded
   ${If} $InstallModelGPTOSS == "1"
-    StrCpy $4 "$4$\r$\n  ✓ GPT-OSS 20B Model (Recommended) - 16GB+ RAM"
+  ${AndIf} $ModelGPTOSSExists == "0"
+    StrCpy $4 "$4$\r$\n  • GPT-OSS 20B Model - needs to be downloaded"
+    StrCpy $NeedToInstallAnything "1"
   ${EndIf}
+  
   ${If} $InstallModelMistral == "1"
-    StrCpy $4 "$4$\r$\n  ✓ Mistral 7B Model (Lightweight) - 8GB+ RAM"
+  ${AndIf} $ModelMistralExists == "0"
+    StrCpy $4 "$4$\r$\n  • Mistral 7B Model - needs to be downloaded"
+    StrCpy $NeedToInstallAnything "1"
   ${EndIf}
+  
   ${If} $InstallModelGranite == "1"
-    StrCpy $4 "$4$\r$\n  ✓ Granite4 Tiny-H (Ultra-lightweight) - 4GB+ RAM"
+  ${AndIf} $ModelGraniteExists == "0"
+    StrCpy $4 "$4$\r$\n  • Granite4 Tiny-H Model - needs to be downloaded"
+    StrCpy $NeedToInstallAnything "1"
   ${EndIf}
   
-  ; If no model selected, add default
-  StrCmp $4 "" 0 ShowConfirmation
-    StrCpy $4 "$\r$\n  (No AI model selected)"
-  
-  ShowConfirmation:
-  ; Show component selection and disclaimer MessageBox
-  MessageBox MB_OKCANCEL|MB_ICONQUESTION "NebulonGPT Component Installation$\r$\n$\r$\nThe following components will be installed:$\r$\n$\r$\n  ✓ Ollama (Required)$4$\r$\n$\r$\n⚠ INSTALL AT YOUR OWN RISK$\r$\nThese are third-party applications not developed by CPACE but are necessary for NebulonGPT.$\r$\n$\r$\nClick OK to continue or Cancel to abort." IDOK UserAccepted
-    ; User clicked Cancel - abort installation
-    MessageBox MB_OK|MB_ICONINFORMATION "Installation cancelled by user."
-    Abort
-  
-  UserAccepted:
-  StrCpy $DisclaimerAccepted "1"
+  ; Only show confirmation dialog if something needs to be installed
+  ${If} $NeedToInstallAnything == "1"
+    ; Show component selection and disclaimer MessageBox
+    MessageBox MB_OKCANCEL|MB_ICONQUESTION "NebulonGPT Component Installation$\r$\n$\r$\nThe following components need to be installed:$4$\r$\n$\r$\n⚠ INSTALL AT YOUR OWN RISK$\r$\nThese are third-party applications not developed by CPACE but are necessary for NebulonGPT.$\r$\n$\r$\nClick OK to continue or Cancel to abort." IDOK UserAccepted
+      ; User clicked Cancel - abort installation
+      MessageBox MB_OK|MB_ICONINFORMATION "Installation cancelled by user."
+      Abort
+    
+    UserAccepted:
+    StrCpy $DisclaimerAccepted "1"
+  ${EndIf}
   
   ; Show detailed file installation progress from the start
   DetailPrint "Starting NebulonGPT installation..."
   DetailPrint ""
   
   ; ============================================
-  ; STEP 1: Install Ollama and AI Models FIRST
+  ; STEP 1: Ollama AI Runtime Setup
   ; ============================================
-  DetailPrint "=== Step 1: Ollama AI Runtime Setup ==="
   
-  ; Download and install Ollama if selected and not already installed
-  !insertmacro DownloadAndInstallOllama
+  ; Only show step header if something needs to be done
+  ${If} $OllamaInstalled == "0"
+  ${OrIf} $OllamaRunning == "0"
+  ${OrIf} $NeedToInstallAnything == "1"
+    DetailPrint "=== Step 1: Ollama AI Runtime Setup ==="
+  ${EndIf}
   
-  ; Check and start Ollama (for already installed or just installed)
-  !insertmacro CheckAndStartOllama
+  ; Download and install Ollama if not installed
+  ${If} $OllamaInstalled == "0"
+    !insertmacro DownloadAndInstallOllama
+    StrCpy $OllamaInstalled "1"
+    StrCpy $OllamaRunning "1"
+  ${ElseIf} $OllamaRunning == "0"
+    ; Ollama is installed but not running - just start it
+    DetailPrint "Running Ollama..."
+    ReadEnvStr $0 "LOCALAPPDATA"
+    nsExec::Exec '"$0\Programs\Ollama\ollama.exe" serve'
+    Sleep 3000
+    DetailPrint "✓ Ollama started"
+    StrCpy $OllamaRunning "1"
+  ${EndIf}
+  ; If Ollama is installed AND running - say nothing
   
-  ; Pull selected AI models
+  ; Pull selected AI models (only if they don't exist)
+  ; Check if any model needs to be downloaded
+  StrCpy $5 "0"
   ${If} $InstallModelGPTOSS == "1"
-  ${OrIf} $InstallModelMistral == "1"
-  ${OrIf} $InstallModelGranite == "1"
+  ${AndIf} $ModelGPTOSSExists == "0"
+    StrCpy $5 "1"
+  ${EndIf}
+  ${If} $InstallModelMistral == "1"
+  ${AndIf} $ModelMistralExists == "0"
+    StrCpy $5 "1"
+  ${EndIf}
+  ${If} $InstallModelGranite == "1"
+  ${AndIf} $ModelGraniteExists == "0"
+    StrCpy $5 "1"
+  ${EndIf}
+  
+  ${If} $5 == "1"
     DetailPrint ""
     DetailPrint "=== Installing AI Models ==="
-    DetailPrint "Note: Model downloads may take several minutes depending on your connection..."
     !insertmacro PullOllamaModels
   ${EndIf}
   
