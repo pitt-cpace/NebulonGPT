@@ -5,6 +5,7 @@ import katex from 'katex';
 import { useElementHeightVar } from '../hooks/useElementHeightVar';
 import { RO } from '../hooks/ResizeObserverManager';
 import remarkMath from 'remark-math';
+import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import 'katex/dist/katex.min.css';
@@ -1488,7 +1489,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // For content without math, use ReactMarkdown for other markdown features
     return (
       <ReactMarkdown
-        remarkPlugins={[remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
         components={{
           p: ({ children }) => <span>{children}</span>,
@@ -2086,10 +2087,68 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   };
 
   const detectMarkdownTable = (content: string, startIndex: number = 0): ContentBlock | null => {
-    // Flexible regex that matches markdown tables with or without leading/trailing pipes
-    // Removed ^ anchor to allow tables anywhere in the content, not just at line start
-    const markdownTableRegex = /[^\n]*\|[^\n]+\n[^\n]*[-:]+\|[-:\s|]+[^\n]*\n(?:[^\n]*\|[^\n]+\n?)+/;
-    const searchContent = content.substring(startIndex);
+    // First, preprocess content to handle multi-line LaTeX within table cells
+    // This is needed for tables with LaTeX matrices or multi-line formulas
+    const preprocessTableContent = (text: string): string => {
+      // Look for table-like content and normalize multi-line LaTeX within cells
+      const lines = text.split('\n');
+      const normalizedLines: string[] = [];
+      let i = 0;
+      
+      while (i < lines.length) {
+        const line = lines[i];
+        
+        // Check if this looks like a table row (starts with |)
+        if (line.trim().startsWith('|')) {
+          let currentRow = line;
+          
+          // Check if we have unclosed LaTeX delimiters in this line
+          // Count \( and \) occurrences, also check for \begin without \end
+          const countOccurrences = (str: string, pattern: string) => {
+            let count = 0;
+            let pos = 0;
+            while ((pos = str.indexOf(pattern, pos)) !== -1) {
+              count++;
+              pos += pattern.length;
+            }
+            return count;
+          };
+          
+          let openParens = countOccurrences(currentRow, '\\(');
+          let closeParens = countOccurrences(currentRow, '\\)');
+          let openBegins = countOccurrences(currentRow, '\\begin{');
+          let closeEnds = countOccurrences(currentRow, '\\end{');
+          
+          // Keep joining lines until LaTeX is balanced
+          while ((openParens > closeParens || openBegins > closeEnds) && i + 1 < lines.length) {
+            i++;
+            const nextLine = lines[i];
+            // Join with a space instead of newline to preserve content
+            currentRow += ' ' + nextLine.trim();
+            
+            // Update counts
+            openParens += countOccurrences(nextLine, '\\(');
+            closeParens += countOccurrences(nextLine, '\\)');
+            openBegins += countOccurrences(nextLine, '\\begin{');
+            closeEnds += countOccurrences(nextLine, '\\end{');
+          }
+          
+          normalizedLines.push(currentRow);
+        } else {
+          normalizedLines.push(line);
+        }
+        i++;
+      }
+      
+      return normalizedLines.join('\n');
+    };
+    
+    // Preprocess the content to handle multi-line LaTeX
+    const searchContent = preprocessTableContent(content.substring(startIndex));
+    
+    // Regex that matches markdown tables with both hyphens and em/en dashes in separators
+    // Allow optional leading whitespace to handle indented tables (e.g., inside list items)
+    const markdownTableRegex = /^[ \t]*\|.+\|[ \t]*\n[ \t]*\|[\-–—:\s|]+\|[ \t]*\n(?:[ \t]*\|.+\|[ \t]*\n?)+/m;
     const match = searchContent.match(markdownTableRegex);
     
     if (match && match.index !== undefined) {
@@ -2310,14 +2369,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       case ContentType.LATEX_TABLE:
       case ContentType.WIKI_TABLE:
       case ContentType.MARKDOWN_TABLE:
-        return <Box key={key} sx={{ mb: 2 }}>{renderTableBlock(block)}</Box>;
+        return <Box key={key} sx={{ mb: 0 }}>{renderTableBlock(block)}</Box>;
       
       case ContentType.CODE_BLOCK:
         // Render code blocks using ReactMarkdown
         return (
           <Box key={key}>
             <ReactMarkdown 
-              remarkPlugins={[remarkMath]}
+              remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={markdownComponents}
             >
@@ -2327,12 +2386,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         );
       
       case ContentType.PLAIN_TEXT:
+        // Skip empty or whitespace-only blocks (they create empty paragraphs)
+        if (!block.content.trim()) {
+          return null;
+        }
         // Always use ReactMarkdown for plain text (LaTeX delimiters already preprocessed)
         // ReactMarkdown with remark-math and rehype-katex handles both markdown and LaTeX
         return (
           <React.Fragment key={key}>
             <ReactMarkdown 
-              remarkPlugins={[remarkMath]}
+              remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={markdownComponents}
             >
