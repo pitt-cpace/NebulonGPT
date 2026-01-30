@@ -8,6 +8,7 @@ import SettingsDialog from './components/SettingsDialog';
 import StartupLoader from './components/StartupLoader';
 import { ModelType, ChatType, MessageType, FileAttachment } from './types';
 import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
+import { chunkQueueService } from './services/chunkQueueService';
 import { voskRecognition } from './services/vosk';
 import { ttsService } from './services/ttsService';
 import { generateChatTitle } from './services/titleGenerator';
@@ -517,6 +518,9 @@ const App: React.FC = () => {
         //onHideLoadingAnimationRef.current();
       }
       
+      // Force stop the chunk queue and discard remaining chunks immediately when user clicks stop
+      chunkQueueService.forceStop();
+      
       // Also stop TTS if full voice mode is enabled
       const ttsSettings = ttsService.getSettings();
       if (ttsSettings.fullVoiceMode && isListening) {
@@ -626,226 +630,235 @@ const App: React.FC = () => {
       // Import the sendMessage function from our API service
       const { sendMessage } = await import('./services/api');
       
-      
-      
-      // Buffer for accumulating text chunks for TTS
-      let ttsBuffer = '';
-      
-      // Start title generation in parallel BEFORE the main LLM call if chat needs a title
-      const chatIdForTitle = currentChat.id;
-      const userContentForTitle = content;
-      const modelIdForTitle = selectedModel.id;
-      
-      let titleGenerationPromise: Promise<void> | null = null;
-      
-      // Check if chat needs a title and start generation immediately in parallel
-      if (currentChat.title.toLowerCase() === 'new chat') {
-        
-        // Start title generation in parallel (don't await) - this runs simultaneously with main LLM
-        titleGenerationPromise = (async () => {
-          try {
-            // Get existing chat titles to prevent duplicates
-            const existingTitles = chats
-              .filter(chat => chat.id !== chatIdForTitle) // Exclude current chat
-              .map(chat => chat.title)
-              .filter(title => title && title.toLowerCase() !== 'new chat'); // Filter out empty and "New Chat" titles
             
-            const newTitle = await generateChatTitle(
-              userContentForTitle,
-              modelIdForTitle,
-              existingTitles
+            
+            // Buffer for accumulating text chunks for TTS
+            let ttsBuffer = '';
+            
+            // Start title generation in parallel BEFORE the main LLM call if chat needs a title
+            const chatIdForTitle = currentChat.id;
+            const userContentForTitle = content;
+            const modelIdForTitle = selectedModel.id;
+            
+            let titleGenerationPromise: Promise<void> | null = null;
+            
+            // Check if chat needs a title and start generation immediately in parallel
+            if (currentChat.title.toLowerCase() === 'new chat') {
+              
+              // Start title generation in parallel (don't await) - this runs simultaneously with main LLM
+              titleGenerationPromise = (async () => {
+                try {
+                  // Get existing chat titles to prevent duplicates
+                  const existingTitles = chats
+                    .filter(chat => chat.id !== chatIdForTitle) // Exclude current chat
+                    .map(chat => chat.title)
+                    .filter(title => title && title.toLowerCase() !== 'new chat'); // Filter out empty and "New Chat" titles
+                  
+                  const newTitle = await generateChatTitle(
+                    userContentForTitle,
+                    modelIdForTitle,
+                    existingTitles
+                  );
+                  
+                  // Update title in state and persist to server
+                  let updatedChatForSaving: ChatType | null = null;
+                  
+                  setChats(prevChats => {
+                    const updatedChats = prevChats.map(chat => 
+                      chat.id === chatIdForTitle 
+                        ? { ...chat, title: newTitle }
+                        : chat
+                    );
+                    
+                    // Store the updated chat for saving
+                    updatedChatForSaving = updatedChats.find(chat => chat.id === chatIdForTitle) || null;
+                    
+                    return updatedChats;
+                  });
+                  
+                  setCurrentChat(prevChat => 
+                    prevChat?.id === chatIdForTitle 
+                      ? { ...prevChat, title: newTitle }
+                      : prevChat
+                  );
+                  
+                  // Save the updated chat to server
+                  if (updatedChatForSaving) {
+                    await saveChatToServer(updatedChatForSaving);
+                  }
+                } catch (error) {
+                  console.error('Error in parallel title generation:', error);
+                }
+              })(); // Immediately invoke the async function
+            } 
+            // Rate-limited callback that processes queued chunks for UI rendering
+            const processChunkForUI = (chunk: string, responseData?: any) => {
+              // Update the AI message with the new chunk
+              setCurrentChat(prevChat => {
+                if (!prevChat) return null;
+                
+                // Find the AI message and update its content
+                const updatedMessages = prevChat.messages.map(msg => 
+                  msg.id === aiMessageId
+                    ? { ...msg, content: msg.content + chunk }
+                    : msg
+                );
+                
+                const updatedChat = {
+                  ...prevChat,
+                  messages: updatedMessages,
+                };
+                
+                // Also update the chats array
+                setChats(prevChats => 
+                  prevChats.map(chat => 
+                    chat.id === prevChat.id ? updatedChat : chat
+                  )
+                );
+                
+                // Save the updated chat to server immediately (individual chat saving)
+                saveChatToServer(updatedChat);
+                
+                return updatedChat;
+              });
+            };
+            
+            // Start the chunk queue with rate limiting (30 characters per second for readable typewriter effect)
+            chunkQueueService.setRate(30);
+            chunkQueueService.start(processChunkForUI);
+            
+            // Function to handle streaming updates - enqueues chunks for rate-limited rendering
+            const handleStreamUpdate = (chunk: string, responseData?: any) => {
+              // Enqueue the chunk for rate-limited UI rendering
+              chunkQueueService.enqueue(chunk, responseData);
+              
+              // Send to TTS if full voice mode is enabled AND microphone is listening
+              // TTS is NOT rate-limited - it processes immediately for smooth audio
+              if (ttsSettings.fullVoiceMode && isListening) {
+                ttsBuffer += chunk;
+                
+                // Enhanced sentence detection for multiple languages and punctuation patterns
+                // Western: . ! ? : ;
+                // Chinese/Japanese: 。！？：；
+                // Also handle newlines and other natural breaks
+                const sentenceEndings = /[.!?:;。！？：；]\s+|\n\s*/g;
+                let match;
+                let lastIndex = 0;
+                
+                while ((match = sentenceEndings.exec(ttsBuffer)) !== null) {
+                  const sentence = ttsBuffer.substring(lastIndex, match.index + match[0].length).trim();
+                  if (sentence) {
+                    ttsService.speak(sentence, getCurrentMsgId()); // Pass the extracted message ID from LLM
+                  }
+                  lastIndex = match.index + match[0].length;
+                }
+                
+                // Fallback for languages without punctuation: prioritize line breaks
+                if (lastIndex === 0 && ttsBuffer.length > 500) {
+                  // No sentence boundaries found, but we have substantial text
+                  
+                  // Strategy 1: Look for line breaks first (most natural for languages without punctuation)
+                  const lineBreakIndex = ttsBuffer.indexOf('\n');
+                  if (lineBreakIndex > 0) {
+                    const chunkText = ttsBuffer.substring(0, lineBreakIndex).trim();
+                    if (chunkText) {
+                      ttsService.speak(chunkText, getCurrentMsgId()); // Pass the extracted message ID from LLM
+                    }
+                    // Update buffer to remove sent chunk including the line break
+                    ttsBuffer = ttsBuffer.substring(lineBreakIndex + 1);
+                    lastIndex = 0; // Reset since we manually processed
+                  }
+                  // Strategy 2: If no line breaks and buffer is getting long, use word-based chunking
+                  else if (ttsBuffer.length > 100) {
+                    const words = ttsBuffer.split(' ');
+                    if (words.length > 15) {
+                      // Send first 15 words as a chunk
+                      const chunkText = words.slice(0, 15).join(' ');
+                      ttsService.speak(chunkText, getCurrentMsgId()); // Pass the extracted message ID from LLM
+                      
+                      // Update buffer to remove sent chunk
+                      ttsBuffer = words.slice(15).join(' ');
+                      lastIndex = 0; // Reset since we manually processed
+                    }
+                  }
+                } else {
+                  // Keep remaining text in buffer
+                  ttsBuffer = ttsBuffer.substring(lastIndex);
+                }
+              }
+            };
+            
+            // Start both operations in parallel using Promise.all or separate promises
+            const apiResult = await sendMessage(
+              selectedModel.id,
+              updatedMessagesArray, // Use the array we created earlier that includes both user and AI messages
+              {
+                num_ctx: contextLength,
+                temperature: temperature
+              }, // Pass model settings
+              handleStreamUpdate, // Streaming callback
+              isListening // Pass listening state for system message logic
             );
             
-            
-            // Update title in state and persist to server
-            let updatedChatForSaving: ChatType | null = null;
-            
-            setChats(prevChats => {
-              const updatedChats = prevChats.map(chat => 
-                chat.id === chatIdForTitle 
-                  ? { ...chat, title: newTitle }
-                  : chat
+            // Update chat with token statistics and context tracking
+            setCurrentChat(prevChat => {
+              if (!prevChat) return null;
+              
+              // Update messages - DON'T change user message contextTokensUsed (keep immediate display)
+              const updatedMessages = prevChat.messages.map(msg => {
+                if (msg.id === aiMessageId) {
+                  // AI message: Calculate async for accurate token count
+                  (async () => {
+                    if (msg.content) {
+                      const aiTokenCount = await tokenCountingService.countMessageTokensAsync(msg);
+                      // Update the message with async calculated tokens
+                      setCurrentChat(currentChat => {
+                        if (!currentChat) return null;
+                        const updatedMsgs = currentChat.messages.map(m => 
+                          m.id === msg.id ? { ...m, tokenCount: aiTokenCount } : m
+                        );
+                        return { ...currentChat, messages: updatedMsgs };
+                      });
+                    }
+                  })();
+                  // Initially set with API result, will be updated async above
+                  return { ...msg, tokenCount: apiResult.tokensReceived };
+                }
+                return msg; // Keep user message unchanged (preserves immediate contextTokensUsed)
+              });
+              
+              const updatedChat = {
+                ...prevChat,
+                messages: updatedMessages,
+                tokenStats: {
+                  totalTokensSent: (prevChat.tokenStats?.totalTokensSent || 0) + apiResult.tokensSent,
+                  totalTokensReceived: (prevChat.tokenStats?.totalTokensReceived || 0) + apiResult.tokensReceived,
+                  contextLength: contextLength,
+                  lastUpdated: new Date().toISOString()
+                }
+              };
+              
+              // Update the chats array with token stats
+              setChats(prevChats => 
+                prevChats.map(chat => 
+                  chat.id === prevChat.id ? updatedChat : chat
+                )
               );
               
-              // Store the updated chat for saving
-              updatedChatForSaving = updatedChats.find(chat => chat.id === chatIdForTitle) || null;
+              // Save the updated chat with token stats to server
+              saveChatToServer(updatedChat);
               
-              return updatedChats;
+              return updatedChat;
             });
             
-            setCurrentChat(prevChat => 
-              prevChat?.id === chatIdForTitle 
-                ? { ...prevChat, title: newTitle }
-                : prevChat
-            );
+            console.log(`📊 Context Tracking - ACTUAL tokens sent to LLM: ${apiResult.tokensSent}, Pre-calculation was: ${cumulativeContextTokens}`);
             
-            // Save the updated chat to server
-            if (updatedChatForSaving) {
-              await saveChatToServer(updatedChatForSaving);
+            // Send any remaining text in the TTS buffer after streaming is complete
+            if (ttsSettings.fullVoiceMode && isListening && ttsBuffer.trim()) {
+              // console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
+              // Use the current message ID from the centralized function (which now contains the LLM response ID)
+              ttsService.speak(ttsBuffer.trim(), getCurrentMsgId()); // Pass the extracted message ID from LLM
             }
-          } catch (error) {
-            console.error('Error in parallel title generation:', error);
-          }
-        })(); // Immediately invoke the async function
-      } 
-      // Function to handle streaming updates
-      const handleStreamUpdate = (chunk: string, responseData?: any) => {
-        
-        // Update the AI message with the new chunk
-        setCurrentChat(prevChat => {
-          if (!prevChat) return null;
-          
-          // Find the AI message and update its content
-          const updatedMessages = prevChat.messages.map(msg => 
-            msg.id === aiMessageId
-              ? { ...msg, content: msg.content + chunk }
-              : msg
-          );
-          
-          const updatedChat = {
-            ...prevChat,
-            messages: updatedMessages,
-          };
-          
-          // Also update the chats array
-          setChats(prevChats => 
-            prevChats.map(chat => 
-              chat.id === prevChat.id ? updatedChat : chat
-            )
-          );
-          
-          // Save the updated chat to server immediately (individual chat saving)
-          saveChatToServer(updatedChat);
-          
-          return updatedChat;
-        });
-        
-        // Send to TTS if full voice mode is enabled AND microphone is listening
-        if (ttsSettings.fullVoiceMode && isListening) {
-          ttsBuffer += chunk;
-          
-          // Enhanced sentence detection for multiple languages and punctuation patterns
-          // Western: . ! ? : ;
-          // Chinese/Japanese: 。！？：；
-          // Also handle newlines and other natural breaks
-          const sentenceEndings = /[.!?:;。！？：；]\s+|\n\s*/g;
-          let match;
-          let lastIndex = 0;
-          
-          while ((match = sentenceEndings.exec(ttsBuffer)) !== null) {
-            const sentence = ttsBuffer.substring(lastIndex, match.index + match[0].length).trim();
-            if (sentence) {
-              ttsService.speak(sentence, getCurrentMsgId()); // Pass the extracted message ID from LLM
-            }
-            lastIndex = match.index + match[0].length;
-          }
-          
-          // Fallback for languages without punctuation: prioritize line breaks
-          if (lastIndex === 0 && ttsBuffer.length > 500) {
-            // No sentence boundaries found, but we have substantial text
-            
-            // Strategy 1: Look for line breaks first (most natural for languages without punctuation)
-            const lineBreakIndex = ttsBuffer.indexOf('\n');
-            if (lineBreakIndex > 0) {
-              const chunk = ttsBuffer.substring(0, lineBreakIndex).trim();
-              if (chunk) {
-                ttsService.speak(chunk, getCurrentMsgId()); // Pass the extracted message ID from LLM
-              }
-              // Update buffer to remove sent chunk including the line break
-              ttsBuffer = ttsBuffer.substring(lineBreakIndex + 1);
-              lastIndex = 0; // Reset since we manually processed
-            }
-            // Strategy 2: If no line breaks and buffer is getting long, use word-based chunking
-            else if (ttsBuffer.length > 100) {
-              const words = ttsBuffer.split(' ');
-              if (words.length > 15) {
-                // Send first 15 words as a chunk
-                const chunk = words.slice(0, 15).join(' ');
-                ttsService.speak(chunk, getCurrentMsgId()); // Pass the extracted message ID from LLM
-                
-                // Update buffer to remove sent chunk
-                ttsBuffer = words.slice(15).join(' ');
-                lastIndex = 0; // Reset since we manually processed
-              }
-            }
-          } else {
-            // Keep remaining text in buffer
-            ttsBuffer = ttsBuffer.substring(lastIndex);
-          }
-        }
-      };
-      
-      // Start both operations in parallel using Promise.all or separate promises
-      const apiResult = await sendMessage(
-        selectedModel.id,
-        [...updatedChat.messages], // Include the new user message
-        {
-          num_ctx: contextLength,
-          temperature: temperature
-        }, // Pass model settings
-        handleStreamUpdate, // Streaming callback
-        isListening // Pass listening state for system message logic
-      );
-      
-      // Update chat with token statistics and context tracking
-      setCurrentChat(prevChat => {
-        if (!prevChat) return null;
-        
-        // Update messages - DON'T change user message contextTokensUsed (keep immediate display)
-        const updatedMessages = prevChat.messages.map(msg => {
-          if (msg.id === aiMessageId) {
-            // AI message: Calculate async for accurate token count
-            (async () => {
-              if (msg.content) {
-                const aiTokenCount = await tokenCountingService.countMessageTokensAsync(msg);
-                // Update the message with async calculated tokens
-                setCurrentChat(currentChat => {
-                  if (!currentChat) return null;
-                  const updatedMsgs = currentChat.messages.map(m => 
-                    m.id === msg.id ? { ...m, tokenCount: aiTokenCount } : m
-                  );
-                  return { ...currentChat, messages: updatedMsgs };
-                });
-              }
-            })();
-            // Initially set with API result, will be updated async above
-            return { ...msg, tokenCount: apiResult.tokensReceived };
-          }
-          return msg; // Keep user message unchanged (preserves immediate contextTokensUsed)
-        });
-        
-        const updatedChat = {
-          ...prevChat,
-          messages: updatedMessages,
-          tokenStats: {
-            totalTokensSent: (prevChat.tokenStats?.totalTokensSent || 0) + apiResult.tokensSent,
-            totalTokensReceived: (prevChat.tokenStats?.totalTokensReceived || 0) + apiResult.tokensReceived,
-            contextLength: contextLength,
-            lastUpdated: new Date().toISOString()
-          }
-        };
-        
-        // Update the chats array with token stats
-        setChats(prevChats => 
-          prevChats.map(chat => 
-            chat.id === prevChat.id ? updatedChat : chat
-          )
-        );
-        
-        // Save the updated chat with token stats to server
-        saveChatToServer(updatedChat);
-        
-        return updatedChat;
-      });
-      
-      console.log(`📊 Context Tracking - ACTUAL tokens sent to LLM: ${apiResult.tokensSent}, Pre-calculation was: ${cumulativeContextTokens}`);
-      
-      // Send any remaining text in the TTS buffer after streaming is complete
-      if (ttsSettings.fullVoiceMode && isListening && ttsBuffer.trim()) {
-        // console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
-        // Use the current message ID from the centralized function (which now contains the LLM response ID)
-        ttsService.speak(ttsBuffer.trim(), getCurrentMsgId()); // Pass the extracted message ID from LLM
-      }
 
       // Optional: Wait for title generation to complete (but don't block the main flow)
       if (titleGenerationPromise) {
@@ -886,7 +899,20 @@ const App: React.FC = () => {
         return updatedChat;
       });
     } finally {
-      setLoading(false);
+      // Set callback to turn off loading when queue is fully drained
+      chunkQueueService.onDrainComplete(() => {
+        setLoading(false);
+        console.log('✅ Queue drained, loading set to false');
+      });
+      
+      // Stop accepting new chunks but continue draining existing ones
+      // The onDrainComplete callback will set loading=false when done
+      chunkQueueService.stop();
+      
+      // If queue is already empty, set loading to false immediately
+      if (!chunkQueueService.hasItems()) {
+        setLoading(false);
+      }
     }
   };
 
