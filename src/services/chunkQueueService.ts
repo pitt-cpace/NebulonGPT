@@ -1,181 +1,176 @@
 /**
- * Chunk Queue Service
+ * Chunk Queue Service - Best Practice Implementation
  * 
- * This service manages a queue for LLM streaming chunks and rate-limits
- * the rendering to a maximum number of chunks per second.
- * 
- * This prevents the UI from being overwhelmed when fast machines receive
- * chunks too quickly from the LLM.
+ * Rate directly controls rendering speed:
+ * - rate=30 → Slow typewriter (one char every ~33ms)
+ * - rate=100 → Medium speed (one char every 10ms)  
+ * - rate=1000+ → Fast (batched for performance)
+ * - rate=1000000+ → Instant (all at once, original LLM speed)
  */
 
-type ChunkCallback = (accumulatedChunk: string, responseData?: any) => void;
+type ChunkCallback = (text: string, responseData?: any) => void;
 
 class ChunkQueueService {
-  private queue: Array<{ chunk: string; responseData?: any }> = [];
+  private queue: Array<{ char: string; responseData?: any }> = [];
   private isProcessing: boolean = false;
   private callback: ChunkCallback | null = null;
-  private intervalId: NodeJS.Timeout | null = null;
-  private chunksPerSecond: number = 10; // Default: 10 chunks per second
-  private intervalMs: number = 100; // 1000ms / 10 = 100ms between renders
+  private animationFrameId: number | null = null;
+  private charsPerSecond: number = 30;
   private onDrainCompleteCallback: (() => void) | null = null;
+  private lastRenderTime: number = 0;
+  private charDebt: number = 0; // Accumulated chars to render
 
   /**
-   * Set the maximum chunks per second rate
-   * @param rate - Number of chunks to render per second (e.g., 10)
+   * Set the rate (characters per second)
    */
   setRate(rate: number): void {
-    this.chunksPerSecond = Math.max(1, Math.min(60, rate)); // Clamp between 1-60
-    this.intervalMs = Math.floor(1000 / this.chunksPerSecond);
-    console.log(`📊 Chunk queue rate set to ${this.chunksPerSecond} chunks/sec (${this.intervalMs}ms interval)`);
+    this.charsPerSecond = Math.max(1, rate);
+    console.log(`📊 Chunk queue rate: ${this.charsPerSecond} chars/sec`);
   }
 
   /**
-   * Get the current rate setting
+   * Get the current rate
    */
   getRate(): number {
-    return this.chunksPerSecond;
+    return this.charsPerSecond;
   }
 
   /**
-   * Start the queue processor with a callback for rendering
-   * @param callback - Function to call with accumulated chunks
+   * Start the queue processor
    */
   start(callback: ChunkCallback): void {
     this.callback = callback;
     this.queue = [];
     this.isProcessing = true;
-
-    // Clear any existing interval
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-    }
-
-    // Start the processing interval
-    this.intervalId = setInterval(() => {
-      this.processQueue();
-    }, this.intervalMs);
-
-    console.log(`🚀 Chunk queue started with ${this.chunksPerSecond} chunks/sec rate`);
+    this.lastRenderTime = performance.now();
+    this.charDebt = 0;
+    
+    this.scheduleRender();
+    console.log(`🚀 Chunk queue started at ${this.charsPerSecond} chars/sec`);
   }
 
   /**
-   * Add a chunk to the queue - splits into individual characters for smoother rendering
-   * @param chunk - The text chunk from LLM
-   * @param responseData - Optional response data from the stream
+   * Add a chunk to the queue
    */
   enqueue(chunk: string, responseData?: any): void {
     if (!this.isProcessing) {
-      // If not processing, deliver immediately (fallback)
       if (this.callback) {
         this.callback(chunk, responseData);
       }
       return;
     }
 
-    // Split chunk into individual characters for character-by-character rendering
     for (let i = 0; i < chunk.length; i++) {
       const char = chunk[i];
-      // Only attach responseData to the last character of the chunk
       const isLastChar = i === chunk.length - 1;
       this.queue.push({ 
-        chunk: char, 
+        char, 
         responseData: isLastChar ? responseData : undefined 
       });
     }
   }
 
-
   /**
-   * Stop accepting new chunks but continue draining the queue one-by-one
-   * The interval will auto-stop when the queue is empty
+   * Schedule the next render using requestAnimationFrame (60fps = ~16ms)
    */
-  stop(): void {
-    // Stop accepting new chunks
-    this.isProcessing = false;
-
-    // If there are remaining chunks, let the interval continue processing them one-by-one
-    if (this.queue.length > 0 && this.callback) {
-      console.log(`⏳ Chunk queue draining ${this.queue.length} remaining chunks...`);
-      
-      // Keep the interval running to drain the queue one chunk at a time
-      // It will auto-stop when empty (handled in processQueue)
-      return;
-    }
-
-    // No remaining chunks - stop immediately
-    this.cleanup();
+  private scheduleRender(): void {
+    if (this.animationFrameId !== null) return;
+    
+    this.animationFrameId = requestAnimationFrame(() => {
+      this.animationFrameId = null;
+      this.render();
+    });
   }
 
   /**
-   * Process the queue - called at the rate-limited interval
-   * Releases exactly ONE chunk at a time for smooth, controlled rendering
+   * Render characters based on elapsed time
    */
-  private processQueue(): void {
+  private render(): void {
+    if (!this.callback) {
+      if (!this.isProcessing) this.cleanup();
+      return;
+    }
+
     if (this.queue.length === 0) {
-      // Queue is empty
       if (!this.isProcessing) {
-        // We're in draining mode and queue is now empty - cleanup
         this.cleanup();
+      } else {
+        // Keep checking for new chars
+        this.scheduleRender();
       }
       return;
     }
 
-    if (!this.callback) {
-      return;
+    const now = performance.now();
+    const elapsed = now - this.lastRenderTime;
+    this.lastRenderTime = now;
+
+    // Calculate how many chars we should have rendered by now
+    const charsToRender = (elapsed / 1000) * this.charsPerSecond + this.charDebt;
+    const wholeChars = Math.floor(charsToRender);
+    this.charDebt = charsToRender - wholeChars; // Keep fractional part
+
+    if (wholeChars > 0 && this.queue.length > 0) {
+      // Take up to wholeChars from the queue
+      const count = Math.min(wholeChars, this.queue.length);
+      let text = '';
+      let lastResponseData: any = undefined;
+
+      for (let i = 0; i < count; i++) {
+        const item = this.queue.shift()!;
+        text += item.char;
+        if (item.responseData !== undefined) {
+          lastResponseData = item.responseData;
+        }
+      }
+
+      if (text) {
+        this.callback(text, lastResponseData);
+      }
     }
 
-    // Take only ONE chunk from the queue (not all of them)
-    const item = this.queue.shift()!;
-    
-    // Deliver the single chunk
-    if (item.chunk) {
-      this.callback(item.chunk, item.responseData);
-    }
+    // Continue rendering
+    this.scheduleRender();
   }
 
   /**
-   * Internal cleanup - clears interval and resets state
+   * Stop accepting new chunks but continue draining
    */
+  stop(): void {
+    this.isProcessing = false;
+    if (this.queue.length > 0) {
+      console.log(`⏳ Draining ${this.queue.length} remaining chars...`);
+    } else {
+      this.cleanup();
+    }
+  }
+
   private cleanup(): void {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
     }
     this.callback = null;
     console.log(`⏹️ Chunk queue stopped`);
     
-    // Notify that draining is complete
     if (this.onDrainCompleteCallback) {
       this.onDrainCompleteCallback();
       this.onDrainCompleteCallback = null;
     }
   }
 
-  /**
-   * Set a callback to be called when the queue finishes draining
-   * @param callback - Function to call when queue is empty and draining is complete
-   */
   onDrainComplete(callback: () => void): void {
     this.onDrainCompleteCallback = callback;
   }
 
-  /**
-   * Check if the queue is currently draining (LLM finished but queue not empty)
-   */
   isDraining(): boolean {
-    return !this.isProcessing && this.queue.length > 0 && this.intervalId !== null;
+    return !this.isProcessing && this.queue.length > 0;
   }
 
-  /**
-   * Check if there are items in the queue (either processing or draining)
-   */
   hasItems(): boolean {
     return this.queue.length > 0;
   }
 
-  /**
-   * Force stop - immediately stops and discards remaining chunks
-   */
   forceStop(): void {
     this.isProcessing = false;
     this.queue = [];
@@ -183,30 +178,20 @@ class ChunkQueueService {
     console.log(`🛑 Chunk queue force stopped`);
   }
 
-  /**
-   * Reset the queue (clear all pending chunks without processing)
-   */
   reset(): void {
     this.queue = [];
+    this.charDebt = 0;
     console.log(`🔄 Chunk queue reset`);
   }
 
-  /**
-   * Check if the queue is currently active
-   */
   isActive(): boolean {
     return this.isProcessing;
   }
 
-  /**
-   * Get the current queue length
-   */
   getQueueLength(): number {
     return this.queue.length;
   }
 }
 
-// Export a singleton instance
 export const chunkQueueService = new ChunkQueueService();
-
 export default chunkQueueService;

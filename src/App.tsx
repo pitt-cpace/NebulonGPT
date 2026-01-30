@@ -790,7 +790,7 @@ const App: React.FC = () => {
             };
             
             // Start the chunk queue with rate limiting (30 characters per second for readable typewriter effect)
-            chunkQueueService.setRate(30);
+            chunkQueueService.setRate(60);
             chunkQueueService.start(processChunkForUI);
             
             // Function to handle streaming updates - enqueues chunks for rate-limited rendering
