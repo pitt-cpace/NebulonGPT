@@ -300,6 +300,7 @@ const endpoint = '/chat';
         model: modelId,
         messages: finalMessages,
         stream: true,
+        keep_alive: -1, // Keep model loaded in RAM indefinitely
         options: options || {
           num_ctx: 4096,
           temperature: 0.8,
@@ -410,6 +411,7 @@ const endpoint = '/chat';
         model: modelId,
         messages: finalMessages,
         stream: false,
+        keep_alive: -1, // Keep model loaded in RAM indefinitely
         options: options || {
           num_ctx: 4096,
           temperature: 0.8,
