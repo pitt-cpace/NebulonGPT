@@ -19,6 +19,38 @@ import { RO } from './hooks/ResizeObserverManager';
 // Global current message ID - immediately accessible everywhere
 let currentMsgId: string | null = null;
 
+// Global counter for ensuring unique message IDs
+let messageIdCounter = 0;
+
+// Function to generate unique message IDs
+const generateUniqueMessageId = (): string => {
+  const timestamp = Date.now();
+  const uniqueId = `msg-${timestamp}-${messageIdCounter++}`;
+  return uniqueId;
+};
+
+// Helper function to find default model based on priority
+const findPriorityDefaultModel = (modelList: ModelType[]): ModelType | null => {
+  // Priority list for default models when user hasn't selected one
+  const priorityModels = ['gpt-oss:20b', 'granite4:tiny-h', 'mistral:7b'];
+  
+  for (const priorityModelId of priorityModels) {
+    const foundModel = modelList.find(m => m.id === priorityModelId || m.name === priorityModelId);
+    if (foundModel) {
+      console.log(`🎯 Selected priority default model: ${foundModel.name}`);
+      return foundModel;
+    }
+  }
+  
+  // Fallback to first model if none of the priority models are found
+  if (modelList.length > 0) {
+    console.log(`📋 No priority models found, falling back to first model: ${modelList[0].name}`);
+    return modelList[0];
+  }
+  
+  return null;
+};
+
 const App: React.FC = () => {
   // Theme state - dynamically update without reload
   const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => getThemeMode());
@@ -253,7 +285,7 @@ const App: React.FC = () => {
         // Set default model if available
         if (modelList.length > 0) {
           // Check if user has set a preferred default model
-          let defaultModel = modelList[0]; // fallback to first model
+          let defaultModel: ModelType | null = null;
           
           try {
             const savedDefaultModelId = localStorage.getItem('defaultModelId');
@@ -261,26 +293,34 @@ const App: React.FC = () => {
               const savedDefaultModel = modelList.find(m => m.id === savedDefaultModelId);
               if (savedDefaultModel) {
                 defaultModel = savedDefaultModel;
+                console.log(`✅ Using user's saved default model: ${defaultModel.name}`);
               } else {
-                console.log(`⚠️ Saved default model '${savedDefaultModelId}' not found, using first available model`);
+                console.log(`⚠️ Saved default model '${savedDefaultModelId}' not found, using priority-based selection`);
               }
             }
           } catch (error) {
             console.error('Failed to load default model from localStorage:', error);
           }
           
-          setSelectedModel(defaultModel);
+          // If no saved default or saved default not found, use priority-based selection
+          if (!defaultModel) {
+            defaultModel = findPriorityDefaultModel(modelList);
+          }
           
-          // Fetch context length for the default model
-          try {
-            const modelDetails = await fetchModelDetails(defaultModel.id);
-            if (modelDetails && modelDetails.model_info && modelDetails.model_info['llama.context_length']) {
-              const contextLength = parseInt(modelDetails.model_info['llama.context_length'], 10);
-              setMaxContextLength(contextLength);
-              console.log(`Default model ${defaultModel.id} has context length: ${contextLength}`);
+          if (defaultModel) {
+            setSelectedModel(defaultModel);
+            
+            // Fetch context length for the default model
+            try {
+              const modelDetails = await fetchModelDetails(defaultModel.id);
+              if (modelDetails && modelDetails.model_info && modelDetails.model_info['llama.context_length']) {
+                const contextLength = parseInt(modelDetails.model_info['llama.context_length'], 10);
+                setMaxContextLength(contextLength);
+                console.log(`Default model ${defaultModel.id} has context length: ${contextLength}`);
+              }
+            } catch (error) {
+              console.error('Failed to fetch model details for default model:', error);
             }
-          } catch (error) {
-            console.error('Failed to fetch model details for default model:', error);
           }
         }
       } catch (error) {
@@ -315,14 +355,33 @@ const App: React.FC = () => {
       setInitialized(true);
       
       // Always create a new chat on page load/refresh
-      const defaultModel = models.find(m => {
-        try {
-          const savedDefaultModelId = localStorage.getItem('defaultModelId');
-          return savedDefaultModelId ? m.id === savedDefaultModelId : false;
-        } catch (error) {
-          return false;
+      // First check for user's saved default model, then use priority-based selection
+      let defaultModel: ModelType | null = null;
+      
+      try {
+        const savedDefaultModelId = localStorage.getItem('defaultModelId');
+        if (savedDefaultModelId) {
+          const savedDefaultModel = models.find(m => m.id === savedDefaultModelId);
+          if (savedDefaultModel) {
+            defaultModel = savedDefaultModel;
+          }
         }
-      }) || models[0];
+      } catch (error) {
+        console.error('Failed to load default model from localStorage:', error);
+      }
+      
+      // If no saved default, use priority-based selection
+      if (!defaultModel) {
+        defaultModel = findPriorityDefaultModel(models);
+      }
+      
+      // Final fallback to first model (should never happen since findPriorityDefaultModel handles this)
+      if (!defaultModel && models.length > 0) {
+        defaultModel = models[0];
+      }
+      
+      // Ensure we have a model before creating the chat
+      if (!defaultModel) return;
       
       const newChat: ChatType = {
         id: `chat-${Date.now()}`,
@@ -358,7 +417,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (initialized && models.length > 0 && !selectedModel) {
       // Try to get default model from localStorage first
-      let defaultModel = models[0]; // fallback to first model
+      let defaultModel: ModelType | null = null;
       
       try {
         const savedDefaultModelId = localStorage.getItem('defaultModelId');
@@ -372,7 +431,14 @@ const App: React.FC = () => {
         console.error('Failed to load default model from localStorage:', error);
       }
       
-      setSelectedModel(defaultModel);
+      // If no saved default, use priority-based selection
+      if (!defaultModel) {
+        defaultModel = findPriorityDefaultModel(models);
+      }
+      
+      if (defaultModel) {
+        setSelectedModel(defaultModel);
+      }
     }
   }, [initialized, models, selectedModel]);
 
