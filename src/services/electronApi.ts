@@ -23,6 +23,7 @@ declare global {
         wifi: string[];
         ethernet: string[];
       }>;
+      executeCommand: (command: string) => Promise<{ stdout: string; stderr: string; code: number }>;
       platform: string;
       isElectron: boolean;
     };

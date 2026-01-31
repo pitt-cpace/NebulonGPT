@@ -6,6 +6,8 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import SettingsDialog from './components/SettingsDialog';
 import StartupLoader from './components/StartupLoader';
+import ModelLoadingDialog from './components/ModelLoadingDialog';
+import { modelLoadingService } from './services/modelLoadingService';
 import { ModelType, ChatType, MessageType, FileAttachment } from './types';
 import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
 import { chunkQueueService } from './services/chunkQueueService';
@@ -80,6 +82,10 @@ const App: React.FC = () => {
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isEditingChatTitle, setIsEditingChatTitle] = useState(false);
+  
+  // Model loading dialog state
+  const [modelLoadingDialogOpen, setModelLoadingDialogOpen] = useState(false);
+  const [modelToLoad, setModelToLoad] = useState<string>('');
   
   // Ollama status state
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({ isAvailable: true });
@@ -983,6 +989,9 @@ const App: React.FC = () => {
   };
 
   const handleSelectModel = async (model: ModelType) => {
+    // Check if this is a different model than currently selected
+    const isDifferentModel = !selectedModel || selectedModel.id !== model.id;
+    
     setSelectedModel(model);
     
     // Update the model ID in the current chat
@@ -1015,6 +1024,40 @@ const App: React.FC = () => {
     } catch (error) {
       console.error('Failed to fetch model details:', error);
     }
+    
+    // If switching to a different model, ALWAYS trigger model loading with progress dialog
+    // This ensures user sees the loading progress even if model was previously unloaded
+    if (isDifferentModel) {
+      // Check if model is already loaded
+      const isAlreadyLoaded = await modelLoadingService.isModelLoaded(model.id);
+      
+      if (isAlreadyLoaded) {
+        console.log(`✅ Model ${model.id} is already loaded in RAM - skipping loading dialog`);
+      } else {
+        console.log(`📦 Model ${model.id} not in RAM - showing loading dialog...`);
+      }
+      
+      // Always show loading dialog and load model (to ensure keep_alive is set)
+      setModelToLoad(model.id);
+      setModelLoadingDialogOpen(true);
+      
+      // Reset progress state before loading
+      modelLoadingService.resetProgress();
+      
+      // Start loading the model and WAIT for it to complete
+      const loadSuccess = await modelLoadingService.loadModel(model.id);
+      
+      console.log(`📦 Model loading ${loadSuccess ? 'completed successfully' : 'failed or was cancelled'}`);
+      
+      // Note: Dialog stays open until user closes it (to see final status/time)
+      // User can close dialog after seeing the "loaded" or "error" status
+    }
+  };
+  
+  // Handle model loading dialog close
+  const handleModelLoadingDialogClose = () => {
+    setModelLoadingDialogOpen(false);
+    setModelToLoad('');
   };
 
   // Centralized function to safely close sidebar with TextField unmount delay
@@ -1141,6 +1184,13 @@ const App: React.FC = () => {
         onMicStop={onMicStopRef}
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+      />
+      
+      {/* Model loading progress dialog */}
+      <ModelLoadingDialog
+        open={modelLoadingDialogOpen}
+        onClose={handleModelLoadingDialogClose}
+        modelName={modelToLoad}
       />
       
       {/* Chat interface */}

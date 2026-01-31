@@ -1957,6 +1957,92 @@ ipcMain.handle('copy-to-clipboard', (event, text) => {
   }
 });
 
+// Execute shell command (for system monitoring like memory usage)
+ipcMain.handle('execute-command', async (event, command) => {
+  return new Promise((resolve, reject) => {
+    try {
+      // Security: Only allow specific safe commands for monitoring
+      const allowedPatterns = [
+        /^pgrep/,
+        /^ps\s+-o\s+pid,rss/,
+        /^tasklist/,
+        /^ollama\s+ps$/
+      ];
+      
+      const isAllowed = allowedPatterns.some(pattern => pattern.test(command));
+      
+      if (!isAllowed) {
+        console.warn(`⚠️ Blocked potentially unsafe command: ${command}`);
+        resolve({ stdout: '', stderr: 'Command not allowed', code: 1 });
+        return;
+      }
+      
+      exec(command, { encoding: 'utf8', timeout: 10000 }, (error, stdout, stderr) => {
+        if (error) {
+          resolve({ stdout: stdout || '', stderr: stderr || error.message, code: error.code || 1 });
+        } else {
+          resolve({ stdout: stdout || '', stderr: stderr || '', code: 0 });
+        }
+      });
+    } catch (error) {
+      console.error('Error executing command:', error);
+      resolve({ stdout: '', stderr: error.message, code: 1 });
+    }
+  });
+});
+
+// Open external URL in default browser
+ipcMain.handle('open-external', async (event, url) => {
+  try {
+    await shell.openExternal(url);
+  } catch (error) {
+    console.error('Failed to open external URL:', error);
+  }
+});
+
+// Execute shell command (for system monitoring like memory usage)
+ipcMain.handle('execute-command', async (event, command) => {
+  return new Promise((resolve, reject) => {
+    try {
+      // Security: Only allow specific safe commands for monitoring
+      const allowedPatterns = [
+        /^pgrep/,
+        /^ps\s+-o\s+pid,rss/,
+        /^tasklist/,
+        /^ollama\s+ps$/
+      ];
+      
+      const isAllowed = allowedPatterns.some(pattern => pattern.test(command));
+      
+      if (!isAllowed) {
+        console.warn(`⚠️ Blocked potentially unsafe command: ${command}`);
+        resolve({ stdout: '', stderr: 'Command not allowed', code: 1 });
+        return;
+      }
+      
+      exec(command, { encoding: 'utf8', timeout: 10000 }, (error, stdout, stderr) => {
+        if (error) {
+          resolve({ stdout: stdout || '', stderr: stderr || error.message, code: error.code || 1 });
+        } else {
+          resolve({ stdout: stdout || '', stderr: stderr || '', code: 0 });
+        }
+      });
+    } catch (error) {
+      console.error('Error executing command:', error);
+      resolve({ stdout: '', stderr: error.message, code: 1 });
+    }
+  });
+});
+
+// Open external URL in default browser
+ipcMain.handle('open-external', async (event, url) => {
+  try {
+    await shell.openExternal(url);
+  } catch (error) {
+    console.error('Failed to open external URL:', error);
+  }
+});
+
 // Get network addresses for the application - fetches from backend server
 ipcMain.handle('get-network-addresses', async () => {
   try {

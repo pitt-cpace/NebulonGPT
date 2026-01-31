@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Network addresses
   getNetworkAddresses: () => ipcRenderer.invoke('get-network-addresses'),
   
+  // Execute shell command (for system monitoring)
+  executeCommand: (command) => ipcRenderer.invoke('execute-command', command),
+  
+  // Open external URL in default browser
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  
   // Platform detection
   platform: process.platform,
   

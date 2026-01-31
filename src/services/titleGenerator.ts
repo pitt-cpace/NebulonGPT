@@ -187,6 +187,27 @@ export const generateChatTitle = async (
   existingTitles: string[] = []
 ): Promise<string> => {
   try {
+    // Read settings to match main chat (prevents model reload due to different options)
+    let contextLength = 12000; // Default fallback
+    let temperature = 0.1;     // Default fallback
+    try {
+      const savedContextLength = localStorage.getItem('contextLength');
+      if (savedContextLength) {
+        const parsed = parseInt(savedContextLength, 10);
+        if (!isNaN(parsed) && parsed >= 2000) {
+          contextLength = parsed;
+        }
+      }
+      const savedTemperature = localStorage.getItem('temperature');
+      if (savedTemperature) {
+        const parsed = parseFloat(savedTemperature);
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 2) {
+          temperature = parsed;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to read settings, using defaults');
+    }
     
     // Pre-process the message
     const processedMessage = preprocessMessage(userMessage);
@@ -227,11 +248,11 @@ Persian input: ["مقایسه گارانتی تویوتا", "تفاوت گلد �
       }
     ];
 
-    // Use configuration optimized for title generation
+    // Use configuration matching main chat to prevent model reload
+    // IMPORTANT: num_ctx and temperature must match main chat settings or Ollama will reallocate KV cache
     const options = {
-      num_ctx: 2048,
-      temperature: 0.4, // Slightly higher for variety
-      max_tokens: 100 // More tokens for multiple candidates
+      num_ctx: contextLength,   // Use same context length as main chat (from settings)
+      temperature: temperature, // Use same temperature as main chat (from settings)
     };
 
     // Call the API without streaming for title generation

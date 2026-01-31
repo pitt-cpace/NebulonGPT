@@ -48,6 +48,26 @@ const getHeaders = (): Record<string, string> => {
 // Get the initial base URL
 let baseURL = getBaseURL();
 
+// Export function to get Ollama base URL (without /api suffix)
+export const getOllamaBaseUrl = (): string => {
+  // Check if user has set a custom Ollama API URL
+  const customUrl = localStorage.getItem('ollamaApiUrl');
+  if (customUrl && customUrl.trim() !== '') {
+    // Remove /api suffix if present
+    const url = customUrl.trim();
+    return url.endsWith('/api') ? url.slice(0, -4) : url;
+  }
+  
+  // Electron app: Direct connection to Ollama
+  if (isElectron()) {
+    const ollamaUrl = process.env.REACT_APP_OLLAMA_URL || 'http://localhost:11434';
+    return ollamaUrl;
+  }
+  
+  // Browser/Docker: Use nginx proxy
+  return '/api/ollama';
+};
+
 const api = axios.create({
   baseURL,
   headers: {
