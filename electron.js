@@ -1051,12 +1051,32 @@ function startHTTPSServer() {
       const HTTP_PORT = 3001;
       const HTTPS_PORT = 3443;
       
-      // Find SSL certificate paths in unpacked location
-      let certPath = path.join(PATHS.buildDir, 'Certification', 'cert.pem');
-      let keyPath = path.join(PATHS.buildDir, 'Certification', 'key.pem');
+      // Find SSL certificate paths - check multiple locations
+      let certPath = null;
+      let keyPath = null;
       
-      // Check unpacked location for certificates
-      if (certPath.includes('app.asar')) {
+      // Possible certificate locations (in order of priority)
+      const certLocations = [
+        // 1. Project root Certification folder (development mode)
+        { cert: path.join(__dirname, 'Certification', 'cert.pem'), key: path.join(__dirname, 'Certification', 'key.pem') },
+        // 2. Build directory (production mode)
+        { cert: path.join(PATHS.buildDir, 'Certification', 'cert.pem'), key: path.join(PATHS.buildDir, 'Certification', 'key.pem') },
+        // 3. Resources path (packaged app)
+        { cert: path.join(process.resourcesPath || '', 'Certification', 'cert.pem'), key: path.join(process.resourcesPath || '', 'Certification', 'key.pem') },
+      ];
+      
+      // Find the first valid certificate location
+      for (const loc of certLocations) {
+        if (fs.existsSync(loc.cert) && fs.existsSync(loc.key)) {
+          certPath = loc.cert;
+          keyPath = loc.key;
+          console.log(`🔐 Found SSL certificates at: ${path.dirname(certPath)}`);
+          break;
+        }
+      }
+      
+      // Check unpacked location for certificates (in asar packages)
+      if (certPath && certPath.includes('app.asar')) {
         const unpackedCertPath = certPath.replace('app.asar', 'app.asar.unpacked');
         const unpackedKeyPath = keyPath.replace('app.asar', 'app.asar.unpacked');
         
