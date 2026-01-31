@@ -195,11 +195,17 @@ class ModelLoadingService {
   /**
    * Load a model into RAM by sending a trigger prompt
    * This forces Ollama to fully load the model
+   * 
+   * For Electron: Shows progress with memory monitoring
+   * For Docker/Web: Just sends trigger prompt and waits for response
    */
   async loadModel(modelName: string): Promise<boolean> {
     // Reset state
     this.abortController = new AbortController();
     const startTime = Date.now();
+    
+    // Check if we're in Electron environment (has memory monitoring capabilities)
+    const inElectron = isElectron() && window.electronAPI?.executeCommand;
 
     this.notifyProgress({
       status: 'starting',
@@ -214,7 +220,7 @@ class ModelLoadingService {
     });
 
     try {
-      // Get model info for total size
+      // Get model info for total size (works in both environments)
       const modelInfo = await this.getModelInfo(modelName);
       const totalSize = modelInfo.size;
 
@@ -225,55 +231,65 @@ class ModelLoadingService {
         message: 'Sending trigger prompt to load model...',
       });
 
-      // Start monitoring memory usage in background
+      // Only start memory monitoring in Electron environment
       let lastProgress = 5;
-      this.monitoringInterval = setInterval(async () => {
-        try {
-          // Check if model is loaded via Ollama API
-          const loadedModels = await this.getLoadedModels();
-          const isLoaded = loadedModels.models.some(
-            m => m.name === modelName || m.name.startsWith(modelName.split(':')[0])
-          );
-
-          if (isLoaded) {
-            const loadedModel = loadedModels.models.find(
+      if (inElectron) {
+        // Start monitoring memory usage in background
+        this.monitoringInterval = setInterval(async () => {
+          try {
+            // Check if model is loaded via Ollama API
+            const loadedModels = await this.getLoadedModels();
+            const isLoaded = loadedModels.models.some(
               m => m.name === modelName || m.name.startsWith(modelName.split(':')[0])
             );
-            const currentSize = loadedModel?.size || 0;
-            
-            this.notifyProgress({
-              progress: Math.min(95, lastProgress + 5),
-              currentSize,
-              message: 'Model loaded, finalizing...',
-            });
-            lastProgress = Math.min(95, lastProgress + 5);
-          } else {
-            // Try to get memory usage from system commands
-            const memUsage = await this.getOllamaMemoryUsage();
-            if (memUsage > 0) {
-              const progress = totalSize > 0
-                ? Math.min(90, Math.round((memUsage / totalSize) * 100))
-                : Math.min(90, lastProgress + 2);
+
+            if (isLoaded) {
+              const loadedModel = loadedModels.models.find(
+                m => m.name === modelName || m.name.startsWith(modelName.split(':')[0])
+              );
+              const currentSize = loadedModel?.size || 0;
               
               this.notifyProgress({
-                progress,
-                currentSize: memUsage,
-                message: 'Loading model into memory...',
+                progress: Math.min(95, lastProgress + 5),
+                currentSize,
+                message: 'Model loaded, finalizing...',
               });
-              lastProgress = progress;
+              lastProgress = Math.min(95, lastProgress + 5);
             } else {
-              // Increment progress slowly
-              lastProgress = Math.min(80, lastProgress + 1);
-              this.notifyProgress({
-                progress: lastProgress,
-                message: 'Loading model into memory...',
-              });
+              // Try to get memory usage from system commands
+              const memUsage = await this.getOllamaMemoryUsage();
+              if (memUsage > 0) {
+                const progress = totalSize > 0
+                  ? Math.min(90, Math.round((memUsage / totalSize) * 100))
+                  : Math.min(90, lastProgress + 2);
+                
+                this.notifyProgress({
+                  progress,
+                  currentSize: memUsage,
+                  message: 'Loading model into memory...',
+                });
+                lastProgress = progress;
+              } else {
+                // Increment progress slowly
+                lastProgress = Math.min(80, lastProgress + 1);
+                this.notifyProgress({
+                  progress: lastProgress,
+                  message: 'Loading model into memory...',
+                });
+              }
             }
+          } catch (error) {
+            // Ignore monitoring errors
           }
-        } catch (error) {
-          // Ignore monitoring errors
-        }
-      }, 500);
+        }, 500);
+      } else {
+        // Docker/Web mode: Simple progress increment without memory monitoring
+        console.log(`📦 Docker mode - loading model without memory monitoring...`);
+        this.notifyProgress({
+          progress: 30,
+          message: 'Loading model ...',
+        });
+      }
 
       // Read settings to match main chat (prevents model reload due to different options)
       let contextLength = 12000; // Default fallback
