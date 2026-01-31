@@ -89,8 +89,14 @@ export const fetchModels = async (): Promise<ModelType[]> => {
       headers: getHeaders(),
     });
     
-    if (response.data && response.data.models) {
-      return response.data.models.map((model: any) => ({
+if (response.data && response.data.models) {
+      // Filter out embedding models (nomic, embed) - these are not for chat
+      const chatModels = response.data.models.filter((model: any) => {
+        const modelName = model.name.toLowerCase();
+        return !modelName.includes('nomic') && !modelName.includes('embed');
+      });
+      
+      return chatModels.map((model: any) => ({
         id: model.name,
         name: model.name,
         size: model.size,
