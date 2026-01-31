@@ -328,13 +328,8 @@ const App: React.FC = () => {
               console.error('Failed to fetch model details for default model:', error);
             }
             
-            // Load the default model into RAM on app startup and WAIT for it to complete
-            console.log(`🚀 App startup - loading default model ${defaultModel.id} into RAM...`);
-            setModelToLoad(defaultModel.id);
-            setModelLoadingDialogOpen(true);
-            modelLoadingService.resetProgress();
-            const loadSuccess = await modelLoadingService.loadModel(defaultModel.id);
-            console.log(`📦 Initial model loading ${loadSuccess ? 'completed successfully' : 'failed or was cancelled'}`);
+            // Load the default model into RAM on app startup using centralized function
+            await loadModelWithDialog(defaultModel.id);
           }
         }
       } catch (error) {
@@ -1033,32 +1028,10 @@ const App: React.FC = () => {
       console.error('Failed to fetch model details:', error);
     }
     
-    // If switching to a different model, ALWAYS trigger model loading with progress dialog
-    // This ensures user sees the loading progress even if model was previously unloaded
+    // If switching to a different model, trigger model loading with progress dialog
     if (isDifferentModel) {
-      // Check if model is already loaded
-      const isAlreadyLoaded = await modelLoadingService.isModelLoaded(model.id);
-      
-      if (isAlreadyLoaded) {
-        console.log(`✅ Model ${model.id} is already loaded in RAM - skipping loading dialog`);
-      } else {
-        console.log(`📦 Model ${model.id} not in RAM - showing loading dialog...`);
-      }
-      
-      // Always show loading dialog and load model (to ensure keep_alive is set)
-      setModelToLoad(model.id);
-      setModelLoadingDialogOpen(true);
-      
-      // Reset progress state before loading
-      modelLoadingService.resetProgress();
-      
-      // Start loading the model and WAIT for it to complete
-      const loadSuccess = await modelLoadingService.loadModel(model.id);
-      
-      console.log(`📦 Model loading ${loadSuccess ? 'completed successfully' : 'failed or was cancelled'}`);
-      
-      // Note: Dialog stays open until user closes it (to see final status/time)
-      // User can close dialog after seeing the "loaded" or "error" status
+      // Use centralized function to load model with dialog
+      await loadModelWithDialog(model.id);
     }
   };
   
@@ -1066,6 +1039,24 @@ const App: React.FC = () => {
   const handleModelLoadingDialogClose = () => {
     setModelLoadingDialogOpen(false);
     setModelToLoad('');
+  };
+
+  /**
+   * Centralized function to load a model with loading dialog
+   * Called from: app startup, model switch, settings change
+   */
+  const loadModelWithDialog = async (modelId: string): Promise<boolean> => {
+    // Show loading dialog
+    setModelToLoad(modelId);
+    setModelLoadingDialogOpen(true);
+    
+    // Reset progress state before loading
+    modelLoadingService.resetProgress();
+    
+    // Load the model and wait for completion
+    const loadSuccess = await modelLoadingService.loadModel(modelId);
+    
+    return loadSuccess;
   };
 
   // Centralized function to safely close sidebar with TextField unmount delay
@@ -1096,7 +1087,10 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveSettings = (newContextLength: number, newTemperature: number) => {
+  const handleSaveSettings = async (newContextLength: number, newTemperature: number) => {
+    // Check if settings actually changed
+    const settingsChanged = newContextLength !== contextLength || newTemperature !== temperature;
+    
     setContextLength(newContextLength);
     setTemperature(newTemperature);
     
@@ -1109,6 +1103,13 @@ const App: React.FC = () => {
       window.dispatchEvent(new Event('contextLengthChanged'));
     } catch (error) {
       console.error('Failed to save settings to localStorage:', error);
+    }
+    
+    // If settings changed and we have a selected model, reload the model with new settings
+    // This is necessary because Ollama needs to reallocate KV cache when num_ctx or temperature changes
+    if (settingsChanged && selectedModel) {
+      // Use centralized function to reload model with dialog
+      await loadModelWithDialog(selectedModel.id);
     }
   };
 
