@@ -327,6 +327,14 @@ const App: React.FC = () => {
             } catch (error) {
               console.error('Failed to fetch model details for default model:', error);
             }
+            
+            // Load the default model into RAM on app startup and WAIT for it to complete
+            console.log(`🚀 App startup - loading default model ${defaultModel.id} into RAM...`);
+            setModelToLoad(defaultModel.id);
+            setModelLoadingDialogOpen(true);
+            modelLoadingService.resetProgress();
+            const loadSuccess = await modelLoadingService.loadModel(defaultModel.id);
+            console.log(`📦 Initial model loading ${loadSuccess ? 'completed successfully' : 'failed or was cancelled'}`);
           }
         }
       } catch (error) {
