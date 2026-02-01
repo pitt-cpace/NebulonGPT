@@ -4854,6 +4854,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               onClearInput={onClearInputAreaRef}
               onGetAttachments={onGetAttachmentsRef}
               isMobile={isMobile}
+              modelName={model?.name}
             />
           </FixedInputOverlay>
         </>
