@@ -1178,7 +1178,7 @@ const App: React.FC = () => {
       <CssBaseline />
       <Box sx={styles.container}>
         {/* Startup loader overlay */}
-        <StartupLoader />
+        <StartupLoader sidebarOpen={sidebarOpen} />
       
       {/* Settings dialog */}
       <SettingsDialog
