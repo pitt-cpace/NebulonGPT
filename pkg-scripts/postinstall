@@ -24,65 +24,192 @@ chown -R "$CURRENT_USER:staff" "$NEBULON_DIR"
 OLLAMA_STATUS="not installed"
 MODEL_STATUS=""
 
+# Helper function to calculate directory size (like electron.js calculateDirectorySize)
+# Includes ALL files for exact match with electron.js behavior
+calculate_directory_size() {
+    local dir="$1"
+    if [ -d "$dir" ]; then
+        # Use find + stat for accurate size calculation (includes all files like electron.js)
+        find "$dir" -type f -exec stat -f%z {} + 2>/dev/null | awk '{sum += $1} END {print sum+0}'
+    else
+        echo "0"
+    fi
+}
+
 # ============================================
-# EXTRACT PYTHON BUNDLE (silent - no dialog)
+# EXTRACT PYTHON BUNDLE (force overwrite, like electron.js)
 # ============================================
 
 if [ -f "$RESOURCES_DIR/python-bundle.zip" ]; then
-    if [ ! -d "$NEBULON_DIR/python-bundle" ]; then
-        echo "Extracting Python bundle..." >&2
-        osascript -e 'display notification "Extracting Python environment..." with title "NebulonGPT Installer"' 2>/dev/null
-        unzip -q "$RESOURCES_DIR/python-bundle.zip" -d "$NEBULON_DIR"
-        chown -R "$CURRENT_USER:staff" "$NEBULON_DIR/python-bundle"
+    echo "Extracting Python bundle (force overwrite)..." >&2
+    
+    PYTHON_BUNDLE_DIR="$NEBULON_DIR/python-bundle"
+    CHECKSUM_FILE="$NEBULON_DIR/.python-bundle-checksum"
+    
+    # Remove existing directory if it exists (force overwrite)
+    if [ -d "$PYTHON_BUNDLE_DIR" ]; then
+        echo "Removing existing Python bundle directory..." >&2
+        rm -rf "$PYTHON_BUNDLE_DIR"
     fi
+    
+    # Create the python-bundle directory
+    mkdir -p "$PYTHON_BUNDLE_DIR"
+    
+    # Extract ZIP directly into the python-bundle folder
+    unzip -q "$RESOURCES_DIR/python-bundle.zip" -d "$PYTHON_BUNDLE_DIR"
+    
+    # Set proper ownership
+    chown -R "$CURRENT_USER:staff" "$PYTHON_BUNDLE_DIR"
+    
+    # Calculate final bundle size and save checksum (like electron.js)
+    FINAL_SIZE=$(calculate_directory_size "$PYTHON_BUNDLE_DIR")
+    echo "$FINAL_SIZE" > "$CHECKSUM_FILE"
+    chown "$CURRENT_USER:staff" "$CHECKSUM_FILE"
+    
+    echo "Python bundle extraction completed. Final size: $FINAL_SIZE bytes" >&2
+    PYTHON_READY="true"
 fi
 
 # ============================================
-# EXTRACT VOSK MODELS (silent - no dialog)
+# EXTRACT VOSK MODELS (force overwrite, like electron.js)
 # ============================================
 
-if [ -d "$RESOURCES_DIR/models/vosk" ]; then
-    if [ ! -d "$NEBULON_DIR/vosk-models" ]; then
-        echo "Extracting Vosk speech models..." >&2
-        osascript -e 'display notification "Installing speech recognition models..." with title "NebulonGPT Installer"' 2>/dev/null
-        mkdir -p "$NEBULON_DIR/vosk-models"
-        find "$RESOURCES_DIR/models/vosk" -name "*.zip*" -exec cp {} "$NEBULON_DIR/vosk-models/" \;
-        cd "$NEBULON_DIR/vosk-models"
-        for base in $(ls *.zip.* 2>/dev/null | sed 's/\.zip\..*//' | sort -u); do
-            if [ -f "${base}.zip.001" ]; then
-                cat ${base}.zip.* > ${base}.zip
-                unzip -q ${base}.zip
-                rm ${base}.zip*
-            fi
-        done
-        chown -R "$CURRENT_USER:staff" "$NEBULON_DIR/vosk-models"
+if [ -d "$RESOURCES_DIR/models/vosk" ] && [ "$(ls -A "$RESOURCES_DIR/models/vosk" 2>/dev/null)" ]; then
+    echo "Extracting Vosk speech models (force overwrite)..." >&2
+    
+    VOSK_MODELS_DIR="$NEBULON_DIR/vosk-models"
+    CHECKSUM_FILE="$NEBULON_DIR/.vosk-models-checksum"
+    
+    # Remove existing extracted models (like electron.js cleanupExtractedModels)
+    if [ -d "$VOSK_MODELS_DIR" ]; then
+        echo "Removing existing Vosk models directory..." >&2
+        # Remove vosk-model-* directories (extracted models)
+        find "$VOSK_MODELS_DIR" -maxdepth 1 -type d -name "vosk-model-*" -exec rm -rf {} + 2>/dev/null
     fi
-fi
-
-# ============================================
-# EXTRACT KOKORO TTS CACHE (silent - no dialog)
-# ============================================
-
-if [ -d "$RESOURCES_DIR/models/kokoro" ]; then
-    if [ ! -d "$NEBULON_DIR/huggingface" ]; then
-        echo "Extracting Kokoro TTS cache..." >&2
-        osascript -e 'display notification "Installing text-to-speech models..." with title "NebulonGPT Installer"' 2>/dev/null
-        mkdir -p "$NEBULON_DIR/huggingface"
-        find "$RESOURCES_DIR/models/kokoro" -name "*.zip*" -exec cp {} "$NEBULON_DIR/huggingface/" \;
-        cd "$NEBULON_DIR/huggingface"
-        for base in $(ls *.zip.* 2>/dev/null | sed 's/\.zip\..*//' | sort -u); do
-            if [ -f "${base}.zip.001" ]; then
-                cat ${base}.zip.* > ${base}.zip
-                unzip -q ${base}.zip -d "$NEBULON_DIR"
-                rm ${base}.zip*
-            fi
-        done
-        if [ -d "$NEBULON_DIR/huggingface-cache" ]; then
-            mv "$NEBULON_DIR/huggingface-cache"/* "$NEBULON_DIR/huggingface/" 2>/dev/null
-            rmdir "$NEBULON_DIR/huggingface-cache" 2>/dev/null
+    
+    # Create models directory
+    mkdir -p "$VOSK_MODELS_DIR"
+    
+    # Copy all files from source to destination (like electron.js)
+    cp -R "$RESOURCES_DIR/models/vosk/"* "$VOSK_MODELS_DIR/" 2>/dev/null
+    
+    cd "$VOSK_MODELS_DIR"
+    
+    # Step 1: Find and concatenate split archive parts (like electron.js)
+    # Group split parts by base name (everything before .zip)
+    for base in $(ls *.zip.* 2>/dev/null | sed 's/\.zip\..*//' | sort -u); do
+        if [ -f "${base}.zip.001" ]; then
+            echo "Concatenating split archive: $base" >&2
+            
+            # Sort and concatenate all parts in order
+            cat $(ls -1 ${base}.zip.* | sort -V) > "${base}.zip"
+            
+            echo "Created: ${base}.zip" >&2
         fi
-        chown -R "$CURRENT_USER:staff" "$NEBULON_DIR/huggingface"
+    done
+    
+    # Step 2: Extract all complete zip files (like electron.js)
+    for zipfile in *.zip; do
+        if [ -f "$zipfile" ] && [[ ! "$zipfile" =~ \.zip\..+$ ]]; then
+            echo "Extracting: $zipfile" >&2
+            unzip -q -o "$zipfile" -d "$VOSK_MODELS_DIR"
+            echo "Successfully extracted: $zipfile" >&2
+        fi
+    done
+    
+    # Step 3: Clean up - remove all zip files and split parts (like electron.js)
+    echo "Cleaning up zip files and split parts..." >&2
+    rm -f "$VOSK_MODELS_DIR"/*.zip* 2>/dev/null
+    
+    # Set proper ownership
+    chown -R "$CURRENT_USER:staff" "$VOSK_MODELS_DIR"
+    
+    # Calculate final vosk-models folder size and save checksum (like electron.js)
+    FINAL_SIZE=$(calculate_directory_size "$VOSK_MODELS_DIR")
+    echo "$FINAL_SIZE" > "$CHECKSUM_FILE"
+    chown "$CURRENT_USER:staff" "$CHECKSUM_FILE"
+    
+    echo "Vosk models extraction completed. Final size: $FINAL_SIZE bytes" >&2
+    VOSK_READY="true"
+fi
+
+# ============================================
+# EXTRACT KOKORO TTS CACHE (force overwrite, like electron.js)
+# ============================================
+
+if [ -d "$RESOURCES_DIR/models/kokoro" ] && [ "$(ls -A "$RESOURCES_DIR/models/kokoro" 2>/dev/null)" ]; then
+    echo "Extracting Kokoro TTS cache (force overwrite)..." >&2
+    
+    HF_CACHE_DIR="$NEBULON_DIR/huggingface"
+    CHECKSUM_FILE="$NEBULON_DIR/.huggingface-checksum"
+    KOKORO_WORK_DIR="$NEBULON_DIR/kokoro-work"
+    
+    # Remove existing directory if it exists (force overwrite)
+    if [ -d "$HF_CACHE_DIR" ]; then
+        echo "Removing existing HuggingFace cache directory..." >&2
+        rm -rf "$HF_CACHE_DIR"
     fi
+    
+    # Clean up any existing work directory
+    if [ -d "$KOKORO_WORK_DIR" ]; then
+        rm -rf "$KOKORO_WORK_DIR"
+    fi
+    
+    # Create work directory in target location for processing split archives
+    mkdir -p "$KOKORO_WORK_DIR"
+    
+    # Copy all files from source to work directory for processing
+    cp -R "$RESOURCES_DIR/models/kokoro/"* "$KOKORO_WORK_DIR/" 2>/dev/null
+    
+    cd "$KOKORO_WORK_DIR"
+    
+    # Only process if zip files exist
+    if ls *.zip.* 2>/dev/null | head -1 > /dev/null || ls *.zip 2>/dev/null | head -1 > /dev/null; then
+        # Step 1: Find and concatenate split archive parts (like electron.js)
+        for base in $(ls *.zip.* 2>/dev/null | sed 's/\.zip\..*//' | sort -u); do
+            if [ -f "${base}.zip.001" ]; then
+                echo "Concatenating split archive: $base" >&2
+                
+                # Sort and concatenate all parts in order
+                cat $(ls -1 ${base}.zip.* | sort -V) > "${base}.zip"
+                
+                echo "Created: ${base}.zip" >&2
+            fi
+        done
+        
+        # Step 2: Extract all complete zip files directly to target location
+        for zipfile in *.zip; do
+            if [ -f "$zipfile" ] && [[ ! "$zipfile" =~ \.zip\..+$ ]]; then
+                echo "Extracting: $zipfile" >&2
+                unzip -q -o "$zipfile" -d "$NEBULON_DIR"
+                echo "Successfully extracted: $zipfile" >&2
+            fi
+        done
+    fi
+    
+    # Step 3: Handle extracted content (like electron.js)
+    # ZIP contains 'huggingface-cache' folder, need to rename to 'huggingface'
+    if [ -d "$NEBULON_DIR/huggingface-cache" ]; then
+        # Rename to correct name
+        mv "$NEBULON_DIR/huggingface-cache" "$HF_CACHE_DIR"
+    fi
+    
+    # Cleanup work directory
+    rm -rf "$KOKORO_WORK_DIR"
+    
+    # Ensure datasets directory exists (required by TTS server, like electron.js)
+    mkdir -p "$HF_CACHE_DIR/datasets"
+    
+    # Set proper ownership
+    chown -R "$CURRENT_USER:staff" "$HF_CACHE_DIR"
+    
+    # Calculate final cache size and save checksum (like electron.js)
+    FINAL_SIZE=$(calculate_directory_size "$HF_CACHE_DIR")
+    echo "$FINAL_SIZE" > "$CHECKSUM_FILE"
+    chown "$CURRENT_USER:staff" "$CHECKSUM_FILE"
+    
+    echo "Kokoro TTS extraction completed. Cache size: $FINAL_SIZE bytes" >&2
+    TTS_READY="true"
 fi
 
 # ============================================
@@ -284,4 +411,18 @@ fi
 rm -f /var/tmp/nebulon-installer-session.txt
 rm -f /var/tmp/nebulon-chosen-model.txt
 rm -f /tmp/nebulon-model-progress.txt
-# Note: nebulon-completion-shown.txt is NOT deleted here - it will be deleted in preinstall on next installation
+
+# ============================================
+# FINALIZE INSTALLATION
+# ============================================
+
+echo "Finalizing installation..." >&2
+
+# Wait for any background processes to complete
+wait
+
+# Sync all disk operations to ensure everything is written
+sync
+
+echo "" >&2
+echo "NebulonGPT setup complete!" >&2

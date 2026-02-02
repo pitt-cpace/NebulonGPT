@@ -379,7 +379,7 @@ EOF
     
     if [ $DOWNLOAD_RESULT -eq 0 ] && [ -f "$DMG_PATH" ]; then
         echo "DMG downloaded successfully" >&2
-        osascript -e 'display notification "Installing Ollama application..." with title "NebulonGPT Installer"' 2>/dev/null
+        echo "Installing Ollama application..." >&2
         
         MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse 2>&1)
         MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep "/Volumes" | awk -F'\t' '{print $NF}')
@@ -392,9 +392,30 @@ EOF
             ln -sf /Applications/Ollama.app/Contents/Resources/ollama /usr/local/bin/ollama
             
             echo "Ollama installed successfully" >&2
-            osascript -e 'display notification "Ollama installed successfully ✓" with title "NebulonGPT Installer"' 2>/dev/null
             
             sed -i '' 's/OLLAMA_INSTALLED=false/OLLAMA_INSTALLED=true/' "$SESSION_FILE"
+            
+            # Start Ollama after installation
+            echo "Starting Ollama for first time setup..." >&2
+            
+            # Get the actual user (not root)
+            ACTUAL_USER="${USER}"
+            if [ "$ACTUAL_USER" = "root" ]; then
+                ACTUAL_USER=$(stat -f "%Su" /dev/console)
+            fi
+            
+            # Start Ollama as the actual user
+            sudo -u "$ACTUAL_USER" open -a "Ollama" 2>/dev/null
+            
+            # Wait for Ollama to be ready
+            echo "Waiting for Ollama to start..." >&2
+            for i in {1..60}; do
+                if curl -s --connect-timeout 2 http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
+                    echo "Ollama is now running" >&2
+                    break
+                fi
+                sleep 1
+            done
         else
             hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
             rm -f "$DMG_PATH"
