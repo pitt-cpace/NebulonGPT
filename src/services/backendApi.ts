@@ -1,14 +1,36 @@
 import axios from 'axios';
 
+// Helper function to detect if running in Electron
+const isElectronEnvironment = (): boolean => {
+  return !!(
+    (window as any).isElectron || 
+    (window as any).electronAPI || 
+    (window as any).require ||
+    (window.navigator && window.navigator.userAgent && window.navigator.userAgent.includes('Electron'))
+  );
+};
+
 // Get backend URL based on how the app is being accessed
 const getBackendURL = (): string => {
   const hostname = window.location.hostname;
   const port = window.location.port;
   const protocol = window.location.protocol;
   
-  // Check if accessing via network (not localhost/127.0.0.1)
+  // Scenario 1: Electron mode (production or dev) - always use direct connection to backend
+  // In Electron production, the app loads from file:// protocol, so hostname is empty
+  if (isElectronEnvironment()) {
+    // Use current hostname to support IP address access (127.0.0.1, 10.211.33.32, etc.)
+    // Default to 'localhost' if hostname is empty (file:// protocol in Electron production)
+    const electronHostname = hostname || 'localhost';
+    const electronUrl = `http://${electronHostname}:3001`;
+    console.log(`Using Backend URL (Electron mode): ${electronUrl}`);
+    return electronUrl;
+  }
+  
+  // Scenario 2: Check if accessing via network (not localhost/127.0.0.1)
   // This takes priority because remote devices can't reach "localhost"
-  const isRemoteIP = hostname !== 'localhost' && hostname !== '127.0.0.1';
+  const isNetworkAccess = hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.startsWith('192.168.') === false;
+  const isRemoteIP = hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '';
   
   // For network/remote access: use the same host (HTTPS proxy handles routing)
   if (isRemoteIP) {
