@@ -2,91 +2,408 @@
 
 # Log to system installer log
 echo "=== NebulonGPT PKG Installer ===" >&2
-echo "Checking for Ollama dependency..." >&2
 
-# Show notification that we're checking
-osascript -e 'display notification "Checking for required dependencies..." with title "NebulonGPT Installer"' 2>/dev/null
+# Clean up completion flag from previous installations (so new installs show completion dialog)
+rm -f /var/tmp/nebulon-completion-shown.txt
 
-# Check if Ollama is already installed by checking direct paths
-# (PATH is restricted in PKG installer sandbox, so we check actual files)
-if [ -d "/Applications/Ollama.app" ] || [ -f "/usr/local/bin/ollama" ]; then
-    # Try to get version from CLI if available
-    if [ -f "/usr/local/bin/ollama" ]; then
-        OLLAMA_VERSION=$(/usr/local/bin/ollama --version 2>/dev/null | head -n 1)
-    else
-        OLLAMA_VERSION="installed"
-    fi
-    echo "Ollama is already installed: $OLLAMA_VERSION" >&2
-    
-    # Notify user - Ollama exists
-    osascript -e 'display notification "Ollama is already installed" with title "NebulonGPT Installer"' 2>/dev/null
-    
+# Session file to track if user already made choices (prevents duplicate dialogs)
+SESSION_FILE="/var/tmp/nebulon-installer-session.txt"
+MODEL_FILE="/var/tmp/nebulon-chosen-model.txt"
+
+# Check if user already completed the selection dialogs in this session
+if [ -f "$SESSION_FILE" ]; then
+    echo "User selections already made, skipping dialogs" >&2
+    exit 0
+fi
+
+echo "Starting component selection..." >&2
+
+# Get system RAM in GB
+TOTAL_RAM_BYTES=$(sysctl -n hw.memsize 2>/dev/null)
+TOTAL_RAM_GB=$((TOTAL_RAM_BYTES / 1024 / 1024 / 1024))
+echo "System RAM: ${TOTAL_RAM_GB}GB" >&2
+
+# Determine recommended model based on RAM
+if [ "$TOTAL_RAM_GB" -ge 16 ]; then
+    RECOMMENDED_MODEL="gpt-oss:20b"
+    RECOMMENDED_ITEM="GPT-OSS 20B (Recommended - 16GB+ RAM)"
+    MODEL_SIZE="~12GB"
+elif [ "$TOTAL_RAM_GB" -ge 12 ]; then
+    RECOMMENDED_MODEL="mistral:7b"
+    RECOMMENDED_ITEM="Mistral 7B (Recommended - 12GB+ RAM)"
+    MODEL_SIZE="~4GB"
 else
-    echo "Ollama not found. Installing..." >&2
-    
-    # Show dialog that we're installing Ollama
-    osascript -e 'display dialog "Installing Ollama (required for AI features)\n\nThis may take a few minutes...\n\nPlease wait..." with title "NebulonGPT Installer" buttons {"OK"} default button "OK" with icon note giving up after 5' 2>/dev/null &
-    
-    # Download and install Ollama for macOS using DMG
-    echo "Downloading Ollama DMG..." >&2
-    DMG_PATH="/tmp/Ollama.dmg"
-    
-    if curl -L -o "$DMG_PATH" https://ollama.com/download/Ollama.dmg; then
-        echo "DMG downloaded successfully" >&2
-        
-        # Mount the DMG
-        echo "Mounting Ollama DMG..." >&2
-        MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse 2>&1)
-        MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep "Volumes" | awk '{print $3}')
-        
-        if [ -n "$MOUNT_POINT" ] && [ -d "$MOUNT_POINT/Ollama.app" ]; then
-            echo "Copying Ollama.app to /Applications..." >&2
+    RECOMMENDED_MODEL="granite3.1-moe:1b"
+    RECOMMENDED_ITEM="Granite 3.1 1B (Recommended - 8GB+ RAM)"
+    MODEL_SIZE="~1GB"
+fi
 
-            
-            # Copy the app
-            cp -R "$MOUNT_POINT/Ollama.app" /Applications/
-            
-            # Unmount the DMG
-            echo "Unmounting DMG..." >&2
-            hdiutil detach "$MOUNT_POINT" -quiet
-            
-            # Clean up downloaded DMG
-            rm -f "$DMG_PATH"
-            
-            # Create symlink for CLI access
-            echo "Creating CLI symlink..." >&2
-            mkdir -p /usr/local/bin
-            ln -sf /Applications/Ollama.app/Contents/Resources/ollama /usr/local/bin/ollama
-            
-            # Verify installation
-            if [ -f /usr/local/bin/ollama ]; then
-                OLLAMA_VERSION=$(/usr/local/bin/ollama --version 2>/dev/null | head -n 1)
-                echo "Ollama installed successfully: $OLLAMA_VERSION" >&2
-                
-                # Notify success
-                osascript -e 'display notification "Ollama installed successfully" with title "NebulonGPT Installer"' 2>/dev/null
-            else
-                echo "Warning: Ollama CLI symlink could not be created" >&2
-            fi
-        else
-            echo "Warning: Could not mount Ollama DMG or find Ollama.app" >&2
-            hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
-            rm -f "$DMG_PATH"
-            
-            # Show warning dialog
-            osascript -e 'display dialog "Ollama installation could not be completed.\n\nYou can install it manually after NebulonGPT installation from:\n\nhttps://ollama.com" with title "NebulonGPT Installer" buttons {"OK"} default button "OK" with icon caution' 2>/dev/null
-            
-            exit 0  # Don't fail the installation
-        fi
-    else
-        echo "Warning: Failed to download Ollama DMG" >&2
-        rm -f "$DMG_PATH"
-        
-        # Show warning dialog
-        osascript -e 'display dialog "Ollama installation could not be completed.\n\nYou can install it manually after NebulonGPT installation from:\n\nhttps://ollama.com" with title "NebulonGPT Installer" buttons {"OK"} default button "OK" with icon caution' 2>/dev/null
-        
-        exit 0  # Don't fail the installation
+# Check if Ollama is already installed
+OLLAMA_INSTALLED="false"
+if [ -d "/Applications/Ollama.app" ] || [ -f "/usr/local/bin/ollama" ]; then
+    OLLAMA_INSTALLED="true"
+    echo "Ollama is already installed" >&2
+fi
+
+# Check if Ollama is running and get installed models
+OLLAMA_RUNNING="false"
+INSTALLED_MODELS=""
+INSTALLED_MODELS_RAW=""
+if curl -s --connect-timeout 2 http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
+    OLLAMA_RUNNING="true"
+    INSTALLED_MODELS_RAW=$(curl -s http://127.0.0.1:11434/api/tags 2>/dev/null)
+    INSTALLED_MODELS=$(echo "$INSTALLED_MODELS_RAW" | grep -o '"name":"[^"]*"' | cut -d'"' -f4 | tr '\n' ', ' | sed 's/,$//')
+    echo "Ollama is running. Installed models: $INSTALLED_MODELS" >&2
+fi
+
+# ============================================
+# QUICK CHECK: If everything is already set up, skip all dialogs
+# ============================================
+
+RECOMMENDED_MODEL_EXISTS="false"
+if [ "$OLLAMA_RUNNING" = "true" ]; then
+    if echo "$INSTALLED_MODELS_RAW" | grep -q "\"name\":\"$RECOMMENDED_MODEL\""; then
+        RECOMMENDED_MODEL_EXISTS="true"
+    elif echo "$INSTALLED_MODELS_RAW" | grep -q "\"name\":\"${RECOMMENDED_MODEL}:latest\""; then
+        RECOMMENDED_MODEL_EXISTS="true"
     fi
 fi
 
-echo "Proceeding with NebulonGPT installation..." >&2
+# If Ollama is running AND recommended model exists, skip ALL dialogs
+if [ "$OLLAMA_INSTALLED" = "true" ] && [ "$OLLAMA_RUNNING" = "true" ] && [ "$RECOMMENDED_MODEL_EXISTS" = "true" ]; then
+    echo "Everything is already set up (Ollama running + recommended model installed)" >&2
+    echo "Skipping all dialogs, proceeding directly with NebulonGPT installation" >&2
+    
+    echo "OLLAMA_INSTALLED=true" > "$SESSION_FILE"
+    echo "CHOSEN_MODEL=$RECOMMENDED_MODEL" >> "$SESSION_FILE"
+    echo "NEED_DOWNLOAD_MODEL=false" >> "$SESSION_FILE"
+    echo "$RECOMMENDED_MODEL" > "$MODEL_FILE"
+    chmod 666 "$MODEL_FILE" 2>/dev/null
+    chmod 666 "$SESSION_FILE" 2>/dev/null
+    
+    echo "Preinstall complete (silent - everything ready)" >&2
+    exit 0
+fi
+
+# ============================================
+# STEP 1: COMPONENT SELECTION DIALOG
+# ============================================
+
+DIALOG_MSG="NebulonGPT requires Ollama to run AI models locally."
+
+if [ "$OLLAMA_INSTALLED" = "true" ]; then
+    if [ "$OLLAMA_RUNNING" = "true" ]; then
+        DIALOG_MSG+="
+Ollama is already installed and running."
+    else
+        DIALOG_MSG+="
+Ollama is installed but not running."
+    fi
+else
+    DIALOG_MSG+="
+Ollama will be installed automatically."
+fi
+
+DIALOG_MSG+="
+
+On the next screen, you'll be able to select which AI model to install. Here are the available options:
+
+• GPT-OSS 20B (Best Performance)
+  For advanced tasks and complex reasoning
+  Requires: 16GB+ RAM | Download: ~12GB
+
+• Mistral 7B (Balanced)
+  Good performance for general use
+  Requires: 12GB+ RAM | Download: ~4GB
+
+• Granite 3.1 1B (Lightweight)
+  Fast responses on limited hardware
+  Requires: 8GB+ RAM | Download: ~1GB"
+
+if [ -n "$INSTALLED_MODELS" ]; then
+    DIALOG_MSG+="
+Currently installed models: $INSTALLED_MODELS"
+fi
+
+osascript <<EOF
+display dialog "$DIALOG_MSG" with title "NebulonGPT Installer - Component Selection" buttons {"Cancel Installation", "Continue"} default button "Continue" with icon note
+EOF
+
+if [ $? -ne 0 ]; then
+    echo "User cancelled installation at component selection" >&2
+    exit 1
+fi
+
+# ============================================
+# STEP 2: MODEL SELECTION (with recommended pre-selected)
+# ============================================
+
+# Extract just the model name for the recommendation text
+RECOMMENDED_MODEL_NAME=$(echo "$RECOMMENDED_ITEM" | cut -d'(' -f1 | sed 's/ *$//')
+
+# Map the recommended model to the new dialog format
+case "$RECOMMENDED_MODEL" in
+    "gpt-oss:20b")
+        DEFAULT_ITEM="GPT-OSS 20B (Best - 16GB+ RAM)"
+        ;;
+    "mistral:7b")
+        DEFAULT_ITEM="Mistral 7B (Balanced - 12GB+ RAM)"
+        ;;
+    "granite3.1-moe:1b")
+        DEFAULT_ITEM="Granite 3.1 1B (Light - 8GB+ RAM)"
+        ;;
+esac
+
+# Loop for model selection (allows going back if user clicks Skip)
+while true; do
+    SELECTED_MODEL=$(osascript <<EOF
+set modelList to {"GPT-OSS 20B (Best - 16GB+ RAM)", "Mistral 7B (Balanced - 12GB+ RAM)", "Granite 3.1 1B (Light - 8GB+ RAM)"}
+set defaultItem to "$DEFAULT_ITEM"
+set modelChoice to choose from list modelList with title "NebulonGPT Installer - Model Selection" with prompt "Select an AI model to install:
+
+Based on your system (${TOTAL_RAM_GB}GB RAM), we recommend:
+$RECOMMENDED_MODEL_NAME
+
+Note: You can install additional models later using:
+ollama pull <model-name>" default items {defaultItem} OK button name "Install Model" cancel button name "Skip"
+if modelChoice is false then
+    return "SKIP"
+else
+    return item 1 of modelChoice
+end if
+EOF
+)
+
+    if [ "$SELECTED_MODEL" = "SKIP" ]; then
+        echo "User clicked Skip, showing warning..." >&2
+        
+        # Show warning about needing at least one model
+        SKIP_RESPONSE=$(osascript <<EOF
+display dialog "⚠️ Warning: No AI Model Selected
+
+NebulonGPT requires at least one AI model installed to function. Without a model, the application will not be able to process your requests.
+
+You can install a model later using:
+ollama pull <model-name>
+
+What would you like to do?" with title "NebulonGPT Installer" buttons {"Go Back", "Continue Without Model"} default button "Go Back" with icon caution
+return button returned of result
+EOF
+)
+        
+        if [ "$SKIP_RESPONSE" = "Go Back" ]; then
+            echo "User chose to go back to model selection" >&2
+            continue  # Loop back to model selection
+        else
+            echo "User chose to continue without model" >&2
+            CHOSEN_MODEL=""
+            MODEL_SIZE=""
+            break  # Exit the loop
+        fi
+    else
+        echo "User selected model: $SELECTED_MODEL" >&2
+        break  # Exit the loop
+    fi
+done
+
+# Map selection to actual model name
+case "$SELECTED_MODEL" in
+    *"GPT-OSS 20B"*)
+        CHOSEN_MODEL="gpt-oss:20b"
+        MODEL_SIZE="~12GB"
+        ;;
+    *"Mistral 7B"*)
+        CHOSEN_MODEL="mistral:7b"
+        MODEL_SIZE="~4GB"
+        ;;
+    *"Granite 3.1 1B"*)
+        CHOSEN_MODEL="granite3.1-moe:1b"
+        MODEL_SIZE="~1GB"
+        ;;
+    *)
+        CHOSEN_MODEL=""
+        MODEL_SIZE=""
+        ;;
+esac
+
+# Check if chosen model already exists
+NEED_DOWNLOAD_MODEL="true"
+if [ -n "$CHOSEN_MODEL" ] && [ "$OLLAMA_RUNNING" = "true" ]; then
+    if echo "$INSTALLED_MODELS_RAW" | grep -q "\"name\":\"$CHOSEN_MODEL\""; then
+        NEED_DOWNLOAD_MODEL="false"
+    fi
+fi
+
+# ============================================
+# STEP 3: WARNING & AGREEMENT DIALOG
+# ============================================
+
+WARNING_MSG="
+Component(s) listed below are third-party applications not developed by CPACE but are necessary for NebulonGPT to run correctly.
+
+You can install them yourself from their official websites or let the NebulonGPT Installer handle the setup automatically for your convenience.
+
+Note: A Terminal window may open during installation to show download progress. If prompted, please allow Terminal access to complete the setup.
+
+Installation Summary:
+• Ollama: "
+
+if [ "$OLLAMA_INSTALLED" = "true" ]; then
+    WARNING_MSG+="Already installed ✓"
+else
+    WARNING_MSG+="Will be installed"
+fi
+
+if [ -n "$CHOSEN_MODEL" ]; then
+    if [ "$NEED_DOWNLOAD_MODEL" = "true" ]; then
+        WARNING_MSG+="
+• AI Model: $CHOSEN_MODEL (will be downloaded)"
+    else
+        WARNING_MSG+="
+• AI Model: $CHOSEN_MODEL (already installed ✓)"
+    fi
+else
+    WARNING_MSG+="
+• AI Model: Skipped"
+fi
+
+WARNING_MSG+="
+
+
+Do you agree to proceed with the installation?
+"
+
+AGREEMENT=$(osascript <<EOF
+display dialog "$WARNING_MSG" with title "NebulonGPT Installer - Agreement" buttons {"Cancel", "I Agree & Install"} default button "I Agree & Install" with icon caution
+return button returned of result
+EOF
+)
+
+if [ "$AGREEMENT" = "Cancel" ] || [ -z "$AGREEMENT" ]; then
+    echo "User cancelled installation at agreement" >&2
+    exit 1
+fi
+
+echo "User agreed to installation" >&2
+
+# ============================================
+# SAVE SESSION
+# ============================================
+
+echo "OLLAMA_INSTALLED=$OLLAMA_INSTALLED" > "$SESSION_FILE"
+echo "CHOSEN_MODEL=$CHOSEN_MODEL" >> "$SESSION_FILE"
+echo "NEED_DOWNLOAD_MODEL=$NEED_DOWNLOAD_MODEL" >> "$SESSION_FILE"
+echo "MODEL_SIZE=$MODEL_SIZE" >> "$SESSION_FILE"
+echo "TIMESTAMP=$(date)" >> "$SESSION_FILE"
+
+echo "$CHOSEN_MODEL" > "$MODEL_FILE"
+chmod 666 "$MODEL_FILE" 2>/dev/null
+chmod 666 "$SESSION_FILE" 2>/dev/null
+
+# ============================================
+# STEP 4: INSTALL OLLAMA IF NEEDED
+# ============================================
+
+if [ "$OLLAMA_INSTALLED" = "false" ]; then
+    echo "Installing Ollama..." >&2
+    
+    DMG_PATH="/tmp/Ollama.dmg"
+    PROGRESS_SCRIPT="/tmp/nebulon-download-ollama.sh"
+    DONE_FLAG="/tmp/nebulon-ollama-done.txt"
+    
+    rm -f "$DONE_FLAG"
+    
+    cat > "$PROGRESS_SCRIPT" << 'DLSCRIPT'
+#!/bin/bash
+DMG_PATH="/tmp/Ollama.dmg"
+DONE_FLAG="/tmp/nebulon-ollama-done.txt"
+
+clear
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║           NebulonGPT Installer - Downloading Ollama          ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  Downloading from ollama.com (~100MB)                        ║"
+echo "║  Please wait while the download completes...                 ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+
+curl -L --progress-bar -o "$DMG_PATH" https://ollama.com/download/Ollama.dmg
+EXIT_CODE=$?
+
+echo ""
+if [ $EXIT_CODE -eq 0 ] && [ -f "$DMG_PATH" ]; then
+    echo "✅ Download complete!"
+    echo "success" > "$DONE_FLAG"
+else
+    echo "❌ Download failed!"
+    echo "failed" > "$DONE_FLAG"
+fi
+echo ""
+echo "Download complete! This window will close in 2 seconds..."
+sleep 2
+
+# Schedule window close to happen after this script exits (prevents "terminate process" warning)
+(sleep 1 && osascript -e 'tell application "Terminal" to close front window' 2>/dev/null) &
+
+exit 0
+DLSCRIPT
+    chmod +x "$PROGRESS_SCRIPT"
+    
+    osascript <<EOF
+tell application "Terminal"
+    activate
+    do script "$PROGRESS_SCRIPT"
+end tell
+EOF
+    
+    DOWNLOAD_RESULT=1
+    for i in {1..600}; do
+        sleep 1
+        if [ -f "$DONE_FLAG" ]; then
+            if grep -q "success" "$DONE_FLAG" 2>/dev/null; then
+                DOWNLOAD_RESULT=0
+            fi
+            break
+        fi
+    done
+    
+    # Give user a moment to see the completion message
+    sleep 2
+    
+    # Close the Terminal window from here (after script has exited)
+    osascript -e 'tell application "Terminal" to close (first window whose name contains "nebulon")' 2>/dev/null
+    
+    # Clean up
+    rm -f "$PROGRESS_SCRIPT" "$DONE_FLAG"
+    
+    if [ $DOWNLOAD_RESULT -eq 0 ] && [ -f "$DMG_PATH" ]; then
+        echo "DMG downloaded successfully" >&2
+        osascript -e 'display notification "Installing Ollama application..." with title "NebulonGPT Installer"' 2>/dev/null
+        
+        MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse 2>&1)
+        MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep "/Volumes" | awk -F'\t' '{print $NF}')
+        
+        if [ -n "$MOUNT_POINT" ] && [ -d "$MOUNT_POINT/Ollama.app" ]; then
+            cp -R "$MOUNT_POINT/Ollama.app" /Applications/
+            hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
+            rm -f "$DMG_PATH"
+            mkdir -p /usr/local/bin
+            ln -sf /Applications/Ollama.app/Contents/Resources/ollama /usr/local/bin/ollama
+            
+            echo "Ollama installed successfully" >&2
+            osascript -e 'display notification "Ollama installed successfully ✓" with title "NebulonGPT Installer"' 2>/dev/null
+            
+            sed -i '' 's/OLLAMA_INSTALLED=false/OLLAMA_INSTALLED=true/' "$SESSION_FILE"
+        else
+            hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
+            rm -f "$DMG_PATH"
+            osascript -e 'display dialog "Ollama installation could not be completed.\n\nYou can install it manually from:\nhttps://ollama.com" with title "NebulonGPT Installer" buttons {"OK"} with icon caution' 2>/dev/null
+        fi
+    else
+        rm -f "$DMG_PATH"
+        osascript -e 'display dialog "Ollama download failed.\n\nYou can install it manually from:\nhttps://ollama.com" with title "NebulonGPT Installer" buttons {"OK"} with icon caution' 2>/dev/null
+    fi
+fi
+
+echo "Preinstall complete. Proceeding with NebulonGPT installation..." >&2
