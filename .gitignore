@@ -1,6 +1,6 @@
 ## VOsk and Kokoro Models
-backend/models/
-backend/models/!*.zip
+backend/models/*
+!backend/models/kokoro/
 
 # Logs
 logs
