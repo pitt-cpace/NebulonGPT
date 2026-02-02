@@ -2,6 +2,10 @@
 
 # Log to system installer log
 echo "=== NebulonGPT PKG Installer ===" >&2
+echo "Checking for Ollama dependency..." >&2
+
+# Show notification that we're checking
+osascript -e 'display notification "Checking for required dependencies..." with title "NebulonGPT Installer"' 2>/dev/null
 
 # Clean up completion flag from previous installations (so new installs show completion dialog)
 rm -f /var/tmp/nebulon-completion-shown.txt

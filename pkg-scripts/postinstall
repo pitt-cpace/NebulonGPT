@@ -2,9 +2,13 @@
 
 echo "Setting up NebulonGPT resources..." >&2
 
+# Show notification that setup is starting
+osascript -e 'display notification "Setting up application resources..." with title "NebulonGPT Installer"' 2>/dev/null
+
 # Get the user who invoked the installer
 CURRENT_USER="${USER}"
 if [ "$CURRENT_USER" = "root" ]; then
+    # If running as root, get the actual user
     CURRENT_USER=$(stat -f "%Su" /dev/console)
 fi
 
