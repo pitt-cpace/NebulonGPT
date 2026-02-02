@@ -20,6 +20,8 @@ import {
   InputAdornment,
   CircularProgress,
   Tooltip,
+  Alert,
+  Link,
 } from '@mui/material';
 import { 
   Settings as SettingsIcon, 
@@ -41,6 +43,7 @@ import {
 import { ModelType } from '../types';
 import { VoskRecognitionService } from '../services/vosk';
 import { ttsService, TTSStatus } from '../services/ttsService';
+import { checkTtsModels } from '../services/backendApi';
 import VoskModelSelector from './VoskModelSelector';
 import VoskModelManager from './VoskModelManager';
 import * as styles from '../styles/components/SettingsDialog.styles';
@@ -113,6 +116,10 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     ethernet: []
   });
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  
+  // TTS Models missing warning state
+  const [showTtsModelsWarning, setShowTtsModelsWarning] = useState(false);
+  const [dataDirectoryPath, setDataDirectoryPath] = useState<string>('');
 
   // Update local state when props change
   useEffect(() => {
@@ -162,8 +169,53 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     };
   }, []);
 
+  // Check TTS models via Python backend API
+  const checkTtsModelsExist = async (): Promise<{ exists: boolean; dataDirectory: string; platform: string }> => {
+    try {
+      // Call Python backend API using backendApi (handles correct URL)
+      const result = await checkTtsModels();
+      return {
+        exists: result.exists || false,
+        dataDirectory: result.dataDirectory || '',
+        platform: result.platform || ''
+      };
+    } catch (error) {
+      console.error('Error checking TTS models:', error);
+      // Return default values if check fails (assume exists to not block user)
+      return { exists: true, dataDirectory: '', platform: '' };
+    }
+  };
+
   // Handle TTS settings changes (local only, not saved until Save button)
   const handleFullVoiceModeChange = async (checked: boolean) => {
+    // If enabling Full Voice Mode, check if TTS models exist first
+    if (checked) {
+      const result = await checkTtsModelsExist();
+      
+      if (!result.exists) {
+        console.log('⚠️ TTS models not found');
+        
+        // Set the data directory path for display
+        if (result.dataDirectory) {
+          setDataDirectoryPath(result.dataDirectory);
+        } else {
+          // Fallback path based on platform
+          if (result.platform === 'windows') {
+            setDataDirectoryPath('%USERPROFILE%\\.nebulon-gpt');
+          } else {
+            setDataDirectoryPath('~/.nebulon-gpt');
+          }
+        }
+        
+        setShowTtsModelsWarning(true);
+        // Don't enable Full Voice Mode if models are missing
+        return;
+      }
+    }
+    
+    // Hide warning if disabling or models exist
+    setShowTtsModelsWarning(false);
+    
     setFullVoiceMode(checked);
     // Update service temporarily for immediate UI feedback
     ttsService.updateSettings({ fullVoiceMode: checked });
@@ -307,6 +359,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     // Reset Ollama API URL and Key to original values
     setOllamaApiUrl(originalOllamaApiUrl);
     setOllamaApiKey(originalOllamaApiKey);
+    
+    // Reset TTS models warning
+    setShowTtsModelsWarning(false);
   };
 
   const handleSave = () => {
@@ -640,6 +695,47 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
               }
               sx={{ mb: 2, alignItems: 'flex-start' }}
             />
+
+            {/* TTS Models Missing Warning */}
+            {showTtsModelsWarning && (
+              <Alert 
+                severity="warning" 
+                sx={{ mb: 2 }}
+                onClose={() => setShowTtsModelsWarning(false)}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  TTS Models Not Found
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  To use Full Voice Mode, please download the required TTS models from GitHub and extract them to:
+                </Typography>
+                <Typography 
+                  variant="body2" 
+                  sx={{ 
+                    fontFamily: 'monospace', 
+                    backgroundColor: 'action.hover',
+                    p: 1,
+                    borderRadius: 1,
+                    mb: 1,
+                    wordBreak: 'break-all'
+                  }}
+                >
+                  {dataDirectoryPath || '~/.nebulon-gpt'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Download the TTS models ZIP file from the{' '}
+                  <Link 
+                    href="https://github.com/pitt-cpace/NebulonGPT/releases" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    sx={{ cursor: 'pointer' }}
+                  >
+                    GitHub Releases page
+                  </Link>
+                  , then extract and copy/overwrite the contents to the path above.
+                </Typography>
+              </Alert>
+            )}
 
             {fullVoiceMode && (
               <FormControl component="fieldset" sx={{ mb: 2 }}>

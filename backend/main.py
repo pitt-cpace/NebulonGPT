@@ -912,6 +912,69 @@ async def health_check():
     }
 
 # =============================================================================
+# TTS MODELS CHECK ENDPOINT
+# =============================================================================
+
+@app.get("/api/tts/models-check")
+async def check_tts_models():
+    """Check if TTS models exist in the huggingface cache directory"""
+    try:
+        # Get the HuggingFace cache directory from environment or use default
+        hf_home = os.environ.get('HF_HOME', '')
+        
+        if not hf_home:
+            # Try to construct the default path based on OS
+            home_dir = os.path.expanduser('~')
+            hf_home = os.path.join(home_dir, '.nebulon-gpt', 'huggingface')
+        
+        # The TTS models are stored in the 'hub' subdirectory
+        tts_models_path = os.path.join(hf_home, 'hub')
+        
+        # Get the base data directory (.nebulon-gpt)
+        data_dir = os.path.dirname(hf_home)
+        
+        logger.info(f"Checking TTS models at: {tts_models_path}")
+        
+        # Check if directory exists and has content
+        exists = False
+        if os.path.exists(tts_models_path) and os.path.isdir(tts_models_path):
+            contents = os.listdir(tts_models_path)
+            # Filter out system files
+            actual_content = [
+                item for item in contents 
+                if not item.startswith('.') and item not in ['Thumbs.db', 'desktop.ini']
+            ]
+            exists = len(actual_content) > 0
+            logger.info(f"TTS models directory exists, has models: {exists}, contents: {len(actual_content)}")
+        else:
+            logger.info(f"TTS models directory not found at: {tts_models_path}")
+        
+        # Determine platform for displaying correct path to user
+        current_platform = platform.system().lower()
+        if current_platform == 'darwin':
+            current_platform = 'macos'
+        elif current_platform == 'windows':
+            current_platform = 'windows'
+        else:
+            current_platform = 'linux'
+        
+        return {
+            "exists": exists,
+            "path": tts_models_path,
+            "dataDirectory": data_dir,
+            "platform": current_platform
+        }
+    except Exception as e:
+        logger.error(f"Error checking TTS models: {e}")
+        return {
+            "exists": False,
+            "path": "",
+            "dataDirectory": "",
+            "platform": platform.system().lower(),
+            "error": str(e)
+        }
+
+# =============================================================================
 # MAIN
 # =============================================================================
 

@@ -160,6 +160,18 @@ export const checkHealth = async () => {
   }
 };
 
+// TTS models check endpoint
+export const checkTtsModels = async (): Promise<{ exists: boolean; path: string; dataDirectory: string; platform: string }> => {
+  try {
+    const response = await backendApi.get('/api/tts/models-check');
+    return response.data;
+  } catch (error) {
+    console.error('Error checking TTS models:', error);
+    // Return default values if check fails (assume exists to not block user)
+    return { exists: true, path: '', dataDirectory: '', platform: '' };
+  }
+};
+
 // WebSocket URL helpers
 export const getVoskWebSocketURL = (): string => {
   return process.env.REACT_APP_VOSK_WS_URL || 'ws://localhost:3001/vosk';
