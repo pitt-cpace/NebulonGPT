@@ -454,14 +454,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         setInterimTranscript(result.partial);   
         
         // Check for "stop stop" command in partial results when in full voice mode
-        if (isFullVoiceMode && isListening) {
+/*         if (isFullVoiceMode && isListening) {
           const partialLower = result.partial.toLowerCase().trim();
           if (detectStopCommand(partialLower)) {
             console.log('🛑 "Stop stop" command detected in partial result - stopping microphone');
             await stopMicListening();
             return;
           }
-        }
+        } */
         
         ttsService.pause();
         voskRecognition.clearSilenceTimer();
@@ -495,16 +495,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         const ttsSettings = ttsService.getSettings();
         const isFullVoiceMode = ttsSettings.fullVoiceMode;
-
-        // Check for "stop stop" command in final results when in full voice mode
-        if (isFullVoiceMode && isListening) {
-          const finalTextLower = finalTranscriptRef.current.toLowerCase().trim();
-          if (detectStopCommand(finalTextLower)) {
-            console.log('🛑 "Stop stop" command detected in final result - stopping microphone');
-            await stopMicListening();
-            return;
-          }
-        }
 
         ttsService.pause();
         voskRecognition.clearSilenceTimer();
@@ -4601,15 +4591,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     </Typography>
                     
                     {/* Helpful tip about "stop stop" command */}
-                    <Typography variant="caption" sx={{ 
-                      fontSize: '0.75rem', 
+{/*                     <Typography variant="caption" sx={{ 
+                      fontSize: '0.5rem', 
                       opacity: 0.8, 
                       textAlign: 'center',
                       fontStyle: 'italic',
                       mt: 0.5
                     }}>
-                      💡 Say "stop stop" to stop listening
-                    </Typography>
+                      Say "stop stop" to stop
+                    </Typography> */}
                     
                     {/* Real-time audio waveform visualization */}
                     <WaveformVisualization 
