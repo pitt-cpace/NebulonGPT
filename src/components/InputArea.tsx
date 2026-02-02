@@ -478,37 +478,40 @@ const InputArea: React.FC<InputAreaProps> = ({
     const fileArray = Array.from(files);
     
     fileArray.forEach(file => {
+      // IMAGE UPLOAD DISABLED - Only text-based document files are allowed
       if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        
-        reader.onload = (event) => {
-          if (!event.target || typeof event.target.result !== 'string') return;
-          
-          const dataUrl = event.target.result;
-          const newAttachment: FileAttachment = {
-            id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            name: file.name,
-            type: 'image',
-            content: dataUrl,
-            size: file.size,
-            timestamp: new Date().toISOString(),
-          };
-          
-          setAttachments(prevAttachments => {
-            const updated = [...prevAttachments, newAttachment];
-            // Recalculate tokens with updated attachments
-            calculateTokens(message, updated);
-            return updated;
-          });
-        };
-        
-        reader.onerror = () => {
-          alert(`Error reading image: ${file.name}`);
-        };
-        
-        reader.readAsDataURL(file);
+        alert(`Image uploads are not supported. Only text-based document files are allowed (.txt, .doc, .docx).`);
+        return;
+        // const reader = new FileReader();
+        // 
+        // reader.onload = (event) => {
+        //   if (!event.target || typeof event.target.result !== 'string') return;
+        //   
+        //   const dataUrl = event.target.result;
+        //   const newAttachment: FileAttachment = {
+        //     id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        //     name: file.name,
+        //     type: 'image',
+        //     content: dataUrl,
+        //     size: file.size,
+        //     timestamp: new Date().toISOString(),
+        //   };
+        //   
+        //   setAttachments(prevAttachments => {
+        //     const updated = [...prevAttachments, newAttachment];
+        //     // Recalculate tokens with updated attachments
+        //     calculateTokens(message, updated);
+        //     return updated;
+        //   });
+        // };
+        // 
+        // reader.onerror = () => {
+        //   alert(`Error reading image: ${file.name}`);
+        // };
+        // 
+        // reader.readAsDataURL(file);
       } else if (file.name.endsWith('.pdf')) {
-        alert(`PDF files are not supported. Please use text (.txt), Word (.docx), or image files instead.`);
+        alert(`PDF files are not supported. Please use text files (.txt) or Word documents (.doc, .docx) instead.`);
       } else if (file.name.endsWith('.txt')) {
         const reader = new FileReader();
         
@@ -577,7 +580,7 @@ const InputArea: React.FC<InputAreaProps> = ({
         
         reader.readAsArrayBuffer(file);
       } else {
-        alert(`Only .txt, .docx, and image files are supported. Skipping ${file.name}`);
+        alert(`Only text-based document files are supported (.txt, .doc, .docx). Skipping ${file.name}`);
       }
     });
     
@@ -630,69 +633,81 @@ const InputArea: React.FC<InputAreaProps> = ({
       return;
     }
 
+    // IMAGE DRAG & DROP DISABLED - Only text-based document files are allowed
     // Second, check for image data (dragging images from within the page)
     const imageUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/html');
     
     if (imageUrl) {
-      try {
-        // Extract image URL if it's wrapped in HTML
-        let imgSrc = imageUrl;
-        if (imageUrl.includes('<img')) {
-          const match = imageUrl.match(/src=["']([^"']+)["']/);
-          if (match && match[1]) {
-            imgSrc = match[1];
-          }
+      // Check if it's an image and show alert
+      let imgSrc = imageUrl;
+      if (imageUrl.includes('<img')) {
+        const match = imageUrl.match(/src=["']([^"']+)["']/);
+        if (match && match[1]) {
+          imgSrc = match[1];
         }
-
-        // If it's a data URL (base64 image)
-        if (imgSrc.startsWith('data:image/')) {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-          const newAttachment: FileAttachment = {
-            id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            name: `dragged-image-${timestamp}.png`,
-            type: 'image',
-            content: imgSrc,
-            size: Math.round((imgSrc.length * 3) / 4), // Approximate size from base64
-            timestamp: new Date().toISOString(),
-          };
-          
-          setAttachments(prevAttachments => {
-            const updated = [...prevAttachments, newAttachment];
-            calculateTokens(message, updated);
-            return updated;
-          });
-        }
-        // If it's a regular URL, fetch and convert
-        else if (imgSrc.startsWith('http://') || imgSrc.startsWith('https://') || imgSrc.startsWith('/')) {
-          const response = await fetch(imgSrc);
-          const blob = await response.blob();
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-          
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            if (!event.target || typeof event.target.result !== 'string') return;
-            
-            const newAttachment: FileAttachment = {
-              id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              name: `dragged-image-${timestamp}.png`,
-              type: 'image',
-              content: event.target.result,
-              size: blob.size,
-              timestamp: new Date().toISOString(),
-            };
-            
-            setAttachments(prevAttachments => {
-              const updated = [...prevAttachments, newAttachment];
-              calculateTokens(message, updated);
-              return updated;
-            });
-          };
-          reader.readAsDataURL(blob);
-        }
-      } catch (error) {
-        console.error('Error processing dragged image:', error);
-        alert('Failed to process the dragged image. Please try copying and pasting instead.');
       }
+      if (imgSrc.startsWith('data:image/') || imgSrc.includes('image')) {
+        alert(`Image uploads are not supported. Only text-based document files are allowed (.txt, .doc, .docx).`);
+      }
+      // try {
+      //   // Extract image URL if it's wrapped in HTML
+      //   let imgSrc = imageUrl;
+      //   if (imageUrl.includes('<img')) {
+      //     const match = imageUrl.match(/src=["']([^"']+)["']/);
+      //     if (match && match[1]) {
+      //       imgSrc = match[1];
+      //     }
+      //   }
+
+      //   // If it's a data URL (base64 image)
+      //   if (imgSrc.startsWith('data:image/')) {
+      //     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      //     const newAttachment: FileAttachment = {
+      //       id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      //       name: `dragged-image-${timestamp}.png`,
+      //       type: 'image',
+      //       content: imgSrc,
+      //       size: Math.round((imgSrc.length * 3) / 4), // Approximate size from base64
+      //       timestamp: new Date().toISOString(),
+      //     };
+      //     
+      //     setAttachments(prevAttachments => {
+      //       const updated = [...prevAttachments, newAttachment];
+      //       calculateTokens(message, updated);
+      //       return updated;
+      //     });
+      //   }
+      //   // If it's a regular URL, fetch and convert
+      //   else if (imgSrc.startsWith('http://') || imgSrc.startsWith('https://') || imgSrc.startsWith('/')) {
+      //     const response = await fetch(imgSrc);
+      //     const blob = await response.blob();
+      //     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      //     
+      //     const reader = new FileReader();
+      //     reader.onload = (event) => {
+      //       if (!event.target || typeof event.target.result !== 'string') return;
+      //       
+      //       const newAttachment: FileAttachment = {
+      //         id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      //         name: `dragged-image-${timestamp}.png`,
+      //         type: 'image',
+      //         content: event.target.result,
+      //         size: blob.size,
+      //         timestamp: new Date().toISOString(),
+      //       };
+      //       
+      //       setAttachments(prevAttachments => {
+      //         const updated = [...prevAttachments, newAttachment];
+      //         calculateTokens(message, updated);
+      //         return updated;
+      //       });
+      //     };
+      //     reader.readAsDataURL(blob);
+      //   }
+      // } catch (error) {
+      //   console.error('Error processing dragged image:', error);
+      //   alert('Failed to process the dragged image. Please try copying and pasting instead.');
+      // }
     }
 
     e.dataTransfer.clearData();
@@ -710,25 +725,33 @@ const InputArea: React.FC<InputAreaProps> = ({
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       
-      // Handle images
+      // IMAGE PASTE DISABLED - Only text-based document files are allowed
+      // Handle images - block with alert message
       if (item.type.startsWith('image/')) {
         e.preventDefault(); // Prevent default paste behavior for images
-        const file = item.getAsFile();
-        if (file) {
-          // Generate a meaningful filename for pasted images
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-          const extension = item.type.split('/')[1] || 'png';
-          const renamedFile = new File([file], `pasted-image-${timestamp}.${extension}`, { type: file.type });
-          files.push(renamedFile);
-        }
+        alert(`Image uploads are not supported. Only text-based document files are allowed (.txt, .doc, .docx).`);
+        return;
+        // const file = item.getAsFile();
+        // if (file) {
+        //   // Generate a meaningful filename for pasted images
+        //   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        //   const extension = item.type.split('/')[1] || 'png';
+        //   const renamedFile = new File([file], `pasted-image-${timestamp}.${extension}`, { type: file.type });
+        //   files.push(renamedFile);
+        // }
       }
-      // Handle files (if browser supports it)
+      // Handle files (if browser supports it) - only text files allowed
       else if (item.kind === 'file') {
         const file = item.getAsFile();
-        if (file && (file.type.startsWith('image/') || file.name.endsWith('.txt') || file.name.endsWith('.docx'))) {
+        if (file && (file.name.endsWith('.txt') || file.name.endsWith('.docx') || file.name.endsWith('.doc'))) {
           e.preventDefault();
           files.push(file);
         }
+        // Block image files from file paste
+        // if (file && (file.type.startsWith('image/') || file.name.endsWith('.txt') || file.name.endsWith('.docx'))) {
+        //   e.preventDefault();
+        //   files.push(file);
+        // }
       }
     }
 
@@ -777,12 +800,12 @@ const InputArea: React.FC<InputAreaProps> = ({
           )}
         </Box>
 
-        {/* Hidden unified file input */}
+        {/* Hidden unified file input - only text-based files */}
         <input
           type="file"
           ref={fileInputRef}
           style={{ display: 'none' }}
-          accept=".txt,.docx,image/*"
+          accept=".txt,.docx,.doc"
           multiple
           onChange={handleFileSelect}
         />
