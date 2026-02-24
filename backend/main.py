@@ -356,6 +356,42 @@ def get_macos_wifi_interfaces():
         logger.debug(f"Could not get macOS WiFi interfaces: {e}")
     return wifi_interfaces
 
+def get_macos_hotspot_bridges():
+    """Get bridge interfaces used for Internet Sharing (hotspot) on macOS"""
+    hotspot_bridges = set()
+    try:
+        # Check for active bridge interfaces that are used for Internet Sharing
+        # Internet Sharing creates bridge100, bridge101, etc.
+        result = subprocess.run(
+            ['ifconfig'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            current_interface = None
+            for line in lines:
+                # Check for interface definition line (starts with interface name)
+                if line and not line.startswith('\t') and not line.startswith(' '):
+                    if ':' in line:
+                        current_interface = line.split(':')[0]
+                # Look for bridge interfaces with typical hotspot characteristics
+                # bridge100+ interfaces with member ap1 are hotspot bridges
+                if current_interface and current_interface.startswith('bridge'):
+                    # Check if this bridge has an IP in hotspot range (192.168.x.1 pattern)
+                    if 'inet ' in line:
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            ip = parts[1]
+                            # Hotspot bridges typically have .1 as the last octet
+                            if ip.endswith('.1') and not ip.startswith('127.'):
+                                hotspot_bridges.add(current_interface)
+                                logger.info(f"Detected macOS hotspot bridge: {current_interface} with IP {ip}")
+    except Exception as e:
+        logger.debug(f"Could not detect macOS hotspot bridges: {e}")
+    return hotspot_bridges
+
 def get_linux_interface_type(interface: str) -> str:
     """Determine interface type on Linux"""
     interface_lower = interface.lower()
@@ -452,12 +488,15 @@ async def get_network_info():
         is_windows = platform.system() == 'Windows'
         
         macos_wifi_interfaces = set()
+        macos_hotspot_bridges = set()
         windows_wifi_interfaces = set()
         windows_interface_descriptions = {}
         
         if is_macos:
             macos_wifi_interfaces = get_macos_wifi_interfaces()
+            macos_hotspot_bridges = get_macos_hotspot_bridges()
             logger.debug(f"macOS WiFi interfaces: {macos_wifi_interfaces}")
+            logger.info(f"macOS hotspot bridges: {macos_hotspot_bridges}")
         elif is_windows:
             windows_wifi_interfaces, windows_interface_descriptions = get_windows_wifi_interfaces()
             logger.info(f"Windows WiFi interfaces: {windows_wifi_interfaces}")
@@ -473,9 +512,13 @@ async def get_network_info():
                     if any(skip in interface_lower for skip in ['docker', 'veth', 'vmnet', 'vbox', 'loopback']):
                         continue
                 else:
-                    # On macOS/Linux, skip more interfaces
-                    if any(skip in interface_lower for skip in ['lo', 'docker', 'veth', 'br-', 'vmnet', 'vbox', 'awdl', 'llw', 'utun', 'gif', 'stf', 'anpi', 'bridge', 'loopback']):
-                        continue
+                    # On macOS/Linux, skip more interfaces but allow hotspot bridges
+                    # Check if this is a hotspot bridge before skipping
+                    is_hotspot_bridge = is_macos and interface in macos_hotspot_bridges
+                    
+                    if not is_hotspot_bridge:
+                        if any(skip in interface_lower for skip in ['lo', 'docker', 'veth', 'br-', 'vmnet', 'vbox', 'awdl', 'llw', 'utun', 'gif', 'stf', 'anpi', 'bridge', 'loopback']):
+                            continue
                 
                 addrs = netifaces.ifaddresses(interface)
                 if netifaces.AF_INET not in addrs:
@@ -492,8 +535,13 @@ async def get_network_info():
                     is_wifi = False
                     
                     if is_macos:
-                        # On macOS, check against known WiFi interfaces
-                        is_wifi = interface in macos_wifi_interfaces
+                        # On macOS, check against known WiFi interfaces and hotspot bridges
+                        if interface in macos_wifi_interfaces:
+                            is_wifi = True
+                            logger.debug(f"Interface {interface} ({ip}) -> WiFi (hardware WiFi)")
+                        elif interface in macos_hotspot_bridges:
+                            is_wifi = True
+                            logger.info(f"Interface {interface} ({ip}) -> WiFi (Internet Sharing hotspot)")
                     elif is_linux:
                         # On Linux, use interface naming conventions and /sys
                         is_wifi = get_linux_interface_type(interface) == 'wifi'
