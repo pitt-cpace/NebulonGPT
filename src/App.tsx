@@ -562,6 +562,62 @@ const App: React.FC = () => {
     }
   };
 
+  // Bulk delete multiple chats at once (for group selection feature)
+  const handleBulkDeleteChats = async (chatIds: string[]) => {
+    if (chatIds.length === 0) return;
+    
+    // Filter out all chats that are in the delete list
+    const chatIdSet = new Set(chatIds);
+    const updatedChats = chats.filter(chat => !chatIdSet.has(chat.id));
+    
+    // Immediately save to server to ensure deletions persist
+    try {
+      await saveChatsToServer(updatedChats);
+    } catch (error) {
+      console.error('Failed to save chats to server after bulk deletion:', error);
+      // Continue with local state update even if server save fails
+    }
+    
+    setChats(updatedChats);
+    
+    // Check if current chat was deleted
+    if (currentChat && chatIdSet.has(currentChat.id)) {
+      // Set the new current chat
+      const newCurrentChat = updatedChats.length > 0 ? updatedChats[0] : null;
+      setCurrentChat(newCurrentChat);
+      
+      // Update the selected model to match the new current chat's model
+      if (newCurrentChat && newCurrentChat.modelId) {
+        const chatModel = models.find(m => m.id === newCurrentChat.modelId);
+        if (chatModel) {
+          setSelectedModel(chatModel);
+        }
+      } else if (!newCurrentChat) {
+        // If no chats left, revert to default model
+        try {
+          const savedDefaultModelId = localStorage.getItem('defaultModelId');
+          if (savedDefaultModelId && models.length > 0) {
+            const defaultModel = models.find(m => m.id === savedDefaultModelId);
+            if (defaultModel) {
+              setSelectedModel(defaultModel);
+            } else {
+              // Fallback to first model if default not found
+              setSelectedModel(models[0]);
+            }
+          } else if (models.length > 0) {
+            // No default set, use first model
+            setSelectedModel(models[0]);
+          }
+        } catch (error) {
+          console.error('Failed to revert to default model after deleting all chats:', error);
+          if (models.length > 0) {
+            setSelectedModel(models[0]);
+          }
+        }
+      }
+    }
+  };
+
   const handleUpdateChatTitle = async (chatId: string, newTitle: string) => {
     const updatedChats = chats.map(chat => 
       chat.id === chatId 
@@ -1212,6 +1268,7 @@ const App: React.FC = () => {
         onCreateNewChat={handleCreateNewChat}
         onSelectChat={handleSelectChat}
         onDeleteChat={handleDeleteChat}
+        onBulkDeleteChats={handleBulkDeleteChats}
         onUpdateChatTitle={handleUpdateChatTitle}
         currentChatId={currentChat?.id}
         onLoadMoreChats={handleLoadMoreChats}
