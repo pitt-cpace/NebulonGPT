@@ -184,138 +184,261 @@ Var NeedToInstallAnything
 
 ; ============================================
 ; Macro: Download and Install Ollama
-; Downloads Ollama installer with progress and runs it
+; FIX 1: PowerShell verifies file size – exits 1 on incomplete download
+; FIX 2: NSIS file-existence guard as secondary safety net
+; FIX 3: MB_RETRYCANCEL so Retry is button 1 (first + default focus)
+; FIX 4: All MessageBox strings on single lines (no $\ continuation bug)
 ; ============================================
 !macro DownloadAndInstallOllama
-  ; First check if Ollama is already installed
   ${If} $OllamaInstalled == "1"
     DetailPrint "Ollama is already installed - skipping download"
   ${ElseIf} $InstallOllama == "1"
-    DetailPrint "Downloading Ollama installer (~1.2GB)..."
-    DetailPrint "Please wait, this may take several minutes..."
-    DetailPrint ""
-    
-    ; Download Ollama installer using PowerShell with progress output
+
     ReadEnvStr $0 "TEMP"
-    
-    ; Download using HttpWebRequest with manual progress tracking
-    nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url = \"https://ollama.com/download/OllamaSetup.exe\"; $dest = \"$0\OllamaSetup.exe\"; try { $req = [System.Net.HttpWebRequest]::Create($url); $resp = $req.GetResponse(); $total = $resp.ContentLength; Write-Host (\"Total size: {0:N0} MB\" -f ($total/1MB)); $stream = $resp.GetResponseStream(); $file = [System.IO.File]::Create($dest); $buffer = New-Object byte[] 1048576; $downloaded = 0; $lastPct = 0; while(($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) { $file.Write($buffer, 0, $read); $downloaded += $read; $pct = [int](($downloaded / $total) * 100); if($pct -ge $lastPct + 1) { $lastPct = $pct; Write-Host (\"Downloading: {0}%% - {1:N0} MB / {2:N0} MB\" -f $pct, ($downloaded/1MB), ($total/1MB)) } }; $file.Close(); $stream.Close(); $resp.Close(); Write-Host \"Download complete!\" } catch { Write-Host \"Error: $($_.Exception.Message)\"; Write-Host \"Trying curl fallback...\"; curl.exe -L -o $dest $url --progress-bar 2>&1; Write-Host \"Download complete!\" }"'
-    Pop $1
-    
-    ${If} $1 == 0
-      DetailPrint "Ollama downloaded successfully (1.2GB)"
+
+    ; ─────────────────────────────────────────
+    ; PHASE 1 – Download
+    ; ─────────────────────────────────────────
+    OllamaDownloadRetry:
+      ; Always wipe any partial file before attempting
+      Delete "$0\OllamaSetup.exe"
+      DetailPrint "Downloading Ollama installer (~1.2GB)..."
+      DetailPrint "Please wait, this may take several minutes..."
       DetailPrint ""
+
+      ; Improved PS script: validates file size and returns proper exit code
+      nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $url=\"https://ollama.com/download/OllamaSetup.exe\"; $dest=\"$0\OllamaSetup.exe\"; $min=104857600; try { $req=[System.Net.HttpWebRequest]::Create($url); $resp=$req.GetResponse(); $total=$resp.ContentLength; Write-Host (\"Total: {0:N0} MB\" -f ($total/1MB)); $stream=$resp.GetResponseStream(); $fs=[System.IO.File]::Create($dest); $buf=New-Object byte[] 1048576; $dl=0; $lp=0; while(($r=$stream.Read($buf,0,$buf.Length)) -gt 0){ $fs.Write($buf,0,$r); $dl+=$r; $p=[int](($dl/$total)*100); if($p -ge $lp+1){ $lp=$p; Write-Host (\"Downloading: {0}%% - {1:N0}/{2:N0} MB\" -f $p,($dl/1MB),($total/1MB)) } }; $fs.Close(); $stream.Close(); $resp.Close(); $sz=(Get-Item $dest -ErrorAction Stop).Length; if($sz -lt $min){ Write-Host (\"Error: Only {0:N0} MB received - download incomplete\" -f ($sz/1MB)); Remove-Item $dest -Force -ErrorAction SilentlyContinue; exit 1 }; Write-Host \"Download complete!\"; exit 0 } catch { try{$fs.Close()}catch{}; Remove-Item $dest -Force -ErrorAction SilentlyContinue; Write-Host (\"Error: \"+$_.Exception.Message); Write-Host \"Trying curl fallback...\"; curl.exe -L -o $dest $url 2>&1; if($LASTEXITCODE -eq 0 -and (Test-Path $dest) -and (Get-Item $dest).Length -ge $min){ Write-Host \"Download complete!\"; exit 0 }; Remove-Item $dest -Force -ErrorAction SilentlyContinue; Write-Host \"Download failed!\"; exit 1 }"'
+      Pop $1
+
+      ; Secondary NSIS guard: even if PS returned 0, file must actually exist
+      IfFileExists "$0\OllamaSetup.exe" OllamaDownloadFileOK OllamaDownloadFileMissing
+      OllamaDownloadFileMissing:
+        DetailPrint "⚠ Installer file missing after download - treating as failure"
+        StrCpy $1 "1"
+      OllamaDownloadFileOK:
+
+      ${If} $1 != 0
+        DetailPrint "⚠ Ollama download failed (exit code: $1)"
+        DetailPrint "⚠ Check your internet connection and try again."
+        ; Retry is button 1 - first button and default focus
+        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION|MB_DEFBUTTON1 "❌ Ollama Download Failed$\r$\n$\r$\nCould not download the Ollama installer. Check your internet connection.$\r$\n$\r$\n[Retry]   Try downloading again$\r$\n[Cancel]  Choose to skip or abort" IDRETRY OllamaDownloadRetry
+        ; User clicked Cancel → ask Skip or Abort
+        MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Skip Ollama and continue?$\r$\n$\r$\n[Yes]  Skip Ollama - install manually later from https://ollama.ai$\r$\n[No]   Abort the entire installation" IDYES OllamaInstallSkip
+        ; User chose No = Abort
+        Abort
+      ${EndIf}
+
+    DetailPrint "✓ Ollama downloaded successfully"
+    DetailPrint ""
+
+    ; ─────────────────────────────────────────
+    ; PHASE 2 – Install
+    ; ─────────────────────────────────────────
+    OllamaInstallRetry:
       DetailPrint "Installing Ollama..."
       DetailPrint "Running Ollama Setup (this may take 1-2 minutes)..."
       DetailPrint "Installing: 0% - Starting installer..."
-      
-      ; Run Ollama installer very silently (no UI at all)
+
       nsExec::ExecToLog '"$0\OllamaSetup.exe" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES'
       Pop $1
-      
-      ${If} $1 == 0
-        DetailPrint "Installing: 100% - Complete"
-        DetailPrint "✓ Ollama installed successfully"
-        
-        ; Wait for installation to complete
-        DetailPrint "Waiting for installation to complete..."
-        Sleep 3000
-        
-        ; Start Ollama
-        DetailPrint ""
-        DetailPrint "Starting Ollama service..."
-        ReadEnvStr $2 "LOCALAPPDATA"
-        nsExec::Exec '"$2\Programs\Ollama\ollama.exe" serve'
-        Pop $1
-        
-        ; Wait for Ollama to start
-        DetailPrint "Waiting for Ollama to initialize..."
-        Sleep 5000
-        
-        DetailPrint "✓ Ollama service started and ready"
-      ${Else}
-        DetailPrint "⚠ Ollama installation may have failed"
-        DetailPrint "⚠ Please install Ollama manually from https://ollama.ai"
+
+      ${If} $1 != 0
+        DetailPrint "⚠ Ollama installation failed (exit code: $1)"
+        ; Retry is button 1 - first button and default focus
+        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION|MB_DEFBUTTON1 "❌ Ollama Installation Failed (exit code: $1)$\r$\n$\r$\nThe Ollama Setup encountered an error.$\r$\n$\r$\n[Retry]   Run the installer again$\r$\n[Cancel]  Choose to skip or abort" IDRETRY OllamaInstallRetry
+        ; User clicked Cancel → ask Skip or Abort
+        MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Skip Ollama and continue?$\r$\n$\r$\n[Yes]  Skip Ollama - install manually later from https://ollama.ai$\r$\n[No]   Abort the entire installation" IDYES OllamaInstallSkip
+        ; User chose No = Abort
+        Delete "$0\OllamaSetup.exe"
+        Abort
       ${EndIf}
-      
-      ; Clean up installer
-      Delete "$0\OllamaSetup.exe"
-    ${Else}
-      DetailPrint "⚠ Failed to download Ollama"
+
+    DetailPrint "Installing: 100% - Complete"
+    DetailPrint "✓ Ollama installed successfully"
+    DetailPrint "Waiting for installation to settle..."
+    Sleep 3000
+    DetailPrint "Starting Ollama service..."
+    ReadEnvStr $2 "LOCALAPPDATA"
+    nsExec::Exec '"$2\Programs\Ollama\ollama.exe" serve'
+    Pop $1
+    DetailPrint "Waiting for Ollama to initialize..."
+    Sleep 5000
+    DetailPrint "✓ Ollama service started and ready"
+    Goto OllamaInstallDone
+
+    OllamaInstallSkip:
+      DetailPrint "⚠ Ollama installation was skipped by user"
       DetailPrint "⚠ Please install Ollama manually from https://ollama.ai"
-    ${EndIf}
+      StrCpy $InstallOllama "0"
+
+    OllamaInstallDone:
+      Delete "$0\OllamaSetup.exe"
+
   ${EndIf}
 !macroend
 
 ; ============================================
 ; Macro: Pull Selected Ollama Models
-; Downloads the selected AI models with clean progress output
+; Retry is button 1 (first + default focus) via MB_RETRYCANCEL.
+; Cancel leads to a secondary Yes/No dialog: Skip or Abort.
+; All strings are single-line (no $\ continuation bug).
 ; ============================================
 !macro PullOllamaModels
   ; Find Ollama executable
   ReadEnvStr $0 "LOCALAPPDATA"
   StrCpy $3 "$0\Programs\Ollama\ollama.exe"
-  
+
   IfFileExists "$3" PullModels SkipModelPull
-  
+
   PullModels:
-    ; Pull GPT-OSS 20B Model (only if selected and doesn't already exist - checked in customInstall)
+
+    ; ──────────────────────────────────────────
+    ; MODEL 1 – GPT-OSS 20B
+    ; ──────────────────────────────────────────
     ${If} $InstallModelGPTOSS == "1"
     ${AndIf} $ModelGPTOSSExists == "0"
-      DetailPrint ""
-      DetailPrint "Downloading GPT-OSS 20B Model..."
-      DetailPrint "This may take several minutes depending on your internet connection..."
-      ; Use ollama pull directly - simpler and more reliable
-      nsExec::ExecToLog '"$3" pull gpt-oss:20b'
-      Pop $1
-      ${If} $1 == 0
+
+      PullGPTOSSRetry:
+        DetailPrint ""
+        DetailPrint "Downloading GPT-OSS 20B Model..."
+        DetailPrint "This may take several minutes depending on your internet connection..."
+
+        nsExec::ExecToLog '"$3" pull gpt-oss:20b'
+        Pop $1
+
+        ; Secondary guard: verify model actually exists in ollama list
+        ${If} $1 == 0
+          nsExec::ExecToStack '"$3" list'
+          Pop $2
+          Pop $2
+          nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$2\" -match \"gpt-oss\") { exit 0 } else { exit 1 }"'
+          Pop $2
+          ${If} $2 != 0
+            DetailPrint "⚠ GPT-OSS 20B Model not found after pull - download may be incomplete"
+            StrCpy $1 "1"
+          ${EndIf}
+        ${EndIf}
+
+        ${If} $1 != 0
+          DetailPrint "⚠ GPT-OSS 20B Model download failed (exit code: $1)"
+          ; Retry is button 1 - first button and default focus
+          MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION|MB_DEFBUTTON1 "❌ GPT-OSS 20B Model Failed (exit code: $1)$\r$\n$\r$\nCould not download the model. Check your internet and that Ollama is running.$\r$\n$\r$\n[Retry]   Try pulling the model again$\r$\n[Cancel]  Choose to skip or abort" IDRETRY PullGPTOSSRetry
+          ; User clicked Cancel → ask Skip or Abort
+          MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Skip GPT-OSS 20B and continue?$\r$\n$\r$\n[Yes]  Skip this model (run manually later: ollama pull gpt-oss:20b)$\r$\n[No]   Abort the entire installation" IDYES PullGPTOSSSkip
+          ; User chose No = Abort
+          Abort
+
+          PullGPTOSSSkip:
+            DetailPrint "⚠ GPT-OSS 20B Model skipped by user"
+            DetailPrint "⚠ Run manually later: ollama pull gpt-oss:20b"
+            Goto PullGPTOSSDone
+        ${EndIf}
+
         DetailPrint "✓ GPT-OSS 20B Model installed successfully"
-      ${Else}
-        DetailPrint "⚠ Failed to pull GPT-OSS 20B Model"
-        DetailPrint "Try running: ollama pull gpt-oss:20b"
-      ${EndIf}
+
+      PullGPTOSSDone:
     ${EndIf}
-    
-    ; Pull Mistral 7B Model
+
+    ; ──────────────────────────────────────────
+    ; MODEL 2 – Mistral 7B
+    ; ──────────────────────────────────────────
     ${If} $InstallModelMistral == "1"
     ${AndIf} $ModelMistralExists == "0"
-      DetailPrint ""
-      DetailPrint "Downloading Mistral 7B Model..."
-      DetailPrint "This may take several minutes depending on your internet connection..."
-      ; Use ollama pull directly - simpler and more reliable
-      nsExec::ExecToLog '"$3" pull mistral:7b'
-      Pop $1
-      ${If} $1 == 0
+
+      PullMistralRetry:
+        DetailPrint ""
+        DetailPrint "Downloading Mistral 7B Model..."
+        DetailPrint "This may take several minutes depending on your internet connection..."
+
+        nsExec::ExecToLog '"$3" pull mistral:7b'
+        Pop $1
+
+        ; Secondary guard: verify model actually exists in ollama list
+        ${If} $1 == 0
+          nsExec::ExecToStack '"$3" list'
+          Pop $2
+          Pop $2
+          nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$2\" -match \"mistral\") { exit 0 } else { exit 1 }"'
+          Pop $2
+          ${If} $2 != 0
+            DetailPrint "⚠ Mistral 7B Model not found after pull - download may be incomplete"
+            StrCpy $1 "1"
+          ${EndIf}
+        ${EndIf}
+
+        ${If} $1 != 0
+          DetailPrint "⚠ Mistral 7B Model download failed (exit code: $1)"
+          ; Retry is button 1 - first button and default focus
+          MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION|MB_DEFBUTTON1 "❌ Mistral 7B Model Failed (exit code: $1)$\r$\n$\r$\nCould not download the model. Check your internet and that Ollama is running.$\r$\n$\r$\n[Retry]   Try pulling the model again$\r$\n[Cancel]  Choose to skip or abort" IDRETRY PullMistralRetry
+          ; User clicked Cancel → ask Skip or Abort
+          MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Skip Mistral 7B and continue?$\r$\n$\r$\n[Yes]  Skip this model (run manually later: ollama pull mistral:7b)$\r$\n[No]   Abort the entire installation" IDYES PullMistralSkip
+          ; User chose No = Abort
+          Abort
+
+          PullMistralSkip:
+            DetailPrint "⚠ Mistral 7B Model skipped by user"
+            DetailPrint "⚠ Run manually later: ollama pull mistral:7b"
+            Goto PullMistralDone
+        ${EndIf}
+
         DetailPrint "✓ Mistral 7B Model installed successfully"
-      ${Else}
-        DetailPrint "⚠ Failed to pull Mistral 7B Model"
-        DetailPrint "Try running: ollama pull mistral:7b"
-      ${EndIf}
+
+      PullMistralDone:
     ${EndIf}
-    
-    ; Pull Granite4 Tiny-H Model (using granite3.1-moe as ultra-lightweight)
+
+    ; ──────────────────────────────────────────
+    ; MODEL 3 – Granite4 Tiny-H (granite3.1-moe:1b)
+    ; ──────────────────────────────────────────
     ${If} $InstallModelGranite == "1"
     ${AndIf} $ModelGraniteExists == "0"
-      DetailPrint ""
-      DetailPrint "Downloading Granite4 Tiny-H Model..."
-      DetailPrint "This may take several minutes depending on your internet connection..."
-      ; Use ollama pull directly - simpler and more reliable
-      nsExec::ExecToLog '"$3" pull granite3.1-moe:1b'
-      Pop $1
-      ${If} $1 == 0
+
+      PullGraniteRetry:
+        DetailPrint ""
+        DetailPrint "Downloading Granite4 Tiny-H Model..."
+        DetailPrint "This may take several minutes depending on your internet connection..."
+
+        nsExec::ExecToLog '"$3" pull granite3.1-moe:1b'
+        Pop $1
+
+        ; Secondary guard: verify model actually exists in ollama list
+        ${If} $1 == 0
+          nsExec::ExecToStack '"$3" list'
+          Pop $2
+          Pop $2
+          nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$2\" -match \"granite3.1-moe\") { exit 0 } else { exit 1 }"'
+          Pop $2
+          ${If} $2 != 0
+            DetailPrint "⚠ Granite4 Tiny-H Model not found after pull - download may be incomplete"
+            StrCpy $1 "1"
+          ${EndIf}
+        ${EndIf}
+
+        ${If} $1 != 0
+          DetailPrint "⚠ Granite4 Tiny-H Model download failed (exit code: $1)"
+          ; Retry is button 1 - first button and default focus
+          MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION|MB_DEFBUTTON1 "❌ Granite4 Tiny-H Model Failed (exit code: $1)$\r$\n$\r$\nCould not download the model. Check your internet and that Ollama is running.$\r$\n$\r$\n[Retry]   Try pulling the model again$\r$\n[Cancel]  Choose to skip or abort" IDRETRY PullGraniteRetry
+          ; User clicked Cancel → ask Skip or Abort
+          MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Skip Granite4 Tiny-H and continue?$\r$\n$\r$\n[Yes]  Skip this model (run manually later: ollama pull granite3.1-moe:1b)$\r$\n[No]   Abort the entire installation" IDYES PullGraniteSkip
+          ; User chose No = Abort
+          Abort
+
+          PullGraniteSkip:
+            DetailPrint "⚠ Granite4 Tiny-H Model skipped by user"
+            DetailPrint "⚠ Run manually later: ollama pull granite3.1-moe:1b"
+            Goto PullGraniteDone
+        ${EndIf}
+
         DetailPrint "✓ Granite4 Tiny-H Model installed successfully"
-      ${Else}
-        DetailPrint "⚠ Failed to pull Granite4 Tiny-H Model"
-        DetailPrint "Try running: ollama pull granite3.1-moe:1b"
-      ${EndIf}
+
+      PullGraniteDone:
     ${EndIf}
-    
+
     Goto ModelPullDone
-  
+
   SkipModelPull:
     DetailPrint "Ollama not found, skipping model installation"
     DetailPrint "Please install models manually using 'ollama pull <model>'"
-  
+
   ModelPullDone:
 !macroend
 
