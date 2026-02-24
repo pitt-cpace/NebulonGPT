@@ -766,6 +766,9 @@ const App: React.FC = () => {
                 }
               })(); // Immediately invoke the async function
             } 
+            // Create the messages array for the API call (includes all messages up to the AI placeholder)
+            const updatedMessagesArray = chatWithAiMessage.messages;
+            
             // Rate-limited callback that processes queued chunks for UI rendering
             const processChunkForUI = (chunk: string, responseData?: any) => {
               // Update the AI message with the new chunk
