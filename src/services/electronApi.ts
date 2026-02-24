@@ -12,6 +12,10 @@ declare global {
       extractVoskModel: (modelName: string) => Promise<{ success: boolean; error?: string }>;
       copyFileToModels: (fileName: string, fileData: Uint8Array) => Promise<{ success: boolean; error?: string }>;
       updateVoskModelsChecksum: () => Promise<{ success: boolean; size?: number; error?: string }>;
+      // TTS models management (HuggingFace cache)
+      copyFileToTtsModels: (fileName: string, fileData: Uint8Array) => Promise<{ success: boolean; tempPath?: string; error?: string }>;
+      extractTtsModel: (zipFilePath: string) => Promise<{ success: boolean; error?: string }>;
+      updateTtsModelsChecksum: () => Promise<{ success: boolean; size?: number; error?: string }>;
       showSaveDialog: () => Promise<any>;
       showOpenDialog: () => Promise<any>;
       getAppVersion: () => Promise<string>;

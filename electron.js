@@ -1965,6 +1965,145 @@ ipcMain.handle('update-vosk-models-checksum', async () => {
   }
 });
 
+// TTS models management (HuggingFace cache)
+ipcMain.handle('copy-file-to-tts-models', async (event, fileName, fileData) => {
+  try {
+    // Create a temp directory for the ZIP file
+    const tempDir = path.join(os.tmpdir(), 'nebulon-tts-upload');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const filePath = path.join(tempDir, fileName);
+    
+    console.log(`Copying TTS model file to temp directory: ${fileName}`);
+    
+    // Write the file data to temp directory
+    fs.writeFileSync(filePath, Buffer.from(fileData));
+    
+    console.log(`Successfully copied TTS model: ${fileName}`);
+    return { success: true, tempPath: filePath };
+  } catch (error) {
+    console.error('Error copying TTS model file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('extract-tts-model', async (event, zipFilePath) => {
+  try {
+    console.log(`Extracting TTS model from: ${zipFilePath}`);
+    
+    if (!fs.existsSync(zipFilePath)) {
+      return { success: false, error: 'ZIP file not found' };
+    }
+    
+    if (!zipFilePath.endsWith('.zip')) {
+      return { success: false, error: 'File is not a ZIP archive' };
+    }
+    
+    // Create temp directory for extraction
+    const tempExtractDir = path.join(os.tmpdir(), 'nebulon-tts-extract');
+    
+    // Clean up any existing temp directory
+    if (fs.existsSync(tempExtractDir)) {
+      try {
+        fs.rmSync(tempExtractDir, { recursive: true, force: true });
+      } catch (error) {
+        console.log('Warning: Could not clean temp extraction directory:', error.message);
+      }
+    }
+    
+    // Create temp directory
+    fs.mkdirSync(tempExtractDir, { recursive: true });
+    
+    // Extract ZIP to temp directory
+    console.log(`Extracting to temp directory: ${tempExtractDir}`);
+    await extractZip(zipFilePath, { dir: tempExtractDir });
+    
+    // Move extracted content to huggingface directory
+    // Check for common folder structures
+    const extractedItems = fs.readdirSync(tempExtractDir);
+    console.log(`Extracted items: ${extractedItems.join(', ')}`);
+    
+    // Cross-platform recursive copy function
+    const copyRecursive = (src, dest) => {
+      if (!fs.existsSync(src)) return;
+      
+      const stats = fs.statSync(src);
+      if (stats.isDirectory()) {
+        if (!fs.existsSync(dest)) {
+          fs.mkdirSync(dest, { recursive: true });
+        }
+        const items = fs.readdirSync(src);
+        for (const item of items) {
+          copyRecursive(path.join(src, item), path.join(dest, item));
+        }
+      } else {
+        const destDir = path.dirname(dest);
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+        fs.copyFileSync(src, dest);
+      }
+    };
+    
+    // Check if there's a huggingface or huggingface-cache folder inside
+    let sourceDir = tempExtractDir;
+    if (extractedItems.includes('huggingface')) {
+      sourceDir = path.join(tempExtractDir, 'huggingface');
+    } else if (extractedItems.includes('huggingface-cache')) {
+      sourceDir = path.join(tempExtractDir, 'huggingface-cache');
+    }
+    
+    // Copy to huggingface cache directory
+    console.log(`Copying TTS models from ${sourceDir} to ${PATHS.hfCacheDir}`);
+    copyRecursive(sourceDir, PATHS.hfCacheDir);
+    
+    // Ensure datasets directory exists (required by TTS server)
+    const datasetsDir = path.join(PATHS.hfCacheDir, 'datasets');
+    if (!fs.existsSync(datasetsDir)) {
+      fs.mkdirSync(datasetsDir, { recursive: true });
+      console.log('Created datasets directory for TTS server');
+    }
+    
+    // Cleanup temp directories
+    if (fs.existsSync(tempExtractDir)) {
+      fs.rmSync(tempExtractDir, { recursive: true, force: true });
+    }
+    
+    // Clean up the uploaded ZIP file
+    const tempUploadDir = path.dirname(zipFilePath);
+    if (tempUploadDir.includes('nebulon-tts-upload') && fs.existsSync(tempUploadDir)) {
+      fs.rmSync(tempUploadDir, { recursive: true, force: true });
+    }
+    
+    console.log(`Successfully extracted TTS model to: ${PATHS.hfCacheDir}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error extracting TTS model:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('update-tts-models-checksum', async () => {
+  try {
+    console.log('📊 Updating TTS models (HuggingFace) checksum...');
+    
+    // Calculate current HuggingFace cache directory size
+    const currentCacheSize = await calculateDirectorySize(PATHS.hfCacheDir);
+    
+    // Save updated checksum
+    const checksumFile = path.join(PATHS.dataDir, '.huggingface-checksum');
+    fs.writeFileSync(checksumFile, currentCacheSize.toString());
+    
+    console.log(`✅ TTS models checksum updated. New size: ${currentCacheSize} bytes`);
+    return { success: true, size: currentCacheSize };
+  } catch (error) {
+    console.error('Error updating TTS models checksum:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Clipboard operations
 ipcMain.handle('copy-to-clipboard', (event, text) => {
   try {

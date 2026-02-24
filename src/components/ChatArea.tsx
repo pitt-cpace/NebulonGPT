@@ -1640,12 +1640,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       );
     },
     // Override the default th renderer with markdown support
-    th: ({ node, children, isHeader, ...props }: any) => (
+    th: ({ node, children, isHeader, style, className, ...props }: any) => (
       <TableCell 
         component="th"
         align="left"
-        sx={styles.tableHeaderCell} 
-        {...props}
+        sx={{
+          ...styles.tableHeaderCell,
+          // Force color to be visible - override any inherited styles
+          color: (theme: any) => theme.palette.mode === 'dark' ? '#90caf9 !important' : '#0d47a1 !important',
+        }}
       >
         {renderCellContent(children)}
       </TableCell>

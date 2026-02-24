@@ -22,6 +22,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   copyFileToModels: (fileName, fileData) => ipcRenderer.invoke('copy-file-to-models', fileName, fileData),
   updateVoskModelsChecksum: () => ipcRenderer.invoke('update-vosk-models-checksum'),
   
+  // TTS models management (HuggingFace cache)
+  copyFileToTtsModels: (fileName, fileData) => ipcRenderer.invoke('copy-file-to-tts-models', fileName, fileData),
+  extractTtsModel: (zipFilePath) => ipcRenderer.invoke('extract-tts-model', zipFilePath),
+  updateTtsModelsChecksum: () => ipcRenderer.invoke('update-tts-models-checksum'),
+  
   // Clipboard operations
   copyToClipboard: (text) => ipcRenderer.invoke('copy-to-clipboard', text),
   
