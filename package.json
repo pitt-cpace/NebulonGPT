@@ -173,7 +173,7 @@
       "welcome": "./install notice.txt"
     },
     "win": {
-      "icon": "public/cpace-logo-icon-256.ico",
+      "icon": "public/AppLogo.ico",
       "target": [
         {
           "target": "nsis",
@@ -213,9 +213,9 @@
       "menuCategory": false,
       "shortcutName": "${productName}",
       "uninstallDisplayName": "${productName}",
-      "installerIcon": "public/cpace-logo-icon-256.ico",
-      "uninstallerIcon": "public/cpace-logo-icon-256.ico",
-      "installerHeaderIcon": "public/cpace-logo-icon-256.ico",
+      "installerIcon": "public/AppLogo.ico",
+      "uninstallerIcon": "public/AppLogo.ico",
+      "installerHeaderIcon": "public/AppLogo.ico",
       "differentialPackage": false,
       "include": "installer.nsh",
       "displayLanguageSelector": false,
