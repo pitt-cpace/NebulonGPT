@@ -4938,7 +4938,20 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     fontSize: '1.2rem',
                   }}
                 >
-                  {contributor.split(' ').map(name => name.charAt(0)).join('').slice(0, 2)}
+                  {(() => {
+                    // Extract initials from first name and last name only
+                    // Skip titles (Prof., Dr.) and middle names (single letter with .)
+                    const parts = contributor.split(' ').filter(part => 
+                      !part.endsWith('.') && part.length > 1
+                    );
+                    if (parts.length >= 2) {
+                      // First letter of first name + first letter of last name
+                      return parts[0].charAt(0) + parts[parts.length - 1].charAt(0);
+                    } else if (parts.length === 1) {
+                      return parts[0].charAt(0);
+                    }
+                    return contributor.charAt(0);
+                  })()}
                 </Box>
                 <Typography variant="body1" sx={{ fontWeight: 500 }}>
                   {contributor}
