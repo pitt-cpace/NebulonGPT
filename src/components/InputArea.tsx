@@ -1097,7 +1097,7 @@ const InputArea: React.FC<InputAreaProps> = ({
 
         {loading ? (
           <IconButton
-            color="error"
+            color="primary"
             onClick={onStopResponse}
             sx={{ ml: 1 }}
           >
