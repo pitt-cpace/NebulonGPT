@@ -353,8 +353,14 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setVoiceGender(originalTtsSettings.voiceGender);
     ttsService.updateSettings(originalTtsSettings);
     
-    // Reset theme mode to original value
+    // Reset theme mode to original value and revert the visual change
     setThemeMode(originalThemeMode);
+    if (themeMode !== originalThemeMode) {
+      // Revert theme change visually since user cancelled
+      const themeEvent = new CustomEvent('themeChange', { detail: originalThemeMode });
+      window.dispatchEvent(themeEvent);
+      console.log(`🎨 Theme reverted to: ${originalThemeMode}`);
+    }
     
     // Reset Ollama API URL and Key to original values
     setOllamaApiUrl(originalOllamaApiUrl);
@@ -631,7 +637,13 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Tooltip title={themeMode === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
               <IconButton
-                onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+                onClick={() => {
+                  const newTheme = themeMode === 'dark' ? 'light' : 'dark';
+                  setThemeMode(newTheme);
+                  // Apply theme change immediately for real-time preview
+                  const themeEvent = new CustomEvent('themeChange', { detail: newTheme });
+                  window.dispatchEvent(themeEvent);
+                }}
                 color="inherit"
                 size="small"
               >
