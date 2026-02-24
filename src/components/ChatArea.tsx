@@ -4907,6 +4907,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               'Dr. Quincy Gu',
               'Dr. Matthew Hanna',
               'Dr. Yanshan Wang',
+              'Dr. Mohammad K. Alexanderani',
               'Parth Sanghani',
               'Mohammadreza Moradi'
             ].map((contributor, index) => (
