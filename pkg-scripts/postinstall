@@ -278,11 +278,27 @@ if [ -d "/Applications/Ollama.app" ]; then
         # Create a script to show progress in Terminal
         MODEL_SCRIPT="/tmp/nebulon-download-model.sh"
         DONE_FLAG="/tmp/nebulon-model-done.txt"
+        ERROR_FLAG="/tmp/nebulon-model-error.txt"
         
-        rm -f "$DONE_FLAG"
+        MAX_MODEL_RETRIES=3
+        MODEL_ATTEMPT=0
+        MODEL_DOWNLOAD_SUCCESS="false"
         
-        cat > "$MODEL_SCRIPT" << 'MODELSCRIPT'
+        # ============================================
+        # MODEL DOWNLOAD WITH RETRY LOOP
+        # ============================================
+        
+        while [ "$MODEL_DOWNLOAD_SUCCESS" = "false" ] && [ $MODEL_ATTEMPT -lt $MAX_MODEL_RETRIES ]; do
+            MODEL_ATTEMPT=$((MODEL_ATTEMPT + 1))
+            echo "Model download attempt $MODEL_ATTEMPT of $MAX_MODEL_RETRIES..." >&2
+            
+            rm -f "$DONE_FLAG" "$ERROR_FLAG"
+            
+            cat > "$MODEL_SCRIPT" << 'MODELSCRIPT'
 #!/bin/bash
+DONE_FLAG="__DONE_FLAG__"
+ERROR_FLAG="__ERROR_FLAG__"
+
 clear
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -290,75 +306,198 @@ echo "║       NebulonGPT Installer - Downloading AI Model            ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
 echo "║  Model: __MODEL_NAME__                                       "
 echo "║  Size: __MODEL_SIZE__                                        "
+echo "║  Attempt: __ATTEMPT__ of __MAX_ATTEMPTS__                    "
 echo "║  Please wait while the model downloads...                    ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
-/usr/local/bin/ollama pull "__MODEL_NAME__"
+# Run ollama pull and capture output
+OUTPUT=$(/usr/local/bin/ollama pull "__MODEL_NAME__" 2>&1)
 EXIT_CODE=$?
 
 echo ""
 if [ $EXIT_CODE -eq 0 ]; then
-    echo "✅ Model download complete!"
-    echo "success" > "__DONE_FLAG__"
+    # Verify model was actually downloaded by checking if it exists
+    MODEL_CHECK=$(/usr/local/bin/ollama list 2>/dev/null | grep -c "__MODEL_NAME__")
+    if [ "$MODEL_CHECK" -gt 0 ]; then
+        echo "✅ Model download complete!"
+        echo "success" > "$DONE_FLAG"
+    else
+        echo "❌ Model verification failed!"
+        echo "verification_failed" > "$ERROR_FLAG"
+        echo "failed" > "$DONE_FLAG"
+    fi
 else
-    echo "❌ Model download failed!"
-    echo "failed" > "__DONE_FLAG__"
+    echo "❌ Model download failed! (Exit code: $EXIT_CODE)"
+    echo "$OUTPUT"
+    
+    # Determine error type from output
+    if echo "$OUTPUT" | grep -qi "connection refused\|could not connect"; then
+        echo "connection_error" > "$ERROR_FLAG"
+    elif echo "$OUTPUT" | grep -qi "timeout\|timed out"; then
+        echo "timeout_error" > "$ERROR_FLAG"
+    elif echo "$OUTPUT" | grep -qi "not found\|does not exist"; then
+        echo "model_not_found" > "$ERROR_FLAG"
+    elif echo "$OUTPUT" | grep -qi "disk space\|no space\|storage"; then
+        echo "disk_space_error" > "$ERROR_FLAG"
+    elif echo "$OUTPUT" | grep -qi "network\|internet"; then
+        echo "network_error" > "$ERROR_FLAG"
+    elif echo "$OUTPUT" | grep -qi "unauthorized\|forbidden\|access denied"; then
+        echo "auth_error" > "$ERROR_FLAG"
+    else
+        echo "unknown_error:$EXIT_CODE" > "$ERROR_FLAG"
+    fi
+    echo "failed" > "$DONE_FLAG"
 fi
 echo ""
-echo "Download complete! This window will close in 2 seconds..."
+echo "This window will close shortly..."
 sleep 2
 
-# Schedule window close to happen after this script exits (prevents "terminate process" warning)
+# Schedule window close
 (sleep 1 && osascript -e 'tell application "Terminal" to close front window' 2>/dev/null) &
 
 exit 0
 MODELSCRIPT
-        
-        # Replace placeholders in the script
-        sed -i '' "s|__MODEL_NAME__|$CHOSEN_MODEL|g" "$MODEL_SCRIPT"
-        sed -i '' "s|__MODEL_SIZE__|$MODEL_SIZE|g" "$MODEL_SCRIPT"
-        sed -i '' "s|__DONE_FLAG__|$DONE_FLAG|g" "$MODEL_SCRIPT"
-        chmod +x "$MODEL_SCRIPT"
-        
-        # Open Terminal to show download progress
-        osascript <<EOF
+            
+            # Replace placeholders in the script
+            sed -i '' "s|__MODEL_NAME__|$CHOSEN_MODEL|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__MODEL_SIZE__|$MODEL_SIZE|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__DONE_FLAG__|$DONE_FLAG|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__ERROR_FLAG__|$ERROR_FLAG|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__ATTEMPT__|$MODEL_ATTEMPT|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__MAX_ATTEMPTS__|$MAX_MODEL_RETRIES|g" "$MODEL_SCRIPT"
+            chmod +x "$MODEL_SCRIPT"
+            
+            # Open Terminal to show download progress
+            osascript <<EOF
 tell application "Terminal"
     activate
     do script "$MODEL_SCRIPT"
 end tell
 EOF
-        
-        # Wait for model download to complete
-        echo "Waiting for model download to complete..." >&2
-        PULL_RESULT=1
-        for i in {1..7200}; do  # Wait up to 2 hours for large models
-            sleep 1
-            if [ -f "$DONE_FLAG" ]; then
-                if grep -q "success" "$DONE_FLAG" 2>/dev/null; then
-                    PULL_RESULT=0
+            
+            # Wait for model download to complete
+            echo "Waiting for model download to complete..." >&2
+            PULL_RESULT=1
+            for i in {1..7200}; do  # Wait up to 2 hours for large models
+                sleep 1
+                if [ -f "$DONE_FLAG" ]; then
+                    if grep -q "success" "$DONE_FLAG" 2>/dev/null && [ ! -f "$ERROR_FLAG" ]; then
+                        PULL_RESULT=0
+                    fi
+                    break
                 fi
-                break
+            done
+            
+            # Give user a moment to see the completion message
+            sleep 2
+            
+            # Close the Terminal window
+            osascript -e 'tell application "Terminal" to close (first window whose name contains "nebulon")' 2>/dev/null
+            
+            rm -f "$MODEL_SCRIPT"
+            
+            if [ $PULL_RESULT -eq 0 ]; then
+                MODEL_DOWNLOAD_SUCCESS="true"
+                echo "Model '$CHOSEN_MODEL' pulled successfully ✓" >&2
+                MODEL_STATUS="$CHOSEN_MODEL (installed)"
+            else
+                # Read error type for specific message
+                ERROR_TYPE=""
+                if [ -f "$ERROR_FLAG" ]; then
+                    ERROR_TYPE=$(cat "$ERROR_FLAG")
+                fi
+                rm -f "$DONE_FLAG" "$ERROR_FLAG"
+                
+                # Determine user-friendly error message
+                case "$ERROR_TYPE" in
+                    "connection_error")
+                        ERROR_MSG="Could not connect to Ollama service. The service may have stopped."
+                        ;;
+                    "timeout_error")
+                        ERROR_MSG="Download timed out. Your internet connection may be slow or unstable."
+                        ;;
+                    "model_not_found")
+                        ERROR_MSG="The model '$CHOSEN_MODEL' was not found in the Ollama registry."
+                        ;;
+                    "disk_space_error")
+                        ERROR_MSG="Not enough disk space to download this model. Please free up some space and try again."
+                        ;;
+                    "network_error")
+                        ERROR_MSG="Network error occurred. Please check your internet connection."
+                        ;;
+                    "auth_error")
+                        ERROR_MSG="Access denied. The model may require authentication or special permissions."
+                        ;;
+                    "verification_failed")
+                        ERROR_MSG="Model download completed but verification failed. The model may be corrupted."
+                        ;;
+                    *)
+                        ERROR_MSG="An unexpected error occurred during model download."
+                        ;;
+                esac
+                
+                echo "Model download failed: $ERROR_MSG" >&2
+                
+                if [ $MODEL_ATTEMPT -lt $MAX_MODEL_RETRIES ]; then
+                    # Ask user if they want to retry
+                    RETRY_RESPONSE=$(osascript <<EOF
+display dialog "⚠️ Model Download Failed (Attempt $MODEL_ATTEMPT of $MAX_MODEL_RETRIES)
+
+Model: $CHOSEN_MODEL
+Size: $MODEL_SIZE
+
+$ERROR_MSG
+
+Would you like to try again?" with title "NebulonGPT Installer - Model Download Error" buttons {"Skip Model", "Try Again"} default button "Try Again" with icon caution
+return button returned of result
+EOF
+)
+                    
+                    case "$RETRY_RESPONSE" in
+                        "Skip Model")
+                            echo "User chose to skip model download" >&2
+                            MODEL_STATUS="$CHOSEN_MODEL (skipped)"
+                            break
+                            ;;
+                        "Try Again")
+                            echo "User chose to retry model download" >&2
+                            
+                            # If connection error, try to restart Ollama
+                            if [ "$ERROR_TYPE" = "connection_error" ]; then
+                                echo "Attempting to restart Ollama service..." >&2
+                                sudo -u "$CURRENT_USER" /usr/local/bin/ollama serve > /dev/null 2>&1 &
+                                sleep 5
+                            fi
+                            continue
+                            ;;
+                    esac
+                else
+                    # Max retries reached
+                    FINAL_RESPONSE=$(osascript <<EOF
+display dialog "❌ Model Download Failed
+
+Maximum retry attempts ($MAX_MODEL_RETRIES) reached.
+
+Model: $CHOSEN_MODEL
+$ERROR_MSG
+
+You can download this model later by running:
+ollama pull $CHOSEN_MODEL
+
+What would you like to do?" with title "NebulonGPT Installer - Model Download Failed" buttons {"OK"} default button "OK" with icon stop
+EOF
+)
+                    
+                    MODEL_STATUS="$CHOSEN_MODEL (download failed)"
+                    echo "Model download failed after $MAX_MODEL_RETRIES attempts" >&2
+                fi
             fi
         done
         
-        # Give user a moment to see the completion message
-        sleep 2
+        # Cleanup
+        rm -f "$DONE_FLAG" "$ERROR_FLAG"
         
-        # Close the Terminal window from here (after script has exited)
-        osascript -e 'tell application "Terminal" to close (first window whose name contains "nebulon")' 2>/dev/null
-        
-        # Clean up
-        rm -f "$MODEL_SCRIPT" "$DONE_FLAG"
-        
-        if [ $PULL_RESULT -eq 0 ]; then
-            echo "Model '$CHOSEN_MODEL' pulled successfully ✓" >&2
-            MODEL_STATUS="$CHOSEN_MODEL (installed)"
-        else
-            echo "Warning: Failed to pull model '$CHOSEN_MODEL'" >&2
-            MODEL_STATUS="$CHOSEN_MODEL (download failed)"
-            osascript -e "display dialog \"Failed to download AI model: $CHOSEN_MODEL\n\nYou can download it later by running:\nollama pull $CHOSEN_MODEL\" with title \"NebulonGPT Installer\" buttons {\"OK\"} with icon caution" 2>/dev/null
-        fi
     elif [ -n "$CHOSEN_MODEL" ]; then
         # Model already exists or not needed
         MODEL_STATUS="$CHOSEN_MODEL (ready)"
@@ -386,27 +525,11 @@ else
 fi
 
 # ============================================
-# FINAL COMPLETION DIALOG (ONLY ONCE)
+# FINAL COMPLETION (NO DIALOG)
 # ============================================
 
 echo "" >&2
 echo "NebulonGPT setup complete!" >&2
-
-# Use a flag file to ensure dialog shows only once
-DIALOG_FLAG="/var/tmp/nebulon-completion-shown.txt"
-
-if [ ! -f "$DIALOG_FLAG" ]; then
-    # Mark that we're showing the dialog
-    echo "shown" > "$DIALOG_FLAG"
-    
-    # Build completion message
-    COMPLETION_MSG="NebulonGPT Installation Complete!"
-
-    # Show completion dialog
-    osascript <<EOF
-display dialog "$COMPLETION_MSG" with title "NebulonGPT Installer" buttons {"OK"} default button "OK"
-EOF
-fi
 
 # ============================================
 # CLEANUP SESSION FILES (keep completion flag for duplicate prevention)

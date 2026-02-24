@@ -314,13 +314,27 @@ if [ "$OLLAMA_INSTALLED" = "false" ]; then
     DMG_PATH="/tmp/Ollama.dmg"
     PROGRESS_SCRIPT="/tmp/nebulon-download-ollama.sh"
     DONE_FLAG="/tmp/nebulon-ollama-done.txt"
+    ERROR_FLAG="/tmp/nebulon-ollama-error.txt"
     
-    rm -f "$DONE_FLAG"
+    MAX_DOWNLOAD_RETRIES=3
+    DOWNLOAD_ATTEMPT=0
+    DOWNLOAD_SUCCESS="false"
     
-    cat > "$PROGRESS_SCRIPT" << 'DLSCRIPT'
+    # ============================================
+    # OLLAMA DOWNLOAD WITH RETRY LOOP
+    # ============================================
+    
+    while [ "$DOWNLOAD_SUCCESS" = "false" ] && [ $DOWNLOAD_ATTEMPT -lt $MAX_DOWNLOAD_RETRIES ]; do
+        DOWNLOAD_ATTEMPT=$((DOWNLOAD_ATTEMPT + 1))
+        echo "Ollama download attempt $DOWNLOAD_ATTEMPT of $MAX_DOWNLOAD_RETRIES..." >&2
+        
+        rm -f "$DONE_FLAG" "$ERROR_FLAG" "$DMG_PATH"
+        
+        cat > "$PROGRESS_SCRIPT" << 'DLSCRIPT'
 #!/bin/bash
 DMG_PATH="/tmp/Ollama.dmg"
 DONE_FLAG="/tmp/nebulon-ollama-done.txt"
+ERROR_FLAG="/tmp/nebulon-ollama-error.txt"
 
 clear
 echo ""
@@ -332,103 +346,320 @@ echo "║  Please wait while the download completes...                 ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
-curl -L --progress-bar -o "$DMG_PATH" https://ollama.com/download/Ollama.dmg
+# Download with error capture
+curl -L --progress-bar --fail --retry 2 --retry-delay 3 -o "$DMG_PATH" https://ollama.com/download/Ollama.dmg 2>&1
 EXIT_CODE=$?
 
 echo ""
 if [ $EXIT_CODE -eq 0 ] && [ -f "$DMG_PATH" ]; then
-    echo "✅ Download complete!"
-    echo "success" > "$DONE_FLAG"
+    # Verify file size (should be at least 50MB for a valid DMG)
+    FILE_SIZE=$(stat -f%z "$DMG_PATH" 2>/dev/null || echo "0")
+    if [ "$FILE_SIZE" -gt 50000000 ]; then
+        echo "✅ Download complete! ($(echo "scale=1; $FILE_SIZE/1048576" | bc)MB)"
+        echo "success" > "$DONE_FLAG"
+    else
+        echo "❌ Download incomplete - file too small!"
+        echo "download_incomplete" > "$ERROR_FLAG"
+        echo "failed" > "$DONE_FLAG"
+    fi
 else
-    echo "❌ Download failed!"
+    echo "❌ Download failed! (Error code: $EXIT_CODE)"
+    case $EXIT_CODE in
+        6) echo "network_error" > "$ERROR_FLAG" ;;
+        7) echo "connection_refused" > "$ERROR_FLAG" ;;
+        22) echo "http_error" > "$ERROR_FLAG" ;;
+        28) echo "timeout" > "$ERROR_FLAG" ;;
+        *) echo "unknown_error:$EXIT_CODE" > "$ERROR_FLAG" ;;
+    esac
     echo "failed" > "$DONE_FLAG"
 fi
 echo ""
-echo "Download complete! This window will close in 2 seconds..."
+echo "This window will close shortly..."
 sleep 2
 
-# Schedule window close to happen after this script exits (prevents "terminate process" warning)
+# Schedule window close
 (sleep 1 && osascript -e 'tell application "Terminal" to close front window' 2>/dev/null) &
 
 exit 0
 DLSCRIPT
-    chmod +x "$PROGRESS_SCRIPT"
-    
-    osascript <<EOF
+        chmod +x "$PROGRESS_SCRIPT"
+        
+        osascript <<EOF
 tell application "Terminal"
     activate
     do script "$PROGRESS_SCRIPT"
 end tell
 EOF
-    
-    DOWNLOAD_RESULT=1
-    for i in {1..600}; do
-        sleep 1
-        if [ -f "$DONE_FLAG" ]; then
-            if grep -q "success" "$DONE_FLAG" 2>/dev/null; then
-                DOWNLOAD_RESULT=0
+        
+        DOWNLOAD_RESULT=1
+        for i in {1..600}; do
+            sleep 1
+            if [ -f "$DONE_FLAG" ]; then
+                if grep -q "success" "$DONE_FLAG" 2>/dev/null && [ ! -f "$ERROR_FLAG" ]; then
+                    DOWNLOAD_RESULT=0
+                fi
+                break
             fi
-            break
+        done
+        
+        sleep 2
+        osascript -e 'tell application "Terminal" to close (first window whose name contains "nebulon")' 2>/dev/null
+        
+        rm -f "$PROGRESS_SCRIPT"
+        
+        if [ $DOWNLOAD_RESULT -eq 0 ] && [ -f "$DMG_PATH" ]; then
+            DOWNLOAD_SUCCESS="true"
+            echo "Ollama DMG downloaded successfully" >&2
+        else
+            # Read error type for specific message
+            ERROR_TYPE=""
+            if [ -f "$ERROR_FLAG" ]; then
+                ERROR_TYPE=$(cat "$ERROR_FLAG")
+            fi
+            rm -f "$DONE_FLAG" "$ERROR_FLAG"
+            
+            # Determine user-friendly error message
+            case "$ERROR_TYPE" in
+                "network_error")
+                    ERROR_MSG="Could not connect to the internet. Please check your network connection."
+                    ;;
+                "connection_refused")
+                    ERROR_MSG="Connection was refused by the server. The download server may be temporarily unavailable."
+                    ;;
+                "http_error")
+                    ERROR_MSG="Server returned an error. The download URL may have changed."
+                    ;;
+                "timeout")
+                    ERROR_MSG="Connection timed out. Your internet connection may be slow or unstable."
+                    ;;
+                "download_incomplete")
+                    ERROR_MSG="Download was incomplete. The file may have been corrupted during transfer."
+                    ;;
+                *)
+                    ERROR_MSG="An unexpected error occurred during download."
+                    ;;
+            esac
+            
+            if [ $DOWNLOAD_ATTEMPT -lt $MAX_DOWNLOAD_RETRIES ]; then
+                # Ask user if they want to retry
+                RETRY_RESPONSE=$(osascript <<EOF
+display dialog "⚠️ Ollama Download Failed (Attempt $DOWNLOAD_ATTEMPT of $MAX_DOWNLOAD_RETRIES)
+
+$ERROR_MSG
+
+Would you like to try again?" with title "NebulonGPT Installer - Download Error" buttons {"Cancel Installation", "Skip Ollama", "Try Again"} default button "Try Again" with icon caution
+return button returned of result
+EOF
+)
+                
+                case "$RETRY_RESPONSE" in
+                    "Cancel Installation")
+                        echo "User cancelled installation after download failure" >&2
+                        rm -f "$DMG_PATH"
+                        exit 1
+                        ;;
+                    "Skip Ollama")
+                        echo "User chose to skip Ollama installation" >&2
+                        rm -f "$DMG_PATH"
+                        break
+                        ;;
+                    "Try Again")
+                        echo "User chose to retry download" >&2
+                        continue
+                        ;;
+                esac
+            else
+                # Max retries reached
+                FINAL_RESPONSE=$(osascript <<EOF
+display dialog "❌ Ollama Download Failed
+
+Maximum retry attempts ($MAX_DOWNLOAD_RETRIES) reached.
+
+$ERROR_MSG
+
+You can install Ollama manually later from:
+https://ollama.com
+
+What would you like to do?" with title "NebulonGPT Installer - Download Failed" buttons {"Cancel Installation", "Continue Without Ollama"} default button "Continue Without Ollama" with icon stop
+return button returned of result
+EOF
+)
+                
+                if [ "$FINAL_RESPONSE" = "Cancel Installation" ]; then
+                    echo "User cancelled installation after max retries" >&2
+                    rm -f "$DMG_PATH"
+                    exit 1
+                else
+                    echo "User chose to continue without Ollama" >&2
+                    rm -f "$DMG_PATH"
+                fi
+            fi
         fi
     done
     
-    # Give user a moment to see the completion message
-    sleep 2
+    # ============================================
+    # OLLAMA INSTALLATION WITH RETRY
+    # ============================================
     
-    # Close the Terminal window from here (after script has exited)
-    osascript -e 'tell application "Terminal" to close (first window whose name contains "nebulon")' 2>/dev/null
-    
-    # Clean up
-    rm -f "$PROGRESS_SCRIPT" "$DONE_FLAG"
-    
-    if [ $DOWNLOAD_RESULT -eq 0 ] && [ -f "$DMG_PATH" ]; then
-        echo "DMG downloaded successfully" >&2
+    if [ "$DOWNLOAD_SUCCESS" = "true" ] && [ -f "$DMG_PATH" ]; then
         echo "Installing Ollama application..." >&2
         
-        MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse 2>&1)
-        MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep "/Volumes" | awk -F'\t' '{print $NF}')
+        MAX_INSTALL_RETRIES=3
+        INSTALL_ATTEMPT=0
+        INSTALL_SUCCESS="false"
         
-        if [ -n "$MOUNT_POINT" ] && [ -d "$MOUNT_POINT/Ollama.app" ]; then
-            cp -R "$MOUNT_POINT/Ollama.app" /Applications/
-            hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
-            rm -f "$DMG_PATH"
-            mkdir -p /usr/local/bin
-            ln -sf /Applications/Ollama.app/Contents/Resources/ollama /usr/local/bin/ollama
+        while [ "$INSTALL_SUCCESS" = "false" ] && [ $INSTALL_ATTEMPT -lt $MAX_INSTALL_RETRIES ]; do
+            INSTALL_ATTEMPT=$((INSTALL_ATTEMPT + 1))
+            echo "Ollama installation attempt $INSTALL_ATTEMPT of $MAX_INSTALL_RETRIES..." >&2
             
-            echo "Ollama installed successfully" >&2
+            INSTALL_ERROR=""
             
-            sed -i '' 's/OLLAMA_INSTALLED=false/OLLAMA_INSTALLED=true/' "$SESSION_FILE"
+            # Try to mount DMG
+            MOUNT_OUTPUT=$(hdiutil attach "$DMG_PATH" -nobrowse 2>&1)
+            MOUNT_EXIT_CODE=$?
+            MOUNT_POINT=$(echo "$MOUNT_OUTPUT" | grep "/Volumes" | awk -F'\t' '{print $NF}')
             
-            # Start Ollama after installation
-            echo "Starting Ollama for first time setup..." >&2
-            
-            # Get the actual user (not root)
-            ACTUAL_USER="${USER}"
-            if [ "$ACTUAL_USER" = "root" ]; then
-                ACTUAL_USER=$(stat -f "%Su" /dev/console)
+            if [ $MOUNT_EXIT_CODE -ne 0 ] || [ -z "$MOUNT_POINT" ]; then
+                INSTALL_ERROR="mount_failed"
+                echo "Failed to mount DMG: $MOUNT_OUTPUT" >&2
+            elif [ ! -d "$MOUNT_POINT/Ollama.app" ]; then
+                INSTALL_ERROR="app_not_found"
+                echo "Ollama.app not found in mounted DMG" >&2
+                hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
+            else
+                # Try to copy application
+                if cp -R "$MOUNT_POINT/Ollama.app" /Applications/ 2>&1; then
+                    hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
+                    rm -f "$DMG_PATH"
+                    
+                    # Create symlink
+                    mkdir -p /usr/local/bin
+                    if ln -sf /Applications/Ollama.app/Contents/Resources/ollama /usr/local/bin/ollama 2>&1; then
+                        echo "Ollama installed successfully" >&2
+                        INSTALL_SUCCESS="true"
+                        
+                        sed -i '' 's/OLLAMA_INSTALLED=false/OLLAMA_INSTALLED=true/' "$SESSION_FILE"
+                        
+                        # Start Ollama after installation
+                        echo "Starting Ollama for first time setup..." >&2
+                        
+                        ACTUAL_USER="${USER}"
+                        if [ "$ACTUAL_USER" = "root" ]; then
+                            ACTUAL_USER=$(stat -f "%Su" /dev/console)
+                        fi
+                        
+                        sudo -u "$ACTUAL_USER" open -a "Ollama" 2>/dev/null
+                        
+                        # Wait for Ollama to be ready
+                        echo "Waiting for Ollama to start..." >&2
+                        OLLAMA_STARTED="false"
+                        for i in {1..60}; do
+                            if curl -s --connect-timeout 2 http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
+                                echo "Ollama is now running" >&2
+                                OLLAMA_STARTED="true"
+                                break
+                            fi
+                            sleep 1
+                        done
+                        
+                        if [ "$OLLAMA_STARTED" = "false" ]; then
+                            osascript -e 'display notification "Ollama installed but may need manual start" with title "NebulonGPT Installer"' 2>/dev/null
+                        fi
+                    else
+                        INSTALL_ERROR="symlink_failed"
+                        echo "Failed to create symlink" >&2
+                    fi
+                else
+                    hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
+                    INSTALL_ERROR="copy_failed"
+                    echo "Failed to copy Ollama.app to Applications" >&2
+                fi
             fi
             
-            # Start Ollama as the actual user
-            sudo -u "$ACTUAL_USER" open -a "Ollama" 2>/dev/null
-            
-            # Wait for Ollama to be ready
-            echo "Waiting for Ollama to start..." >&2
-            for i in {1..60}; do
-                if curl -s --connect-timeout 2 http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
-                    echo "Ollama is now running" >&2
-                    break
+            # Handle installation error with retry
+            if [ "$INSTALL_SUCCESS" = "false" ] && [ -n "$INSTALL_ERROR" ]; then
+                case "$INSTALL_ERROR" in
+                    "mount_failed")
+                        ERROR_MSG="Could not mount the downloaded file. The DMG may be corrupted."
+                        ;;
+                    "app_not_found")
+                        ERROR_MSG="Ollama application not found in the downloaded package."
+                        ;;
+                    "copy_failed")
+                        ERROR_MSG="Could not copy Ollama to Applications folder. You may need administrator privileges."
+                        ;;
+                    "symlink_failed")
+                        ERROR_MSG="Could not create command-line shortcut. Ollama may still work from Applications."
+                        ;;
+                    *)
+                        ERROR_MSG="An unexpected error occurred during installation."
+                        ;;
+                esac
+                
+                if [ $INSTALL_ATTEMPT -lt $MAX_INSTALL_RETRIES ]; then
+                    RETRY_RESPONSE=$(osascript <<EOF
+display dialog "⚠️ Ollama Installation Failed (Attempt $INSTALL_ATTEMPT of $MAX_INSTALL_RETRIES)
+
+$ERROR_MSG
+
+Would you like to try again?" with title "NebulonGPT Installer - Installation Error" buttons {"Cancel Installation", "Skip Ollama", "Try Again"} default button "Try Again" with icon caution
+return button returned of result
+EOF
+)
+                    
+                    case "$RETRY_RESPONSE" in
+                        "Cancel Installation")
+                            echo "User cancelled installation" >&2
+                            rm -f "$DMG_PATH"
+                            exit 1
+                            ;;
+                        "Skip Ollama")
+                            echo "User chose to skip Ollama installation" >&2
+                            rm -f "$DMG_PATH"
+                            break
+                            ;;
+                        "Try Again")
+                            echo "User chose to retry installation" >&2
+                            # For mount/corrupt issues, re-download
+                            if [ "$INSTALL_ERROR" = "mount_failed" ]; then
+                                echo "Re-downloading DMG due to mount failure..." >&2
+                                rm -f "$DMG_PATH"
+                                curl -L --progress-bar --fail -o "$DMG_PATH" https://ollama.com/download/Ollama.dmg 2>&1
+                            fi
+                            continue
+                            ;;
+                    esac
+                else
+                    FINAL_RESPONSE=$(osascript <<EOF
+display dialog "❌ Ollama Installation Failed
+
+Maximum retry attempts ($MAX_INSTALL_RETRIES) reached.
+
+$ERROR_MSG
+
+You can install Ollama manually from:
+https://ollama.com
+
+What would you like to do?" with title "NebulonGPT Installer - Installation Failed" buttons {"Cancel Installation", "Continue Without Ollama"} default button "Continue Without Ollama" with icon stop
+return button returned of result
+EOF
+)
+                    
+                    if [ "$FINAL_RESPONSE" = "Cancel Installation" ]; then
+                        echo "User cancelled installation after max install retries" >&2
+                        rm -f "$DMG_PATH"
+                        exit 1
+                    else
+                        echo "User chose to continue without Ollama" >&2
+                        rm -f "$DMG_PATH"
+                    fi
                 fi
-                sleep 1
-            done
-        else
-            hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
-            rm -f "$DMG_PATH"
-            osascript -e 'display dialog "Ollama installation could not be completed.\n\nYou can install it manually from:\nhttps://ollama.com" with title "NebulonGPT Installer" buttons {"OK"} with icon caution' 2>/dev/null
-        fi
-    else
-        rm -f "$DMG_PATH"
-        osascript -e 'display dialog "Ollama download failed.\n\nYou can install it manually from:\nhttps://ollama.com" with title "NebulonGPT Installer" buttons {"OK"} with icon caution' 2>/dev/null
+            fi
+        done
     fi
+    
+    # Cleanup
+    rm -f "$DONE_FLAG" "$ERROR_FLAG"
 fi
 
 echo "Preinstall complete. Proceeding with NebulonGPT installation..." >&2
