@@ -86,12 +86,10 @@ COPY start-services.sh /app/start-services.sh
 RUN tr -d '\r' < /app/start-services.sh > /tmp/start-services-fixed.sh && \
     mv /tmp/start-services-fixed.sh /app/start-services.sh && \
     chmod +x /app/start-services.sh
-
 # Copy SSL certificates
-COPY Certification/ /app/Certification/
-
-# Expose ports
-EXPOSE 80 443
+#COPY Certification/ /app/Certification/
+# Expose ports (HTTP only - HTTPS is handled by Electron for desktop network access)
+EXPOSE 80
 
 # Default port mapping hint for Docker Desktop
 LABEL com.docker.desktop.default-port-mapping="3000:80"

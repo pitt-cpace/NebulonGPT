@@ -232,235 +232,241 @@ server {
     }
 }
 
-# HTTPS server - standalone (same config as HTTP but with SSL)
-server {
-    listen 443 ssl;
-    server_name _;
-    root /app/build;
-    index index.html;
-
-    # SSL certificate configuration
-    ssl_certificate /app/Certification/cert.pem;
-    ssl_certificate_key /app/Certification/key.pem;
-    
-    # SSL settings
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
-
-    # Set maximum upload size for large Vosk model files (up to 5GB)
-    client_max_body_size 5G;
-
-    # Gzip compression
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
-    gzip_min_length 1000;
-
-    # =========================================================================
-    # WEBSOCKET PROXIES - FastAPI Backend
-    # =========================================================================
-
-    # Vosk ASR WebSocket - proxy to FastAPI backend
-    location /vosk {
-        proxy_pass http://localhost:3001;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "Upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        
-        # WebSocket specific timeouts
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
-    }
-
-    # Kokoro TTS WebSocket - proxy to FastAPI backend
-    location /tts {
-        proxy_pass http://localhost:3001;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "Upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        
-        # WebSocket specific timeouts
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
-    }
-
-    # =========================================================================
-    # REST API PROXIES - FastAPI Backend
-    # =========================================================================
-
-    # Chat Management API
-    location /api/chats {
-        proxy_pass http://localhost:3001/api/chats;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Increase buffer sizes for large chat histories
-        proxy_buffering off;
-        proxy_request_buffering off;
-        client_body_buffer_size 50m;
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
-        
-        # Add CORS headers
-        add_header 'Access-Control-Allow-Origin' '*' always;
-        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
-        add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
-        add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
-    }
-
-    # Vosk Models Management API
-    location /api/vosk/ {
-        proxy_pass http://localhost:3001/api/vosk/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Increase timeouts for file uploads
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
-        
-        # Add CORS headers
-        add_header 'Access-Control-Allow-Origin' '*' always;
-        add_header 'Access-Control-Allow-Methods' 'GET, POST, DELETE, OPTIONS' always;
-        add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
-        add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
-        
-        # Handle preflight requests
-        if ($request_method = 'OPTIONS') {
-            add_header 'Access-Control-Allow-Origin' '*';
-            add_header 'Access-Control-Allow-Methods' 'GET, POST, DELETE, OPTIONS';
-            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization';
-            add_header 'Access-Control-Max-Age' 1728000;
-            add_header 'Content-Type' 'text/plain; charset=utf-8';
-            add_header 'Content-Length' 0;
-            return 204;
-        }
-    }
-
-    # Network Info API
-    location /api/network-info {
-        proxy_pass http://localhost:3001/api/network-info;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Add CORS headers
-        add_header 'Access-Control-Allow-Origin' '*' always;
-        add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
-        add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
-    }
-
-    # Health Check API
-    location /health {
-        proxy_pass http://localhost:3001/health;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Add CORS headers
-        add_header 'Access-Control-Allow-Origin' '*' always;
-    }
-
-    # =========================================================================
-    # OLLAMA LLM PROXY - Direct to Ollama
-    # =========================================================================
-
-    # Proxy for Ollama API - direct connection (not through FastAPI)
-    location /api/ollama/ {
-        # Dynamic Ollama URL configured at runtime via environment variable
-        proxy_pass ${OLLAMA_URL}/api/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        # __CUSTOM_HEADER_PLACEHOLDER__
-        
-        # Increase timeouts for long-running LLM requests
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
-        
-        # Disable buffering for streaming responses
-        proxy_buffering off;
-        proxy_request_buffering off;
-        
-        # Add CORS headers
-        add_header 'Access-Control-Allow-Origin' '*' always;
-        add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
-        add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
-        add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
-        
-        # Handle preflight requests
-        if ($request_method = 'OPTIONS') {
-            add_header 'Access-Control-Allow-Origin' '*';
-            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
-            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization';
-            add_header 'Access-Control-Max-Age' 1728000;
-            add_header 'Content-Type' 'text/plain; charset=utf-8';
-            add_header 'Content-Length' 0;
-            return 204;
-        }
-        
-        # Log proxy details for debugging
-        add_header X-Debug-Proxy-Pass "http://host.docker.internal:11434/api/" always;
-    }
-
-    # =========================================================================
-    # STATIC FILE SERVING - React Frontend
-    # =========================================================================
-
-    # Serve static files
-    location / {
-        try_files $uri $uri/ /index.html;
-        add_header Cache-Control "public, max-age=3600";
-    }
-
-    # Cache static assets
-    location ~* \.(jpg|jpeg|png|gif|ico|css|js)$ {
-        expires 7d;
-        add_header Cache-Control "public, max-age=604800";
-    }
-
-    # =========================================================================
-    # ERROR PAGES
-    # =========================================================================
-
-    error_page 404 /index.html;
-    error_page 500 502 503 504 /50x.html;
-    location = /50x.html {
-        root /app/build;
-    }
-}
+# =============================================================================
+# HTTPS SERVER (DISABLED FOR DOCKER)
+# =============================================================================
+# HTTPS is handled by Electron's Node.js https module for desktop network access.
+# This nginx HTTPS block is not needed for Docker deployments.
+# If you need HTTPS in Docker, use a reverse proxy (Traefik, nginx-proxy, Cloudflare).
+# 
+# server {
+#     listen 443 ssl;
+#     server_name _;
+#     root /app/build;
+#     index index.html;
+# 
+#     # SSL certificate configuration
+#     ssl_certificate /app/Certification/cert.pem;
+#     ssl_certificate_key /app/Certification/key.pem;
+#     
+#     # SSL settings
+#     ssl_protocols TLSv1.2 TLSv1.3;
+#     ssl_ciphers HIGH:!aNULL:!MD5;
+#     ssl_prefer_server_ciphers on;
+# 
+#     # Set maximum upload size for large Vosk model files (up to 5GB)
+#     client_max_body_size 5G;
+# 
+#     # Gzip compression
+#     gzip on;
+#     gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+#     gzip_min_length 1000;
+# 
+#     # =========================================================================
+#     # WEBSOCKET PROXIES - FastAPI Backend
+#     # =========================================================================
+# 
+#     # Vosk ASR WebSocket - proxy to FastAPI backend
+#     location /vosk {
+#         proxy_pass http://localhost:3001;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection "Upgrade";
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         proxy_cache_bypass $http_upgrade;
+#         
+#         # WebSocket specific timeouts
+#         proxy_connect_timeout 300s;
+#         proxy_send_timeout 300s;
+#         proxy_read_timeout 300s;
+#     }
+# 
+#     # Kokoro TTS WebSocket - proxy to FastAPI backend
+#     location /tts {
+#         proxy_pass http://localhost:3001;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection "Upgrade";
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         proxy_cache_bypass $http_upgrade;
+#         
+#         # WebSocket specific timeouts
+#         proxy_connect_timeout 300s;
+#         proxy_send_timeout 300s;
+#         proxy_read_timeout 300s;
+#     }
+# 
+#     # =========================================================================
+#     # REST API PROXIES - FastAPI Backend
+#     # =========================================================================
+# 
+#     # Chat Management API
+#     location /api/chats {
+#         proxy_pass http://localhost:3001/api/chats;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection 'upgrade';
+#         proxy_set_header Host $host;
+#         proxy_cache_bypass $http_upgrade;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         
+#         # Increase buffer sizes for large chat histories
+#         proxy_buffering off;
+#         proxy_request_buffering off;
+#         client_body_buffer_size 50m;
+#         proxy_connect_timeout 300s;
+#         proxy_send_timeout 300s;
+#         proxy_read_timeout 300s;
+#         
+#         # Add CORS headers
+#         add_header 'Access-Control-Allow-Origin' '*' always;
+#         add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+#         add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+#         add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+#     }
+# 
+#     # Vosk Models Management API
+#     location /api/vosk/ {
+#         proxy_pass http://localhost:3001/api/vosk/;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection 'upgrade';
+#         proxy_set_header Host $host;
+#         proxy_cache_bypass $http_upgrade;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         
+#         # Increase timeouts for file uploads
+#         proxy_connect_timeout 300s;
+#         proxy_send_timeout 300s;
+#         proxy_read_timeout 300s;
+#         
+#         # Add CORS headers
+#         add_header 'Access-Control-Allow-Origin' '*' always;
+#         add_header 'Access-Control-Allow-Methods' 'GET, POST, DELETE, OPTIONS' always;
+#         add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+#         add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+#         
+#         # Handle preflight requests
+#         if ($request_method = 'OPTIONS') {
+#             add_header 'Access-Control-Allow-Origin' '*';
+#             add_header 'Access-Control-Allow-Methods' 'GET, POST, DELETE, OPTIONS';
+#             add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization';
+#             add_header 'Access-Control-Max-Age' 1728000;
+#             add_header 'Content-Type' 'text/plain; charset=utf-8';
+#             add_header 'Content-Length' 0;
+#             return 204;
+#         }
+#     }
+# 
+#     # Network Info API
+#     location /api/network-info {
+#         proxy_pass http://localhost:3001/api/network-info;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         
+#         # Add CORS headers
+#         add_header 'Access-Control-Allow-Origin' '*' always;
+#         add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS' always;
+#         add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+#     }
+# 
+#     # Health Check API
+#     location /health {
+#         proxy_pass http://localhost:3001/health;
+#         proxy_http_version 1.1;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         
+#         # Add CORS headers
+#         add_header 'Access-Control-Allow-Origin' '*' always;
+#     }
+# 
+#     # =========================================================================
+#     # OLLAMA LLM PROXY - Direct to Ollama
+#     # =========================================================================
+# 
+#     # Proxy for Ollama API - direct connection (not through FastAPI)
+#     location /api/ollama/ {
+#         # Dynamic Ollama URL configured at runtime via environment variable
+#         proxy_pass ${OLLAMA_URL}/api/;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection 'upgrade';
+#         proxy_set_header Host $host;
+#         proxy_cache_bypass $http_upgrade;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#         # __CUSTOM_HEADER_PLACEHOLDER__
+#         
+#         # Increase timeouts for long-running LLM requests
+#         proxy_connect_timeout 300s;
+#         proxy_send_timeout 300s;
+#         proxy_read_timeout 300s;
+#         
+#         # Disable buffering for streaming responses
+#         proxy_buffering off;
+#         proxy_request_buffering off;
+#         
+#         # Add CORS headers
+#         add_header 'Access-Control-Allow-Origin' '*' always;
+#         add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+#         add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+#         add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range' always;
+#         
+#         # Handle preflight requests
+#         if ($request_method = 'OPTIONS') {
+#             add_header 'Access-Control-Allow-Origin' '*';
+#             add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+#             add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization';
+#             add_header 'Access-Control-Max-Age' 1728000;
+#             add_header 'Content-Type' 'text/plain; charset=utf-8';
+#             add_header 'Content-Length' 0;
+#             return 204;
+#         }
+#         
+#         # Log proxy details for debugging
+#         add_header X-Debug-Proxy-Pass "http://host.docker.internal:11434/api/" always;
+#     }
+# 
+#     # =========================================================================
+#     # STATIC FILE SERVING - React Frontend
+#     # =========================================================================
+# 
+#     # Serve static files
+#     location / {
+#         try_files $uri $uri/ /index.html;
+#         add_header Cache-Control "public, max-age=3600";
+#     }
+# 
+#     # Cache static assets
+#     location ~* \.(jpg|jpeg|png|gif|ico|css|js)$ {
+#         expires 7d;
+#         add_header Cache-Control "public, max-age=604800";
+#     }
+# 
+#     # =========================================================================
+#     # ERROR PAGES
+#     # =========================================================================
+# 
+#     error_page 404 /index.html;
+#     error_page 500 502 503 504 /50x.html;
+#     location = /50x.html {
+#         root /app/build;
+#     }
+# }

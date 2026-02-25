@@ -143,7 +143,6 @@ echo "============================================"
 echo ""
 echo "All services started successfully!"
 echo "Application ready at http://localhost"
-echo "Network access via HTTPS on port 443"
 echo ""
 
 # Keep container running and monitor processes
