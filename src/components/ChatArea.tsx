@@ -1830,9 +1830,41 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     code: ({ node, inline, className, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(className || '');
       const content = String(children).replace(/\n$/, '');
+      const language = match ? match[1] : '';
       
       // For non-inline code blocks, check if they contain LaTeX tables or formulas
       if (!inline) {
+        // Check if content is primarily RTL text (Persian, Arabic, Hebrew) - prose, not code
+        // If so, render as plain text instead of code block
+        const hasRTLChars = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF]/.test(content);
+        
+        // Count RTL characters vs total alphanumeric characters to determine if it's primarily RTL prose
+        const rtlCharCount = (content.match(/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF]/g) || []).length;
+        const totalTextLength = content.replace(/\s/g, '').length;
+        const rtlRatio = totalTextLength > 0 ? rtlCharCount / totalTextLength : 0;
+        
+        // Only consider it code if it has actual programming STATEMENTS (not just symbols)
+        // Be very strict: require actual code patterns like variable declarations, function calls, etc.
+        const hasActualCodeStatements = /^(const|let|var|function|class|import|export|def|public|private|return)\s|;\s*$|=>\s*{|\(\s*\)\s*{/m.test(content);
+        
+        // If has significant RTL content (>20% RTL chars) and no clear code statements, render as RTL text
+        if (!language && hasRTLChars && rtlRatio > 0.2 && !hasActualCodeStatements) {
+          return (
+            <Box sx={{ my: 1 }}>
+              <Typography 
+                component="div" 
+                sx={{ 
+                  direction: 'rtl',
+                  textAlign: 'right',
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {content}
+              </Typography>
+            </Box>
+          );
+        }
+        
         // Check for LaTeX table (tabular environment)
         const hasTabularTable = /\\begin\{tabular\}[\s\S]*?\\end\{tabular\}/.test(content);
         
@@ -2079,9 +2111,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       // Use theme from component level for syntax highlighting style
       const syntaxStyle = isDarkMode ? oneDark : oneLight;
-      
-      // Determine language from className
-      const language = match ? match[1] : '';
       
       return !inline ? (
         <Box sx={{ position: 'relative', mb: 2 }}>
@@ -2450,6 +2479,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if (match && match.index !== undefined) {
       const language = match[1] || '';
       const code = match[2] || '';
+      
+      // Skip if no language specified and content looks like natural language (not code)
+      // Check for RTL characters (Persian, Arabic, Hebrew) or if it's mostly prose
+      const hasRTLChars = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF]/.test(code);
+      const hasProgrammingIndicators = /[{};=><\[\]()\/\\]|function|const |let |var |import |export |class |def |return |if\s*\(|for\s*\(|while\s*\(/.test(code);
+      
+      // If no language specified and has RTL text but no programming indicators, skip
+      if (!language && hasRTLChars && !hasProgrammingIndicators) {
+        return null;
+      }
       
       return {
         type: ContentType.CODE_BLOCK,
