@@ -9,6 +9,8 @@ import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import 'katex/dist/katex.min.css';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
   Box,
   Typography,
@@ -232,6 +234,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onOpenSettings,
   isMobile,
 }) => {
+  // Get theme for syntax highlighting
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
+  
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
   const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
@@ -1573,8 +1579,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     );
   };
 
-  // Custom renderers for ReactMarkdown
-  const markdownComponents = {
+  // Custom renderers for ReactMarkdown - memoized to update when theme changes
+  const markdownComponents = React.useMemo(() => ({
     // Override paragraph renderer to use inline span instead of block-level p
     p: ({ node, children, ...props }: any) => <span {...props}>{children}</span>,
     // Override the default link renderer
@@ -1917,18 +1923,51 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         }
       }
       
+      // Use theme from component level for syntax highlighting style
+      const syntaxStyle = isDarkMode ? oneDark : oneLight;
+      
+      // Determine language from className
+      const language = match ? match[1] : '';
+      
       return !inline ? (
         <Box sx={{ position: 'relative', mb: 2 }}>
-          <Box
-            component="pre"
-            sx={styles.codeBlock}
-            className={className}
-            {...props}
+          {/* Language badge */}
+          {language && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)',
+                px: 1.5,
+                py: 0.5,
+                borderRadius: '0 8px 0 8px',
+                fontSize: '0.75rem',
+                fontFamily: 'monospace',
+                textTransform: 'lowercase',
+                zIndex: 1,
+              }}
+            >
+              {language}
+            </Box>
+          )}
+          <SyntaxHighlighter
+            language={language || 'text'}
+            style={syntaxStyle}
+            customStyle={{
+              margin: 0,
+              borderRadius: '8px',
+              padding: '16px',
+              fontSize: '0.9rem',
+              lineHeight: 1.5,
+            }}
+            showLineNumbers={content.split('\n').length > 3}
+            wrapLines={true}
+            wrapLongLines={true}
           >
-            <code className={className} {...props}>
-              {children}
-            </code>
-          </Box>
+            {content}
+          </SyntaxHighlighter>
           {/* Enhanced copy button for code blocks */}
           <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
             <IconButton
@@ -1973,7 +2012,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         </code>
       );
     },
-  };
+  }), [isDarkMode, handleCopyCode, renderTableWithCopyButton, renderCellContent]);
 
   // Function to preprocess LaTeX delimiters for proper rendering
   const preprocessLatexDelimiters = (content: string): string => {
@@ -3635,7 +3674,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
 
   // Memoized message component to prevent re-renders during streaming
-  const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean }>(({ message, chatMessages, isStreaming }) => {
+  // Note: isDarkMode is passed to force re-render when theme changes
+  const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean; isDarkMode: boolean }>(({ message, chatMessages, isStreaming, isDarkMode: _ }) => {
     const isUser = message.role === 'user';
     
     // Extract thinking and body from assistant messages
@@ -3972,18 +4012,19 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       </Box>
     );
   }, (prevProps, nextProps) => {
-    // Only re-render if the message content changed or streaming status changed
+    // Re-render if message content, streaming status, or theme changed
     return prevProps.message.content === nextProps.message.content && 
-           prevProps.isStreaming === nextProps.isStreaming;
+           prevProps.isStreaming === nextProps.isStreaming &&
+           prevProps.isDarkMode === nextProps.isDarkMode;
   });
 
-  // Create a stable renderMessage that doesn't depend on loading
+  // Create a stable renderMessage that re-renders when theme changes
   const renderMessage = useCallback((message: MessageType, chatMessages?: MessageType[], currentlyLoading?: boolean) => {
     const isLastMessage = !!(chatMessages && message.id === chatMessages[chatMessages.length - 1]?.id);
     const isStreaming = currentlyLoading === true && isLastMessage;
     
-    return <MessageComponent message={message} chatMessages={chatMessages} isStreaming={isStreaming} />;
-  }, []);
+    return <MessageComponent message={message} chatMessages={chatMessages} isStreaming={isStreaming} isDarkMode={isDarkMode} />;
+  }, [isDarkMode]);
 
   // Split messages into completed and streaming for better performance
   const { completedMessages, streamingMessage } = React.useMemo(() => {
@@ -4002,14 +4043,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [chat?.messages, loading]);
   
-  // Memoize completed messages - these NEVER re-render during streaming
+  // Memoize completed messages - re-render when theme changes
   const renderedCompletedMessages = React.useMemo(() =>
     completedMessages.map(msg => (
       <React.Fragment key={msg.id}>
         {renderMessage(msg, completedMessages, false)}
       </React.Fragment>
     )),
-    [completedMessages, renderMessage]
+    [completedMessages, renderMessage, isDarkMode]
   );
 
   return (
