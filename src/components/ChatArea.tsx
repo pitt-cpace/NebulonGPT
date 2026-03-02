@@ -1351,6 +1351,144 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return parts.length > 0 ? <>{parts}</> : <span>{text}</span>;
   };
 
+  // Helper function to parse LaTeX table row with multicolumn support
+  // Returns an array of cells with proper column expansion
+  const parseLatexTableRow = (row: string): string[] => {
+    const cells: string[] = [];
+    
+    // Split by & but we need to handle this carefully for multicolumn
+    const rawCells = row.split('&').map(c => c.trim()).filter(c => c.length > 0);
+    
+    // Helper function to extract content from nested braces
+    // Handles cases like \textbf{Sprint 1} inside \multicolumn{2}{c|}{\textbf{Sprint 1}}
+    const extractNestedBraceContent = (str: string, startPos: number): { content: string; endPos: number } | null => {
+      if (str[startPos] !== '{') return null;
+      
+      let depth = 0;
+      let content = '';
+      
+      for (let i = startPos; i < str.length; i++) {
+        const char = str[i];
+        
+        if (char === '{') {
+          depth++;
+          if (depth > 1) content += char; // Don't include the outer braces
+        } else if (char === '}') {
+          depth--;
+          if (depth === 0) {
+            return { content, endPos: i };
+          }
+          content += char;
+        } else {
+          if (depth > 0) content += char;
+        }
+      }
+      
+      return null; // Unbalanced braces
+    };
+    
+    for (const cell of rawCells) {
+      // Check if this cell contains \multicolumn{N}{alignment}{content}
+      // First, find the \multicolumn command
+      const multicolStart = cell.indexOf('\\multicolumn{');
+      
+      if (multicolStart !== -1) {
+        // Parse \multicolumn{N}{alignment}{content} with nested brace support
+        let pos = multicolStart + '\\multicolumn'.length;
+        
+        // Extract N (number of columns)
+        const nResult = extractNestedBraceContent(cell, pos);
+        if (!nResult) {
+          cells.push(cell);
+          continue;
+        }
+        const colSpan = parseInt(nResult.content, 10);
+        pos = nResult.endPos + 1;
+        
+        // Extract alignment (skip it)
+        const alignResult = extractNestedBraceContent(cell, pos);
+        if (!alignResult) {
+          cells.push(cell);
+          continue;
+        }
+        pos = alignResult.endPos + 1;
+        
+        // Extract content (this is what we want, may contain nested braces like \textbf{...})
+        const contentResult = extractNestedBraceContent(cell, pos);
+        if (!contentResult) {
+          cells.push(cell);
+          continue;
+        }
+        const content = contentResult.content;
+        
+        // Add the content cell
+        cells.push(content);
+        
+        // Add empty cells for the remaining spanned columns
+        for (let i = 1; i < colSpan; i++) {
+          cells.push(''); // Empty placeholder for spanned column
+        }
+      } else {
+        // Regular cell, just add it
+        cells.push(cell);
+      }
+    }
+    
+    return cells;
+  };
+
+  // Helper function to clean LaTeX table formatting commands from cell content
+  const cleanLatexTableCommands = (text: string): { cleanedText: string; isBold: boolean } => {
+    let cleanedText = text;
+    let isBold = false;
+    
+    // Remove \cline{...} commands completely
+    cleanedText = cleanedText.replace(/\\cline\{[^}]*\}/g, '');
+    
+    // Extract content from \multirow{rows}{width}{content} - keep only the content
+    // Pattern: \multirow{number}{*|width}{content}
+    cleanedText = cleanedText.replace(/\\multirow\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1');
+    
+    // Extract content from \multicolumn{cols}{alignment}{content} - keep only the content
+    // Pattern: \multicolumn{number}{alignment}{content}
+    cleanedText = cleanedText.replace(/\\multicolumn\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1');
+    
+    // Extract content from \textbf{content} and mark as bold
+    if (/\\textbf\{([^}]*)\}/.test(cleanedText)) {
+      isBold = true;
+      cleanedText = cleanedText.replace(/\\textbf\{([^}]*)\}/g, '$1');
+    }
+    
+    // Extract content from \textit{content} (italic)
+    cleanedText = cleanedText.replace(/\\textit\{([^}]*)\}/g, '$1');
+    
+    // Extract content from \emph{content} (emphasis)
+    cleanedText = cleanedText.replace(/\\emph\{([^}]*)\}/g, '$1');
+    
+    // Extract content from \text{content}
+    cleanedText = cleanedText.replace(/\\text\{([^}]*)\}/g, '$1');
+    
+    // Remove \hline commands
+    cleanedText = cleanedText.replace(/\\hline/g, '');
+    
+    // Remove \toprule, \midrule, \bottomrule (booktabs)
+    cleanedText = cleanedText.replace(/\\(?:top|mid|bottom)rule/g, '');
+    
+    // Remove \rowcolor{...}
+    cleanedText = cleanedText.replace(/\\rowcolor\{[^}]*\}/g, '');
+    
+    // Remove \cellcolor{...}
+    cleanedText = cleanedText.replace(/\\cellcolor\{[^}]*\}/g, '');
+    
+    // Clean up any remaining backslash-escaped characters
+    cleanedText = cleanedText.replace(/\\\\/g, ''); // Remove line breaks
+    
+    // Trim whitespace
+    cleanedText = cleanedText.trim();
+    
+    return { cleanedText, isBold };
+  };
+
   // Helper function to render markdown within table cells with LaTeX support
   const renderCellContent = (content: any): React.ReactNode => {
     // If content is already a React element, return it
@@ -1384,6 +1522,25 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     };
     
     textContent = decodeHtmlEntities(textContent);
+    
+    // Clean LaTeX table formatting commands FIRST before other processing
+    const { cleanedText, isBold } = cleanLatexTableCommands(textContent);
+    textContent = cleanedText;
+    
+    // If content is empty after cleaning, return empty
+    if (!textContent || textContent.trim() === '') {
+      return null;
+    }
+    
+    // If the content was marked as bold, wrap in strong tag
+    if (isBold) {
+      // Check if there's also LaTeX math to render
+      const hasLatexDelimiters = /\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]+?\$\$|\$[^$\n]+\$/.test(textContent);
+      if (hasLatexDelimiters) {
+        return <strong>{renderLatex(textContent)}</strong>;
+      }
+      return <strong>{textContent}</strong>;
+    }
     
     // Check if content is wrapped in backticks (inline code)
     const inlineCodeMatch = textContent.match(/^`([^`]+)`$/);
@@ -1697,15 +1854,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               .filter(line => line.length > 0);
             
             if (lines.length >= 2) {
-              // First line is headers
-              const headerLine = lines[0];
-              const headers = headerLine.split('&').map(h => h.trim()).filter(h => h.length > 0);
+              // First line is headers - use parseLatexTableRow for multicolumn support
+              const headers = parseLatexTableRow(lines[0]);
               
-              // Rest are data rows
+              // Rest are data rows - use parseLatexTableRow for multicolumn support
               const dataRows = lines.slice(1);
-              const rows = dataRows.map(row => 
-                row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
-              );
+              const rows = dataRows.map(row => parseLatexTableRow(row));
               
               // Render as Material-UI table with copy button - use stable ID based on content
               const tableId = `latex-table-${headers.join('-').substring(0, 20)}-${rows.length}`;
@@ -2107,10 +2261,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       const lines = cleanedContent.split('\\\\').map(line => line.trim()).filter(line => line.length > 0);
       
       if (lines.length >= 1) {
-        const headers = lines[0].split('&').map(h => h.trim()).filter(h => h.length > 0);
-        const rows = lines.slice(1).map(row => 
-          row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
-        );
+        // Use parseLatexTableRow to handle multicolumn properly
+        const headers = parseLatexTableRow(lines[0]);
+        const rows = lines.slice(1).map(row => parseLatexTableRow(row));
         
         return {
           type: ContentType.LATEX_TABLE,
