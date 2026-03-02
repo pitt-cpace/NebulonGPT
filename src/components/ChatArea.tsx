@@ -3675,7 +3675,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               }}
             >
               {isUser ? (
-                displayContent
+                <span style={{ whiteSpace: 'pre-wrap' }}>{displayContent}</span>
               ) : (
                 <>
                   {/* Use structural rendering system */}
