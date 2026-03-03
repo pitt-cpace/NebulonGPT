@@ -286,7 +286,10 @@ export const tableContainer: SxProps<Theme> = {
 };
 
 export const tableHead: SxProps<Theme> = {
-  backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.1)' : 'rgba(25, 118, 210, 0.1)',
+  backgroundColor: (theme) => theme.palette.mode === 'dark' ? 'rgba(144, 202, 249, 0.15)' : 'rgba(25, 118, 210, 0.15)',
+  '& th': {
+    color: (theme) => theme.palette.mode === 'dark' ? '#90caf9 !important' : '#1523e2 !important',
+  },
 };
 
 export const tableHeaderCell: SxProps<Theme> = {
