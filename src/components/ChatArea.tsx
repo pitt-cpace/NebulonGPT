@@ -1736,6 +1736,76 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     );
   };
 
+  // Helper function to extract table data from ReactMarkdown's AST node for copy functionality
+  // This uses the AST node which is more reliable than traversing transformed React components
+  const extractTableDataFromNode = (node: any): { headers: string[], rows: string[][] } | null => {
+    try {
+      if (!node?.children) return null;
+      
+      const headers: string[] = [];
+      const rows: string[][] = [];
+      
+      // Helper to extract text from AST node recursively
+      const extractTextFromAstNode = (astNode: any): string => {
+        if (!astNode) return '';
+        if (astNode.type === 'text') return astNode.value || '';
+        if (typeof astNode === 'string') return astNode;
+        if (astNode.value) return astNode.value;
+        if (astNode.children && Array.isArray(astNode.children)) {
+          return astNode.children.map(extractTextFromAstNode).join('');
+        }
+        return '';
+      };
+      
+      // Process children (thead/tbody or just rows)
+      for (const child of node.children) {
+        if (child.tagName === 'thead' && child.children) {
+          // Process header rows
+          for (const row of child.children) {
+            if (row.tagName === 'tr' && row.children) {
+              const cellTexts = row.children
+                .filter((cell: any) => cell.tagName === 'th')
+                .map((cell: any) => extractTextFromAstNode(cell).trim());
+              if (cellTexts.length > 0 && headers.length === 0) {
+                headers.push(...cellTexts);
+              }
+            }
+          }
+        } else if (child.tagName === 'tbody' && child.children) {
+          // Process body rows
+          for (const row of child.children) {
+            if (row.tagName === 'tr' && row.children) {
+              const cellTexts = row.children
+                .filter((cell: any) => cell.tagName === 'td')
+                .map((cell: any) => extractTextFromAstNode(cell).trim());
+              if (cellTexts.length > 0) {
+                rows.push(cellTexts);
+              }
+            }
+          }
+        } else if (child.tagName === 'tr' && child.children) {
+          // Direct row (no thead/tbody wrapper)
+          const ths = child.children.filter((c: any) => c.tagName === 'th');
+          const tds = child.children.filter((c: any) => c.tagName === 'td');
+          
+          if (ths.length > 0 && headers.length === 0) {
+            headers.push(...ths.map((cell: any) => extractTextFromAstNode(cell).trim()));
+          } else if (tds.length > 0) {
+            rows.push(tds.map((cell: any) => extractTextFromAstNode(cell).trim()));
+          }
+        }
+      }
+      
+      if (headers.length > 0) {
+        return { headers, rows };
+      }
+      return null;
+    } catch (error) {
+      console.error('Error extracting table data from node:', error);
+      return null;
+    }
+  };
+
   // Custom renderers for ReactMarkdown - memoized to update when theme changes
   const markdownComponents = React.useMemo(() => ({
     // Override paragraph renderer to use inline span instead of block-level p
@@ -1761,18 +1831,63 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         {children}
       </a>
     ),
-    // Override the default table renderer
-    table: ({ node, children, ...props }: any) => (
-      <TableContainer 
-        component={Paper} 
-        sx={styles.tableContainer}
-        className="enhanced-table"
-      >
-        <Table size="small" {...props}>
-          {children}
-        </Table>
-      </TableContainer>
-    ),
+    // Override the default table renderer - NOW WITH COPY BUTTON
+    table: ({ node, children, ...props }: any) => {
+      // Generate a unique ID for this table
+      const tableId = `md-table-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Extract table data for copy functionality using AST node (more reliable)
+      const tableData = extractTableDataFromNode(node);
+      
+      return (
+        <Box sx={{ mb: 2 }}>
+          <TableContainer 
+            component={Paper} 
+            sx={styles.tableContainer}
+            className="enhanced-table"
+          >
+            <Table size="small" {...props}>
+              {children}
+            </Table>
+          </TableContainer>
+          {/* Copy button for markdown tables */}
+          {tableData && (
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleCopyTable(tableId, tableData.headers, tableData.rows);
+                }}
+                sx={{
+                  opacity: 0.75,
+                  backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                  borderRadius: '8px',
+                  padding: '6px',
+                  border: '1px solid rgba(0, 0, 0, 0.08)',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    opacity: 1,
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    borderColor: 'success.main',
+                    color: 'success.main',
+                    transform: 'scale(1.1)',
+                    boxShadow: '0 2px 6px rgba(76, 175, 80, 0.2)',
+                  },
+                  '&:active': {
+                    transform: 'scale(0.95)',
+                  },
+                }}
+                title="Copy table data"
+              >
+                <ContentCopyIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Box>
+          )}
+        </Box>
+      );
+    },
     // Override the default thead renderer
     thead: ({ node, children, ...props }: any) => (
       <TableHead 
