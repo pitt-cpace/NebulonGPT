@@ -2882,6 +2882,70 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     );
   };
 
+  // Reformats code that was sent as a single line (no newlines) by detecting statement boundaries.
+  // Uses paren-depth tracking so content inside function calls is never split.
+  const reformatSingleLineCode = (code: string, language: string): string => {
+    // Already has newlines — nothing to do
+    if (code.includes('\n')) return code;
+
+    const lines: string[] = [];
+    let current = '';
+    let depth = 0; // combined paren / bracket / brace depth
+    const len = code.length;
+
+    for (let i = 0; i < len; i++) {
+      const c = code[i];
+
+      // ── track nesting depth ────────────────────────────────────────────
+      if (c === '(' || c === '[' || c === '{') { depth++; current += c; continue; }
+      if (c === ')' || c === ']' || c === '}') {
+        depth--;
+        current += c;
+
+        // After closing bracket back to depth 0:
+        // skip any trailing spaces and check if the next token starts a new statement
+        if (depth === 0) {
+          let j = i + 1;
+          while (j < len && code[j] === ' ') j++;
+          // If we skipped at least one space and the next char is an identifier / comment / string
+          if (j > i + 1 && j < len && /[A-Za-z_#'"`]/.test(code[j])) {
+            lines.push(current.trim());
+            current = '';
+            i = j - 1; // loop will i++ → j
+            continue;
+          }
+        }
+        continue;
+      }
+
+      // ── spaces at top-level ────────────────────────────────────────────
+      if (c === ' ' && depth === 0) {
+        // Two (or more) consecutive spaces → statement separator + blank line
+        if (i + 1 < len && code[i + 1] === ' ') {
+          if (current.trim()) {
+            lines.push(current.trim());
+            lines.push(''); // blank line
+            current = '';
+          }
+          while (i + 1 < len && code[i + 1] === ' ') i++;
+          continue;
+        }
+
+        // Single space: detect Python / JS / TS statement-starting keywords
+        const ahead = code.substring(i + 1);
+        if (/^(from\s+\w|import\s+\w|def\s+\w|class\s+\w|return\b|if\s+|elif\s|else\s*:|for\s+|while\s+|try\s*:|except\b|finally\s*:|with\s+|pass\b|break\b|continue\b|raise\s|yield\s|async\s|await\s|@\w|#)/.test(ahead)) {
+          if (current.trim()) { lines.push(current.trim()); current = ''; }
+          continue; // drop the space (will be "leading" of next line)
+        }
+      }
+
+      current += c;
+    }
+
+    if (current.trim()) lines.push(current.trim());
+    return lines.join('\n');
+  };
+
   const renderContentBlock = (block: ContentBlock, key: number): React.ReactNode => {
     switch (block.type) {
       case ContentType.HTML_TABLE:
@@ -2894,8 +2958,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         // Render code blocks directly with SyntaxHighlighter
         // Use block.data.code (match[2] from regex) which is the raw code without fence markers
         const codeLanguage = block.data?.language || '';
-        // Normalize literal \n escape sequences to actual newlines (some LLMs send \n as text)
-        const rawCode = (block.data?.code ?? '').replace(/\\n/g, '\n');
+        // 1. Normalize literal \n escape sequences to actual newlines (some LLMs send \n as text)
+        const rawCodeNormalized = (block.data?.code ?? '').replace(/\\n/g, '\n');
+        // 2. If the code arrived as one long line (no real newlines), add them at statement boundaries
+        const rawCode = reformatSingleLineCode(rawCodeNormalized, codeLanguage);
         const syntaxStyle = isDarkMode ? oneDark : oneLight;
         return (
           <Box key={key} sx={{ position: 'relative', mb: 2 }}>
