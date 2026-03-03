@@ -2465,6 +2465,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       headers?: string[];
       rows?: string[][];
       language?: string;
+      code?: string; // raw code content for CODE_BLOCK (without fence markers)
     };
   }
 
@@ -2783,7 +2784,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         content: match[0],
         startIndex: startIndex + match.index,
         endIndex: startIndex + match.index + match[0].length,
-        data: { language }
+        data: { language, code } // store raw code directly (match[2]) to avoid fence-stripping issues
       };
     }
     return null;
@@ -2889,19 +2890,95 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       case ContentType.MARKDOWN_TABLE:
         return <Box key={key} sx={{ mb: 0 }}>{renderTableBlock(block)}</Box>;
       
-      case ContentType.CODE_BLOCK:
-        // Render code blocks using ReactMarkdown
+      case ContentType.CODE_BLOCK: {
+        // Render code blocks directly with SyntaxHighlighter
+        // Use block.data.code (match[2] from regex) which is the raw code without fence markers
+        const codeLanguage = block.data?.language || '';
+        // Normalize literal \n escape sequences to actual newlines (some LLMs send \n as text)
+        const rawCode = (block.data?.code ?? '').replace(/\\n/g, '\n');
+        const syntaxStyle = isDarkMode ? oneDark : oneLight;
         return (
-          <Box key={key}>
-            <ReactMarkdown 
-              remarkPlugins={[remarkGfm, remarkMath]}
-              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-              components={markdownComponents}
+          <Box key={key} sx={{ position: 'relative', mb: 2 }}>
+            {codeLanguage && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                  color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)',
+                  px: 1.5,
+                  py: 0.5,
+                  borderRadius: '0 8px 0 8px',
+                  fontSize: '0.75rem',
+                  fontFamily: 'monospace',
+                  textTransform: 'lowercase',
+                  zIndex: 1,
+                }}
+              >
+                {codeLanguage}
+              </Box>
+            )}
+            {/* Force pre-wrap so both real newlines and wrapped long lines display correctly */}
+            <Box sx={{
+              '& pre': { whiteSpace: 'pre-wrap !important', overflowWrap: 'break-word', wordBreak: 'break-word' },
+              '& code': { whiteSpace: 'pre-wrap !important', overflowWrap: 'break-word', wordBreak: 'break-word' },
+            }}>
+            <SyntaxHighlighter
+              language={codeLanguage || 'text'}
+              style={syntaxStyle}
+              customStyle={{
+                margin: 0,
+                borderRadius: '8px',
+                padding: '16px',
+                fontSize: '0.9rem',
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'break-word',
+                wordBreak: 'break-word',
+              }}
+              showLineNumbers={rawCode.split('\n').length > 3}
+              wrapLines={true}
+              wrapLongLines={true}
             >
-              {block.content}
-            </ReactMarkdown>
+              {rawCode}
+            </SyntaxHighlighter>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleCopyCode(rawCode);
+                }}
+                sx={{
+                  opacity: 0.75,
+                  backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                  borderRadius: '8px',
+                  padding: '6px',
+                  border: '1px solid rgba(0, 0, 0, 0.08)',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    opacity: 1,
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    borderColor: 'secondary.main',
+                    color: 'secondary.main',
+                    transform: 'scale(1.1)',
+                    boxShadow: '0 2px 6px rgba(156, 39, 176, 0.2)',
+                  },
+                  '&:active': {
+                    transform: 'scale(0.95)',
+                  },
+                }}
+                title="Copy code"
+              >
+                <ContentCopyIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Box>
           </Box>
         );
+      }
       
       case ContentType.PLAIN_TEXT:
         // Skip empty or whitespace-only blocks (they create empty paragraphs)
