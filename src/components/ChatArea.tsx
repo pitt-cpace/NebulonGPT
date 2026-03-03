@@ -1353,11 +1353,56 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Helper function to parse LaTeX table row with multicolumn support
   // Returns an array of cells with proper column expansion
+  // IMPORTANT: This function respects nested LaTeX environments like \begin{pmatrix}...\end{pmatrix}
+  // The & inside nested environments should NOT be treated as cell separators
   const parseLatexTableRow = (row: string): string[] => {
     const cells: string[] = [];
     
-    // Split by & but we need to handle this carefully for multicolumn
-    const rawCells = row.split('&').map(c => c.trim()).filter(c => c.length > 0);
+    // Smart split by & that respects nested LaTeX environments
+    const smartSplitByAmpersand = (text: string): string[] => {
+      const result: string[] = [];
+      let current = '';
+      let nestingLevel = 0;
+      let i = 0;
+      
+      while (i < text.length) {
+        // Track nested environments
+        if (text.substring(i, i + 7) === '\\begin{') {
+          nestingLevel++;
+          current += text[i];
+          i++;
+          continue;
+        }
+        
+        if (text.substring(i, i + 5) === '\\end{') {
+          nestingLevel--;
+          current += text[i];
+          i++;
+          continue;
+        }
+        
+        // Check for & (cell separator) - only split if not inside nested environment
+        if (text[i] === '&' && nestingLevel === 0) {
+          result.push(current.trim());
+          current = '';
+          i++;
+          continue;
+        }
+        
+        current += text[i];
+        i++;
+      }
+      
+      // Add the last cell
+      if (current.trim().length > 0) {
+        result.push(current.trim());
+      }
+      
+      return result;
+    };
+    
+    // Split by & respecting nested environments
+    const rawCells = smartSplitByAmpersand(row);
     
     // Helper function to extract content from nested braces
     // Handles cases like \textbf{Sprint 1} inside \multicolumn{2}{c|}{\textbf{Sprint 1}}
@@ -1991,14 +2036,64 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           
           if (tableMatch) {
             const tableContent = tableMatch[1];
-            // Remove all \hline commands and trim
-            const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+            // Remove all \hline, \toprule, \midrule, \bottomrule commands and trim
+            const cleanedContent = tableContent
+              .replace(/\\hline/g, '')
+              .replace(/\\toprule/g, '')
+              .replace(/\\midrule/g, '')
+              .replace(/\\bottomrule/g, '')
+              .trim();
             
-            // Split by \\ and filter out empty lines
-            const lines = cleanedContent
-              .split('\\\\')
-              .map(line => line.trim())
-              .filter(line => line.length > 0);
+            // Use smart split that respects nested environments like \begin{pmatrix}...\end{pmatrix}
+            // The \\ inside pmatrix should NOT be treated as row separators
+            const smartSplitLatexRows = (text: string): string[] => {
+              const rows: string[] = [];
+              let current = '';
+              let nestingLevel = 0;
+              let i = 0;
+              
+              while (i < text.length) {
+                // Track nested environments
+                if (text.substring(i, i + 7) === '\\begin{') {
+                  nestingLevel++;
+                  current += text[i];
+                  i++;
+                  continue;
+                }
+                
+                if (text.substring(i, i + 5) === '\\end{') {
+                  nestingLevel = Math.max(0, nestingLevel - 1);
+                  current += text[i];
+                  i++;
+                  continue;
+                }
+                
+                // Check for \\ (row separator) - only split if not inside nested environment
+                if (text[i] === '\\' && i + 1 < text.length && text[i + 1] === '\\' && nestingLevel === 0) {
+                  const trimmed = current.trim();
+                  if (trimmed.length > 0) {
+                    rows.push(trimmed);
+                  }
+                  current = '';
+                  i += 2; // Skip both backslashes
+                  continue;
+                }
+                
+                current += text[i];
+                i++;
+              }
+              
+              // Add the last row
+              const trimmed = current.trim();
+              if (trimmed.length > 0) {
+                rows.push(trimmed);
+              }
+              
+              return rows;
+            };
+            
+            // Split by \\ respecting nested environments
+            const lines = smartSplitLatexRows(cleanedContent);
             
             if (lines.length >= 2) {
               // First line is headers - use parseLatexTableRow for multicolumn support
@@ -2395,6 +2490,53 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return null;
   };
 
+  // Helper function to split LaTeX table content by \\ while respecting nested environments
+  const splitLatexRows = (content: string): string[] => {
+    const rows: string[] = [];
+    let current = '';
+    let nestingLevel = 0;
+    let i = 0;
+    
+    while (i < content.length) {
+      // Track nested environments
+      if (content.substring(i, i + 7) === '\\begin{') {
+        nestingLevel++;
+        current += content[i];
+        i++;
+        continue;
+      }
+      
+      if (content.substring(i, i + 5) === '\\end{') {
+        nestingLevel = Math.max(0, nestingLevel - 1);
+        current += content[i];
+        i++;
+        continue;
+      }
+      
+      // Check for \\ (row separator) - only split if not inside nested environment
+      if (content[i] === '\\' && i + 1 < content.length && content[i + 1] === '\\' && nestingLevel === 0) {
+        const trimmed = current.trim();
+        if (trimmed.length > 0) {
+          rows.push(trimmed);
+        }
+        current = '';
+        i += 2; // Skip both backslashes
+        continue;
+      }
+      
+      current += content[i];
+      i++;
+    }
+    
+    // Add the last row
+    const trimmed = current.trim();
+    if (trimmed.length > 0) {
+      rows.push(trimmed);
+    }
+    
+    return rows;
+  };
+
   const detectLatexTable = (content: string, startIndex: number = 0): ContentBlock | null => {
     const latexTableRegex = /\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/;
     const match = content.substring(startIndex).match(latexTableRegex);
@@ -2402,7 +2544,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if (match && match.index !== undefined) {
       const tableContent = match[1];
       const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
-      const lines = cleanedContent.split('\\\\').map(line => line.trim()).filter(line => line.length > 0);
+      // Use smart split to respect nested environments like \begin{pmatrix}...\end{pmatrix}
+      const lines = splitLatexRows(cleanedContent);
       
       if (lines.length >= 1) {
         // Use parseLatexTableRow to handle multicolumn properly
@@ -2430,6 +2573,17 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       const normalizedLines: string[] = [];
       let i = 0;
       
+      // Helper to count pattern occurrences
+      const countOccurrences = (str: string, pattern: string) => {
+        let count = 0;
+        let pos = 0;
+        while ((pos = str.indexOf(pattern, pos)) !== -1) {
+          count++;
+          pos += pattern.length;
+        }
+        return count;
+      };
+      
       while (i < lines.length) {
         const line = lines[i];
         
@@ -2437,35 +2591,41 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         if (line.trim().startsWith('|')) {
           let currentRow = line;
           
-          // Check if we have unclosed LaTeX delimiters in this line
-          // Count \( and \) occurrences, also check for \begin without \end
-          const countOccurrences = (str: string, pattern: string) => {
-            let count = 0;
-            let pos = 0;
-            while ((pos = str.indexOf(pattern, pos)) !== -1) {
-              count++;
-              pos += pattern.length;
-            }
-            return count;
-          };
-          
+          // Count LaTeX delimiters
           let openParens = countOccurrences(currentRow, '\\(');
           let closeParens = countOccurrences(currentRow, '\\)');
           let openBegins = countOccurrences(currentRow, '\\begin{');
           let closeEnds = countOccurrences(currentRow, '\\end{');
+          let openDollars = (currentRow.match(/\$/g) || []).length;
           
-          // Keep joining lines until LaTeX is balanced
-          while ((openParens > closeParens || openBegins > closeEnds) && i + 1 < lines.length) {
-            i++;
-            const nextLine = lines[i];
-            // Join with a space instead of newline to preserve content
-            currentRow += ' ' + nextLine.trim();
+          // Keep joining lines until LaTeX is balanced AND row ends with |
+          while (i + 1 < lines.length) {
+            const nextLine = lines[i + 1];
+            const isLatexUnbalanced = openParens > closeParens || openBegins > closeEnds || (openDollars % 2 !== 0);
+            const rowEndsWithPipe = currentRow.trim().endsWith('|');
+            const nextLineIsTableRow = nextLine.trim().startsWith('|');
+            const nextLineIsSeparator = /^\s*\|[\-–—:\s|]+\|\s*$/.test(nextLine);
             
-            // Update counts
-            openParens += countOccurrences(nextLine, '\\(');
-            closeParens += countOccurrences(nextLine, '\\)');
-            openBegins += countOccurrences(nextLine, '\\begin{');
-            closeEnds += countOccurrences(nextLine, '\\end{');
+            // Stop joining if:
+            // 1. LaTeX is balanced AND row ends with | AND next line is a new table row
+            // 2. Next line is a separator line
+            if (nextLineIsSeparator) break;
+            if (!isLatexUnbalanced && rowEndsWithPipe && nextLineIsTableRow) break;
+            
+            // If next line doesn't start with | but we're in unbalanced LaTeX, join it
+            if (isLatexUnbalanced || !rowEndsWithPipe) {
+              i++;
+              currentRow += ' ' + nextLine.trim();
+              
+              // Update counts
+              openParens += countOccurrences(nextLine, '\\(');
+              closeParens += countOccurrences(nextLine, '\\)');
+              openBegins += countOccurrences(nextLine, '\\begin{');
+              closeEnds += countOccurrences(nextLine, '\\end{');
+              openDollars += (nextLine.match(/\$/g) || []).length;
+            } else {
+              break;
+            }
           }
           
           normalizedLines.push(currentRow);
@@ -2501,6 +2661,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           let inBackticks = false;
           let inDollarSigns = false;
           let inLatexParens = false; // Track \(...\) delimiters
+          let latexEnvNesting = 0; // Track \begin{...} / \end{...} nesting
           
           // Remove leading/trailing pipes if present
           let processLine = line.trim();
@@ -2511,6 +2672,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             const char = processLine[i];
             const prevChar = i > 0 ? processLine[i - 1] : '';
             const nextChar = i < processLine.length - 1 ? processLine[i + 1] : '';
+            
+            // Track \begin{...} and \end{...} LaTeX environments
+            if (processLine.substring(i, i + 7) === '\\begin{') {
+              latexEnvNesting++;
+              current += char;
+              continue;
+            }
+            if (processLine.substring(i, i + 5) === '\\end{') {
+              latexEnvNesting = Math.max(0, latexEnvNesting - 1);
+              current += char;
+              continue;
+            }
             
             // Track \(...\) LaTeX inline math delimiters
             if (char === '\\' && nextChar === '(' && !inBackticks && !inDollarSigns) {
@@ -2525,18 +2698,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             }
             
             // Track backticks
-            if (char === '`' && !inDollarSigns && !inLatexParens) {
+            if (char === '`' && !inDollarSigns && !inLatexParens && latexEnvNesting === 0) {
               inBackticks = !inBackticks;
               current += char;
             }
             // Track dollar signs
-            else if (char === '$' && !inBackticks && !inLatexParens) {
+            else if (char === '$' && !inBackticks && !inLatexParens && latexEnvNesting === 0) {
               inDollarSigns = !inDollarSigns;
               current += char;
             }
-            // Split on pipe only when not inside backticks, dollar signs, or LaTeX parens
+            // Split on pipe only when not inside any special context
             // Also check if pipe is escaped with backslash (\|)
-            else if (char === '|' && !inBackticks && !inDollarSigns && !inLatexParens && prevChar !== '\\') {
+            else if (char === '|' && !inBackticks && !inDollarSigns && !inLatexParens && latexEnvNesting === 0 && prevChar !== '\\') {
               cells.push(current);
               current = '';
             } else {
@@ -2754,6 +2927,63 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
+  // Helper function to normalize multi-line LaTeX in markdown tables
+  // This must run BEFORE any table detection to ensure rows are on single lines
+  const normalizeMultiLineLatexInTables = (content: string): string => {
+    const lines = content.split('\n');
+    const result: string[] = [];
+    let i = 0;
+    
+    // Helper to count occurrences
+    const count = (str: string, pattern: string): number => {
+      let c = 0, pos = 0;
+      while ((pos = str.indexOf(pattern, pos)) !== -1) { c++; pos += pattern.length; }
+      return c;
+    };
+    
+    while (i < lines.length) {
+      const line = lines[i];
+      
+      // Check if this looks like a markdown table row
+      if (line.trim().startsWith('|')) {
+        let currentRow = line;
+        let openBegins = count(currentRow, '\\begin{');
+        let closeEnds = count(currentRow, '\\end{');
+        let dollarCount = (currentRow.match(/\$/g) || []).length;
+        
+        // Keep joining lines until balanced and row ends with |
+        while (i + 1 < lines.length) {
+          const nextLine = lines[i + 1];
+          const isUnbalanced = openBegins > closeEnds || (dollarCount % 2 !== 0);
+          const rowEndsWithPipe = currentRow.trim().endsWith('|');
+          const nextIsTableRow = nextLine.trim().startsWith('|');
+          const nextIsSeparator = /^\s*\|[\-–—:\s|]+\|\s*$/.test(nextLine);
+          
+          // Stop if next is separator or if balanced and complete
+          if (nextIsSeparator) break;
+          if (!isUnbalanced && rowEndsWithPipe && nextIsTableRow) break;
+          
+          // Join if unbalanced or incomplete
+          if (isUnbalanced || !rowEndsWithPipe) {
+            i++;
+            currentRow += ' ' + nextLine.trim();
+            openBegins += count(nextLine, '\\begin{');
+            closeEnds += count(nextLine, '\\end{');
+            dollarCount += (nextLine.match(/\$/g) || []).length;
+          } else {
+            break;
+          }
+        }
+        result.push(currentRow);
+      } else {
+        result.push(line);
+      }
+      i++;
+    }
+    
+    return result.join('\n');
+  };
+
   // 5. MAIN RENDERING FUNCTION (Structural approach)
   const renderContentStructurally = (content: string): React.ReactNode => {
     // This is the main entry point for rendering any content
@@ -2768,10 +2998,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     //    - Nested tables (via recursive table parsing)
     //    - Inline code and markdown
     
+    // FIRST: Normalize multi-line LaTeX in markdown table cells
+    // This joins lines that are part of the same table cell but span multiple lines
+    const normalizedContent = normalizeMultiLineLatexInTables(content);
+    
     // IMPORTANT: Preprocess LaTeX delimiters BEFORE detecting blocks
     // This converts \[...\] to $$...$$ and \(...\) to $...$
     // so ReactMarkdown can handle them properly
-    const preprocessedContent = preprocessLatexDelimiters(content);
+    const preprocessedContent = preprocessLatexDelimiters(normalizedContent);
     
     // Detect all content blocks (tables and text) from preprocessed content
     const blocks = detectContentBlocks(preprocessedContent);
