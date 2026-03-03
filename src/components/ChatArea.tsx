@@ -2946,6 +2946,32 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return lines.join('\n');
   };
 
+  // Reformats markdown text that was sent as a single line (no newlines) by inserting newlines
+  // before block-level elements: headings, horizontal rules, numbered/bullet list items.
+  const reformatSingleLineMarkdown = (text: string): string => {
+    // Only process when the text has NO newlines at all
+    if (text.includes('\n')) return text;
+
+    let result = text;
+
+    // Step 1: Two or more consecutive spaces → newline
+    //   Represents stripped markdown trailing-space line-breaks (  \n) or blank lines (\n\n)
+    result = result.replace(/  +/g, '\n');
+
+    // Step 2: Horizontal rules — ensure --- sits on its own line with blank lines around it
+    result = result.replace(/([^\n]) (---(?:\s|$))/g, '$1\n\n$2');   // before ---
+    result = result.replace(/(---) ([^\n])/g, '$1\n\n$2');            // after  ---
+
+    // Step 3: Headings — blank line before any heading still on the same line as other content
+    result = result.replace(/([^\n]) (#{1,6} )/g, '$1\n\n$2');
+
+    // Step 4: Numbered list items — newline before each new "N. " entry
+    //   Triggered by sentence-ending chars (. ) ! ? ² ³ letters) followed by "N. "
+    result = result.replace(/([)\.!?²³°a-zA-Z]) (\d+\. )/g, '$1\n$2');
+
+    return result.trim();
+  };
+
   const renderContentBlock = (block: ContentBlock, key: number): React.ReactNode => {
     switch (block.type) {
       case ContentType.HTML_TABLE:
@@ -3046,13 +3072,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         );
       }
       
-      case ContentType.PLAIN_TEXT:
+      case ContentType.PLAIN_TEXT: {
         // Skip empty or whitespace-only blocks (they create empty paragraphs)
         if (!block.content.trim()) {
           return null;
         }
-        // Always use ReactMarkdown for plain text (LaTeX delimiters already preprocessed)
-        // ReactMarkdown with remark-math and rehype-katex handles both markdown and LaTeX
+        // If the block arrived as a single line (no newlines), try to recover markdown structure:
+        // headings, horizontal rules, numbered lists, and bullet sub-items.
+        const plainTextContent = reformatSingleLineMarkdown(block.content);
         return (
           <React.Fragment key={key}>
             <ReactMarkdown 
@@ -3060,10 +3087,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={markdownComponents}
             >
-              {block.content}
+              {plainTextContent}
             </ReactMarkdown>
           </React.Fragment>
         );
+      }
       
       default:
         return null;
