@@ -55,19 +55,25 @@
   "scripts": {
     "electron-dev-win": "set NODE_ENV=development && npm run bundle-python-win && concurrently \"npm start\" \"uvicorn backend.main:app --host 0.0.0.0 --port 3001\" \"wait-on http://localhost:3000 && node node_modules\\electron\\cli.js .\"",
     "electron-dev-mac": "export NODE_ENV=development && npm run bundle-python-mac && concurrently \"npm start\" \"uvicorn backend.main:app --host 0.0.0.0 --port 3001\" \"wait-on http://localhost:3000 && npx electron .\"",
+
     "dist:mac-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac --x64 && ./signing-scripts/notarize-app.sh x64",
     "dist:mac-dmg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac dmg --x64 && ./signing-scripts/notarize-app.sh x64",
     "dist:mac-pkg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac pkg --x64 && ./signing-scripts/notarize-app.sh x64",
+
     "dist:mac-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac --arm64 && ./signing-scripts/notarize-app.sh arm64",
     "dist:mac-dmg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac dmg --arm64 && ./signing-scripts/notarize-app.sh arm64",
     "dist:mac-pkg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac pkg --arm64 && ./signing-scripts/notarize-app.sh arm64",
     "dist:mac-dmg-arm64-dev": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && CSC_IDENTITY_AUTO_DISCOVERY=false CSC_SKIP_NOTARIZATION=true electron-builder -c.mac.identity=null --mac dmg --arm64",
     "dist:mac-pkg-arm64-dev": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && CSC_IDENTITY_AUTO_DISCOVERY=false CSC_SKIP_NOTARIZATION=true npx dotenv electron-builder --mac pkg --arm64",
+
     "dist:win": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64 && npm run copy-build-files-win && electron-builder --win",
+
     "bundle-python-mac": "chmod +x build-python-bundle-mac.sh && ./build-python-bundle-mac.sh",
     "bundle-python-win": "powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64",
+
     "copy-build-files-mac": "cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && cp -r pkg-scripts build/",
     "copy-build-files-win": "copy electron.js build\\ && copy preload.js build\\ && copy public\\vosk-audio-processor.js build\\ && xcopy /E /I /Y Certification build\\Certification",
+    
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
