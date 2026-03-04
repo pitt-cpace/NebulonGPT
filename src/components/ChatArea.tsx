@@ -6,6 +6,7 @@ import { useElementHeightVar } from '../hooks/useElementHeightVar';
 import { RO } from '../hooks/ResizeObserverManager';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import 'katex/dist/katex.min.css';
@@ -1693,7 +1694,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // For content without math, use ReactMarkdown for other markdown features
     return (
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
         rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
         components={{
           p: ({ children }) => <span>{children}</span>,
@@ -1853,8 +1854,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   // Custom renderers for ReactMarkdown - memoized to update when theme changes
   const markdownComponents = React.useMemo(() => ({
-    // Override paragraph renderer to use inline span instead of block-level p
-    p: ({ node, children, ...props }: any) => <span {...props}>{children}</span>,
+    // Override paragraph renderer to use block-level div (preserves line breaks between paragraphs)
+    p: ({ node, children, ...props }: any) => <div style={{ marginBottom: '0.5em' }} {...props}>{children}</div>,
     // Override the default link renderer
     a: ({ node, children, href, ...props }: any) => (
       <a
@@ -3083,7 +3084,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         return (
           <React.Fragment key={key}>
             <ReactMarkdown 
-              remarkPlugins={[remarkGfm, remarkMath]}
+              remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={markdownComponents}
             >
@@ -3577,7 +3578,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               parts.push(
                 <Box key={`text-${key++}`}>
                   <ReactMarkdown 
-                    remarkPlugins={[remarkMath]}
+                    remarkPlugins={[remarkMath, remarkBreaks]}
                     rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                     components={customMarkdownComponents}
                   >
@@ -3603,7 +3604,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           parts.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3619,7 +3620,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // No display math blocks, just render normally
       return (
         <ReactMarkdown 
-          remarkPlugins={[remarkMath]}
+          remarkPlugins={[remarkMath, remarkBreaks]}
           rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
           components={markdownComponents}
         >
@@ -3643,7 +3644,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3722,7 +3723,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3878,7 +3879,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3975,7 +3976,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -4098,7 +4099,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         result.push(
           <Box key={`text-${key++}`}>
             <ReactMarkdown 
-              remarkPlugins={[remarkMath]}
+              remarkPlugins={[remarkMath, remarkBreaks]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -4179,7 +4180,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             result.push(
               <Box key={`text-${key++}`}>
                 <ReactMarkdown 
-                  remarkPlugins={[remarkMath]}
+                  remarkPlugins={[remarkMath, remarkBreaks]}
                   rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                   components={customMarkdownComponents}
                 >
@@ -4248,7 +4249,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -4261,7 +4262,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         result.push(
           <Box key={`text-${key++}`}>
             <ReactMarkdown 
-              remarkPlugins={[remarkMath]}
+              remarkPlugins={[remarkMath, remarkBreaks]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
