@@ -2429,6 +2429,20 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Replace \text{} with \mathrm{} for better handling of units
     processed = processed.replace(/\\text\{/g, '\\mathrm{');
     
+    // Fix KaTeX incompatibility: KaTeX does NOT support \multicolumn at all in array environments.
+    // Expand \multicolumn{N}{align}{content} into (N-1) empty cells + content.
+    // This handles nested braces in the content (e.g., \textbf{Subtotal}).
+    processed = processed.replace(
+      /\\multicolumn\{(\d+)\}\{[^}]*\}\{((?:[^{}]|\{[^}]*\})*)\}/g,
+      (match, colsStr, content) => {
+        const cols = parseInt(colsStr, 10);
+        if (cols <= 1) return content; // single column, just return content
+        // Generate (cols-1) empty cells then the content
+        const emptyCells = new Array(cols - 1).fill('').join(' & ');
+        return emptyCells + ' & ' + content;
+      }
+    );
+    
     // Convert \( \) to $ $ for inline math (remark-math standard)
     // Use non-greedy match to handle nested parentheses correctly
     processed = processed.replace(/\\\(([\s\S]+?)\\\)/g, (match, p1) => `$${p1}$`);
