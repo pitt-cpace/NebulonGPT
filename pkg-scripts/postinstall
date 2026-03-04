@@ -298,6 +298,7 @@ if [ -d "/Applications/Ollama.app" ]; then
 #!/bin/bash
 DONE_FLAG="__DONE_FLAG__"
 ERROR_FLAG="__ERROR_FLAG__"
+LOG_FILE="__LOG_FILE__"
 
 clear
 echo ""
@@ -307,13 +308,15 @@ echo "╠═══════════════════════�
 echo "║  Model: __MODEL_NAME__                                       "
 echo "║  Size: __MODEL_SIZE__                                        "
 echo "║  Attempt: __ATTEMPT__ of __MAX_ATTEMPTS__                    "
-echo "║  Please wait while the model downloads...                    ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
+echo "Download progress:"
+echo ""
 
-# Run ollama pull and capture output
-OUTPUT=$(/usr/local/bin/ollama pull "__MODEL_NAME__" 2>&1)
-EXIT_CODE=$?
+# Run ollama pull with live output (shows progress bar)
+# Use tee to both display AND capture output for error analysis
+/usr/local/bin/ollama pull "__MODEL_NAME__" 2>&1 | tee "$LOG_FILE"
+EXIT_CODE=${PIPESTATUS[0]}
 
 echo ""
 if [ $EXIT_CODE -eq 0 ]; then
@@ -329,7 +332,9 @@ if [ $EXIT_CODE -eq 0 ]; then
     fi
 else
     echo "❌ Model download failed! (Exit code: $EXIT_CODE)"
-    echo "$OUTPUT"
+    
+    # Read captured output for error analysis
+    OUTPUT=$(cat "$LOG_FILE" 2>/dev/null)
     
     # Determine error type from output
     if echo "$OUTPUT" | grep -qi "connection refused\|could not connect"; then
@@ -349,6 +354,10 @@ else
     fi
     echo "failed" > "$DONE_FLAG"
 fi
+
+# Cleanup log file
+rm -f "$LOG_FILE"
+
 echo ""
 echo "This window will close shortly..."
 sleep 2
@@ -360,10 +369,12 @@ exit 0
 MODELSCRIPT
             
             # Replace placeholders in the script
+            LOG_FILE="/tmp/nebulon-model-output.log"
             sed -i '' "s|__MODEL_NAME__|$CHOSEN_MODEL|g" "$MODEL_SCRIPT"
             sed -i '' "s|__MODEL_SIZE__|$MODEL_SIZE|g" "$MODEL_SCRIPT"
             sed -i '' "s|__DONE_FLAG__|$DONE_FLAG|g" "$MODEL_SCRIPT"
             sed -i '' "s|__ERROR_FLAG__|$ERROR_FLAG|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__LOG_FILE__|$LOG_FILE|g" "$MODEL_SCRIPT"
             sed -i '' "s|__ATTEMPT__|$MODEL_ATTEMPT|g" "$MODEL_SCRIPT"
             sed -i '' "s|__MAX_ATTEMPTS__|$MAX_MODEL_RETRIES|g" "$MODEL_SCRIPT"
             chmod +x "$MODEL_SCRIPT"
@@ -538,6 +549,7 @@ echo "NebulonGPT setup complete!" >&2
 rm -f /var/tmp/nebulon-installer-session.txt
 rm -f /var/tmp/nebulon-chosen-model.txt
 rm -f /tmp/nebulon-model-progress.txt
+rm -f /tmp/nebulon-model-output.log
 
 # ============================================
 # FINALIZE INSTALLATION
