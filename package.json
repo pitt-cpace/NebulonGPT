@@ -56,13 +56,13 @@
     "electron-dev-win": "set NODE_ENV=development && npm run bundle-python-win && concurrently \"npm start\" \"uvicorn backend.main:app --host 0.0.0.0 --port 3001\" \"wait-on http://localhost:3000 && node node_modules\\electron\\cli.js .\"",
     "electron-dev-mac": "export NODE_ENV=development && npm run bundle-python-mac && concurrently \"npm start\" \"uvicorn backend.main:app --host 0.0.0.0 --port 3001\" \"wait-on http://localhost:3000 && npx electron .\"",
 
-    "dist:mac-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac --x64 && ./signing-scripts/notarize-app.sh x64",
-    "dist:mac-dmg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac dmg --x64 && ./signing-scripts/notarize-app.sh x64",
-    "dist:mac-pkg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac pkg --x64 && ./signing-scripts/notarize-app.sh x64",
+    "dist:mac-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac --x64",
+    "dist:mac-dmg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac dmg --x64",
+    "dist:mac-pkg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac pkg --x64",
 
-    "dist:mac-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac --arm64 && ./signing-scripts/notarize-app.sh arm64",
-    "dist:mac-dmg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac dmg --arm64 && ./signing-scripts/notarize-app.sh arm64",
-    "dist:mac-pkg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac pkg --arm64 && ./signing-scripts/notarize-app.sh arm64",
+    "dist:mac-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac --arm64",
+    "dist:mac-dmg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac dmg --arm64",
+    "dist:mac-pkg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac pkg --arm64",
     "dist:mac-dmg-arm64-dev": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && CSC_IDENTITY_AUTO_DISCOVERY=false CSC_SKIP_NOTARIZATION=true electron-builder -c.mac.identity=null --mac dmg --arm64",
     "dist:mac-pkg-arm64-dev": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && CSC_IDENTITY_AUTO_DISCOVERY=false CSC_SKIP_NOTARIZATION=true npx dotenv electron-builder --mac pkg --arm64",
 
@@ -128,6 +128,7 @@
     "nodeGypRebuild": false,
     "includeSubNodeModules": true,
     "npmRebuild": false,
+    "afterAllArtifactBuild": "./signing-scripts/notarize-pkg.js",
     "extraResources": [
       {
         "from": "backend",
@@ -157,6 +158,7 @@
       }
     ],
     "mac": {
+      "notarize": true,
       "category": "public.app-category.productivity",
       "icon": "public/AppLogo.icns",
       "target": [
