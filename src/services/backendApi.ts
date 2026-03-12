@@ -1,10 +1,76 @@
 import axios from 'axios';
 
-// Get backend URL from environment variable
+// Helper function to detect if running in Electron
+const isElectronEnvironment = (): boolean => {
+  return !!(
+    (window as any).isElectron || 
+    (window as any).electronAPI || 
+    (window as any).require ||
+    (window.navigator && window.navigator.userAgent && window.navigator.userAgent.includes('Electron'))
+  );
+};
+
+// Get backend URL based on how the app is being accessed
 const getBackendURL = (): string => {
-  const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
-  console.log(`Using Backend URL: ${backendUrl}`);
-  return backendUrl;
+  const hostname = window.location.hostname;
+  const port = window.location.port;
+  const protocol = window.location.protocol;
+  
+  // Scenario 1: Electron mode (production or dev) - always use direct connection to backend
+  // In Electron production, the app loads from file:// protocol, so hostname is empty
+  if (isElectronEnvironment()) {
+    // Use current hostname to support IP address access (127.0.0.1, 10.211.33.32, etc.)
+    // Default to 'localhost' if hostname is empty (file:// protocol in Electron production)
+    const electronHostname = hostname || 'localhost';
+    const electronUrl = `http://${electronHostname}:3001`;
+    console.log(`Using Backend URL (Electron mode): ${electronUrl}`);
+    return electronUrl;
+  }
+  
+  // Scenario 2: Check if accessing via network (not localhost/127.0.0.1)
+  // This takes priority because remote devices can't reach "localhost"
+  const isNetworkAccess = hostname !== 'localhost' && hostname !== '127.0.0.1' && !hostname.startsWith('192.168.') === false;
+  const isRemoteIP = hostname !== 'localhost' && hostname !== '127.0.0.1' && hostname !== '';
+  
+  // For network/remote access: use the same host (HTTPS proxy handles routing)
+  if (isRemoteIP) {
+    const host = window.location.host; // includes hostname:port
+    const networkUrl = `${protocol}//${host}`;
+    console.log(`Using Backend URL (network access): ${networkUrl}`);
+    return networkUrl;
+  }
+  
+  // For localhost access, check if explicitly set via environment variable
+  if (process.env.REACT_APP_BACKEND_URL) {
+    console.log(`Using Backend URL from env: ${process.env.REACT_APP_BACKEND_URL}`);
+    return process.env.REACT_APP_BACKEND_URL;
+  }
+  
+  
+  // Check for React development server indicators (webpack dev server)
+  const hasWebpackDevServer = (
+    (window as any).webpackHotUpdate !== undefined ||
+    (window as any).__webpack_dev_server__ !== undefined ||
+    document.querySelector('script[src*="webpack"]') !== null ||
+    document.querySelector('script[src*="hot-update"]') !== null ||
+    document.querySelector('script[src*="sockjs-node"]') !== null
+  );
+  
+  // Check if this is development mode
+  const isDevelopmentMode = hasWebpackDevServer || (port === '3000' && hasWebpackDevServer);
+  
+  // For development: use direct connection to backend on port 3001
+  if (isDevelopmentMode) {
+    const devUrl = 'http://localhost:3001';
+    console.log(`Using Backend URL (dev mode): ${devUrl}`);
+    return devUrl;
+  }
+  
+  // For Docker/production on localhost: use current host which is proxied
+  const host = window.location.host; // includes hostname:port
+  const prodUrl = `${protocol}//${host}`;
+  console.log(`Using Backend URL (Docker/production mode): ${prodUrl}`);
+  return prodUrl;
 };
 
 // Create axios instance for backend API
@@ -113,6 +179,18 @@ export const checkHealth = async () => {
   } catch (error) {
     console.error('Error checking backend health:', error);
     throw error;
+  }
+};
+
+// TTS models check endpoint
+export const checkTtsModels = async (): Promise<{ exists: boolean; path: string; dataDirectory: string; platform: string }> => {
+  try {
+    const response = await backendApi.get('/api/tts/models-check');
+    return response.data;
+  } catch (error) {
+    console.error('Error checking TTS models:', error);
+    // Return default values if check fails (assume exists to not block user)
+    return { exists: true, path: '', dataDirectory: '', platform: '' };
   }
 };
 

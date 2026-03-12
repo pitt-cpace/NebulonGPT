@@ -6,8 +6,11 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import SettingsDialog from './components/SettingsDialog';
 import StartupLoader from './components/StartupLoader';
+import ModelLoadingDialog from './components/ModelLoadingDialog';
+import { modelLoadingService } from './services/modelLoadingService';
 import { ModelType, ChatType, MessageType, FileAttachment } from './types';
 import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
+import { chunkQueueService } from './services/chunkQueueService';
 import { voskRecognition } from './services/vosk';
 import { ttsService } from './services/ttsService';
 import { generateChatTitle } from './services/titleGenerator';
@@ -17,6 +20,38 @@ import { RO } from './hooks/ResizeObserverManager';
 
 // Global current message ID - immediately accessible everywhere
 let currentMsgId: string | null = null;
+
+// Global counter for ensuring unique message IDs
+let messageIdCounter = 0;
+
+// Function to generate unique message IDs
+const generateUniqueMessageId = (): string => {
+  const timestamp = Date.now();
+  const uniqueId = `msg-${timestamp}-${messageIdCounter++}`;
+  return uniqueId;
+};
+
+// Helper function to find default model based on priority
+const findPriorityDefaultModel = (modelList: ModelType[]): ModelType | null => {
+  // Priority list for default models when user hasn't selected one
+  const priorityModels = ['gpt-oss:20b', 'granite4:tiny-h', 'mistral:7b'];
+  
+  for (const priorityModelId of priorityModels) {
+    const foundModel = modelList.find(m => m.id === priorityModelId || m.name === priorityModelId);
+    if (foundModel) {
+      console.log(`🎯 Selected priority default model: ${foundModel.name}`);
+      return foundModel;
+    }
+  }
+  
+  // Fallback to first model if none of the priority models are found
+  if (modelList.length > 0) {
+    console.log(`📋 No priority models found, falling back to first model: ${modelList[0].name}`);
+    return modelList[0];
+  }
+  
+  return null;
+};
 
 const App: React.FC = () => {
   // Theme state - dynamically update without reload
@@ -47,6 +82,10 @@ const App: React.FC = () => {
   const [initialized, setInitialized] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isEditingChatTitle, setIsEditingChatTitle] = useState(false);
+  
+  // Model loading dialog state
+  const [modelLoadingDialogOpen, setModelLoadingDialogOpen] = useState(false);
+  const [modelToLoad, setModelToLoad] = useState<string>('');
   
   // Ollama status state
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({ isAvailable: true });
@@ -252,7 +291,7 @@ const App: React.FC = () => {
         // Set default model if available
         if (modelList.length > 0) {
           // Check if user has set a preferred default model
-          let defaultModel = modelList[0]; // fallback to first model
+          let defaultModel: ModelType | null = null;
           
           try {
             const savedDefaultModelId = localStorage.getItem('defaultModelId');
@@ -260,26 +299,37 @@ const App: React.FC = () => {
               const savedDefaultModel = modelList.find(m => m.id === savedDefaultModelId);
               if (savedDefaultModel) {
                 defaultModel = savedDefaultModel;
+                console.log(`✅ Using user's saved default model: ${defaultModel.name}`);
               } else {
-                console.log(`⚠️ Saved default model '${savedDefaultModelId}' not found, using first available model`);
+                console.log(`⚠️ Saved default model '${savedDefaultModelId}' not found, using priority-based selection`);
               }
             }
           } catch (error) {
             console.error('Failed to load default model from localStorage:', error);
           }
           
-          setSelectedModel(defaultModel);
+          // If no saved default or saved default not found, use priority-based selection
+          if (!defaultModel) {
+            defaultModel = findPriorityDefaultModel(modelList);
+          }
           
-          // Fetch context length for the default model
-          try {
-            const modelDetails = await fetchModelDetails(defaultModel.id);
-            if (modelDetails && modelDetails.model_info && modelDetails.model_info['llama.context_length']) {
-              const contextLength = parseInt(modelDetails.model_info['llama.context_length'], 10);
-              setMaxContextLength(contextLength);
-              console.log(`Default model ${defaultModel.id} has context length: ${contextLength}`);
+          if (defaultModel) {
+            setSelectedModel(defaultModel);
+            
+            // Fetch context length for the default model
+            try {
+              const modelDetails = await fetchModelDetails(defaultModel.id);
+              if (modelDetails && modelDetails.model_info && modelDetails.model_info['llama.context_length']) {
+                const contextLength = parseInt(modelDetails.model_info['llama.context_length'], 10);
+                setMaxContextLength(contextLength);
+                console.log(`Default model ${defaultModel.id} has context length: ${contextLength}`);
+              }
+            } catch (error) {
+              console.error('Failed to fetch model details for default model:', error);
             }
-          } catch (error) {
-            console.error('Failed to fetch model details for default model:', error);
+            
+            // Load the default model into RAM on app startup using centralized function
+            await loadModelWithDialog(defaultModel.id);
           }
         }
       } catch (error) {
@@ -314,14 +364,33 @@ const App: React.FC = () => {
       setInitialized(true);
       
       // Always create a new chat on page load/refresh
-      const defaultModel = models.find(m => {
-        try {
-          const savedDefaultModelId = localStorage.getItem('defaultModelId');
-          return savedDefaultModelId ? m.id === savedDefaultModelId : false;
-        } catch (error) {
-          return false;
+      // First check for user's saved default model, then use priority-based selection
+      let defaultModel: ModelType | null = null;
+      
+      try {
+        const savedDefaultModelId = localStorage.getItem('defaultModelId');
+        if (savedDefaultModelId) {
+          const savedDefaultModel = models.find(m => m.id === savedDefaultModelId);
+          if (savedDefaultModel) {
+            defaultModel = savedDefaultModel;
+          }
         }
-      }) || models[0];
+      } catch (error) {
+        console.error('Failed to load default model from localStorage:', error);
+      }
+      
+      // If no saved default, use priority-based selection
+      if (!defaultModel) {
+        defaultModel = findPriorityDefaultModel(models);
+      }
+      
+      // Final fallback to first model (should never happen since findPriorityDefaultModel handles this)
+      if (!defaultModel && models.length > 0) {
+        defaultModel = models[0];
+      }
+      
+      // Ensure we have a model before creating the chat
+      if (!defaultModel) return;
       
       const newChat: ChatType = {
         id: `chat-${Date.now()}`,
@@ -357,7 +426,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (initialized && models.length > 0 && !selectedModel) {
       // Try to get default model from localStorage first
-      let defaultModel = models[0]; // fallback to first model
+      let defaultModel: ModelType | null = null;
       
       try {
         const savedDefaultModelId = localStorage.getItem('defaultModelId');
@@ -371,7 +440,14 @@ const App: React.FC = () => {
         console.error('Failed to load default model from localStorage:', error);
       }
       
-      setSelectedModel(defaultModel);
+      // If no saved default, use priority-based selection
+      if (!defaultModel) {
+        defaultModel = findPriorityDefaultModel(models);
+      }
+      
+      if (defaultModel) {
+        setSelectedModel(defaultModel);
+      }
     }
   }, [initialized, models, selectedModel]);
 
@@ -486,6 +562,62 @@ const App: React.FC = () => {
     }
   };
 
+  // Bulk delete multiple chats at once (for group selection feature)
+  const handleBulkDeleteChats = async (chatIds: string[]) => {
+    if (chatIds.length === 0) return;
+    
+    // Filter out all chats that are in the delete list
+    const chatIdSet = new Set(chatIds);
+    const updatedChats = chats.filter(chat => !chatIdSet.has(chat.id));
+    
+    // Immediately save to server to ensure deletions persist
+    try {
+      await saveChatsToServer(updatedChats);
+    } catch (error) {
+      console.error('Failed to save chats to server after bulk deletion:', error);
+      // Continue with local state update even if server save fails
+    }
+    
+    setChats(updatedChats);
+    
+    // Check if current chat was deleted
+    if (currentChat && chatIdSet.has(currentChat.id)) {
+      // Set the new current chat
+      const newCurrentChat = updatedChats.length > 0 ? updatedChats[0] : null;
+      setCurrentChat(newCurrentChat);
+      
+      // Update the selected model to match the new current chat's model
+      if (newCurrentChat && newCurrentChat.modelId) {
+        const chatModel = models.find(m => m.id === newCurrentChat.modelId);
+        if (chatModel) {
+          setSelectedModel(chatModel);
+        }
+      } else if (!newCurrentChat) {
+        // If no chats left, revert to default model
+        try {
+          const savedDefaultModelId = localStorage.getItem('defaultModelId');
+          if (savedDefaultModelId && models.length > 0) {
+            const defaultModel = models.find(m => m.id === savedDefaultModelId);
+            if (defaultModel) {
+              setSelectedModel(defaultModel);
+            } else {
+              // Fallback to first model if default not found
+              setSelectedModel(models[0]);
+            }
+          } else if (models.length > 0) {
+            // No default set, use first model
+            setSelectedModel(models[0]);
+          }
+        } catch (error) {
+          console.error('Failed to revert to default model after deleting all chats:', error);
+          if (models.length > 0) {
+            setSelectedModel(models[0]);
+          }
+        }
+      }
+    }
+  };
+
   const handleUpdateChatTitle = async (chatId: string, newTitle: string) => {
     const updatedChats = chats.map(chat => 
       chat.id === chatId 
@@ -516,6 +648,9 @@ const App: React.FC = () => {
       if (onHideLoadingAnimationRef.current) {
         //onHideLoadingAnimationRef.current();
       }
+      
+      // Force stop the chunk queue and discard remaining chunks immediately when user clicks stop
+      chunkQueueService.forceStop();
       
       // Also stop TTS if full voice mode is enabled
       const ttsSettings = ttsService.getSettings();
@@ -626,226 +761,238 @@ const App: React.FC = () => {
       // Import the sendMessage function from our API service
       const { sendMessage } = await import('./services/api');
       
-      
-      
-      // Buffer for accumulating text chunks for TTS
-      let ttsBuffer = '';
-      
-      // Start title generation in parallel BEFORE the main LLM call if chat needs a title
-      const chatIdForTitle = currentChat.id;
-      const userContentForTitle = content;
-      const modelIdForTitle = selectedModel.id;
-      
-      let titleGenerationPromise: Promise<void> | null = null;
-      
-      // Check if chat needs a title and start generation immediately in parallel
-      if (currentChat.title.toLowerCase() === 'new chat') {
-        
-        // Start title generation in parallel (don't await) - this runs simultaneously with main LLM
-        titleGenerationPromise = (async () => {
-          try {
-            // Get existing chat titles to prevent duplicates
-            const existingTitles = chats
-              .filter(chat => chat.id !== chatIdForTitle) // Exclude current chat
-              .map(chat => chat.title)
-              .filter(title => title && title.toLowerCase() !== 'new chat'); // Filter out empty and "New Chat" titles
             
-            const newTitle = await generateChatTitle(
-              userContentForTitle,
-              modelIdForTitle,
-              existingTitles
+            
+            // Buffer for accumulating text chunks for TTS
+            let ttsBuffer = '';
+            
+            // Start title generation in parallel BEFORE the main LLM call if chat needs a title
+            const chatIdForTitle = currentChat.id;
+            const userContentForTitle = content;
+            const modelIdForTitle = selectedModel.id;
+            
+            let titleGenerationPromise: Promise<void> | null = null;
+            
+            // Check if chat needs a title and start generation immediately in parallel
+            if (currentChat.title.toLowerCase() === 'new chat') {
+              
+              // Start title generation in parallel (don't await) - this runs simultaneously with main LLM
+              titleGenerationPromise = (async () => {
+                try {
+                  // Get existing chat titles to prevent duplicates
+                  const existingTitles = chats
+                    .filter(chat => chat.id !== chatIdForTitle) // Exclude current chat
+                    .map(chat => chat.title)
+                    .filter(title => title && title.toLowerCase() !== 'new chat'); // Filter out empty and "New Chat" titles
+                  
+                  const newTitle = await generateChatTitle(
+                    userContentForTitle,
+                    modelIdForTitle,
+                    existingTitles
+                  );
+                  
+                  // Update title in state and persist to server
+                  let updatedChatForSaving: ChatType | null = null;
+                  
+                  setChats(prevChats => {
+                    const updatedChats = prevChats.map(chat => 
+                      chat.id === chatIdForTitle 
+                        ? { ...chat, title: newTitle }
+                        : chat
+                    );
+                    
+                    // Store the updated chat for saving
+                    updatedChatForSaving = updatedChats.find(chat => chat.id === chatIdForTitle) || null;
+                    
+                    return updatedChats;
+                  });
+                  
+                  setCurrentChat(prevChat => 
+                    prevChat?.id === chatIdForTitle 
+                      ? { ...prevChat, title: newTitle }
+                      : prevChat
+                  );
+                  
+                  // Save the updated chat to server
+                  if (updatedChatForSaving) {
+                    await saveChatToServer(updatedChatForSaving);
+                  }
+                } catch (error) {
+                  console.error('Error in parallel title generation:', error);
+                }
+              })(); // Immediately invoke the async function
+            } 
+            // Create the messages array for the API call (includes all messages up to the AI placeholder)
+            const updatedMessagesArray = chatWithAiMessage.messages;
+            
+            // Rate-limited callback that processes queued chunks for UI rendering
+            const processChunkForUI = (chunk: string, responseData?: any) => {
+              // Update the AI message with the new chunk
+              setCurrentChat(prevChat => {
+                if (!prevChat) return null;
+                
+                // Find the AI message and update its content
+                const updatedMessages = prevChat.messages.map(msg => 
+                  msg.id === aiMessageId
+                    ? { ...msg, content: msg.content + chunk }
+                    : msg
+                );
+                
+                const updatedChat = {
+                  ...prevChat,
+                  messages: updatedMessages,
+                };
+                
+                // Also update the chats array
+                setChats(prevChats => 
+                  prevChats.map(chat => 
+                    chat.id === prevChat.id ? updatedChat : chat
+                  )
+                );
+                
+                // Save the updated chat to server immediately (individual chat saving)
+                saveChatToServer(updatedChat);
+                
+                return updatedChat;
+              });
+            };
+            
+            // Start the chunk queue with rate limiting (30 characters per second for readable typewriter effect)
+            chunkQueueService.setRate(60);
+            chunkQueueService.start(processChunkForUI);
+            
+            // Function to handle streaming updates - enqueues chunks for rate-limited rendering
+            const handleStreamUpdate = (chunk: string, responseData?: any) => {
+              // Enqueue the chunk for rate-limited UI rendering
+              chunkQueueService.enqueue(chunk, responseData);
+              
+              // Send to TTS if full voice mode is enabled AND microphone is listening
+              // TTS is NOT rate-limited - it processes immediately for smooth audio
+              if (ttsSettings.fullVoiceMode && isListening) {
+                ttsBuffer += chunk;
+                
+                // Enhanced sentence detection for multiple languages and punctuation patterns
+                // Western: . ! ? : ;
+                // Chinese/Japanese: 。！？：；
+                // Also handle newlines and other natural breaks
+                const sentenceEndings = /[.!?:;。！？：；]\s+|\n\s*/g;
+                let match;
+                let lastIndex = 0;
+                
+                while ((match = sentenceEndings.exec(ttsBuffer)) !== null) {
+                  const sentence = ttsBuffer.substring(lastIndex, match.index + match[0].length).trim();
+                  if (sentence) {
+                    ttsService.speak(sentence, getCurrentMsgId()); // Pass the extracted message ID from LLM
+                  }
+                  lastIndex = match.index + match[0].length;
+                }
+                
+                // Fallback for languages without punctuation: prioritize line breaks
+                if (lastIndex === 0 && ttsBuffer.length > 500) {
+                  // No sentence boundaries found, but we have substantial text
+                  
+                  // Strategy 1: Look for line breaks first (most natural for languages without punctuation)
+                  const lineBreakIndex = ttsBuffer.indexOf('\n');
+                  if (lineBreakIndex > 0) {
+                    const chunkText = ttsBuffer.substring(0, lineBreakIndex).trim();
+                    if (chunkText) {
+                      ttsService.speak(chunkText, getCurrentMsgId()); // Pass the extracted message ID from LLM
+                    }
+                    // Update buffer to remove sent chunk including the line break
+                    ttsBuffer = ttsBuffer.substring(lineBreakIndex + 1);
+                    lastIndex = 0; // Reset since we manually processed
+                  }
+                  // Strategy 2: If no line breaks and buffer is getting long, use word-based chunking
+                  else if (ttsBuffer.length > 100) {
+                    const words = ttsBuffer.split(' ');
+                    if (words.length > 15) {
+                      // Send first 15 words as a chunk
+                      const chunkText = words.slice(0, 15).join(' ');
+                      ttsService.speak(chunkText, getCurrentMsgId()); // Pass the extracted message ID from LLM
+                      
+                      // Update buffer to remove sent chunk
+                      ttsBuffer = words.slice(15).join(' ');
+                      lastIndex = 0; // Reset since we manually processed
+                    }
+                  }
+                } else {
+                  // Keep remaining text in buffer
+                  ttsBuffer = ttsBuffer.substring(lastIndex);
+                }
+              }
+            };
+            
+            // Start both operations in parallel using Promise.all or separate promises
+            const apiResult = await sendMessage(
+              selectedModel.id,
+              updatedMessagesArray, // Use the array we created earlier that includes both user and AI messages
+              {
+                num_ctx: contextLength,
+                temperature: temperature
+              }, // Pass model settings
+              handleStreamUpdate, // Streaming callback
+              isListening // Pass listening state for system message logic
             );
             
-            
-            // Update title in state and persist to server
-            let updatedChatForSaving: ChatType | null = null;
-            
-            setChats(prevChats => {
-              const updatedChats = prevChats.map(chat => 
-                chat.id === chatIdForTitle 
-                  ? { ...chat, title: newTitle }
-                  : chat
+            // Update chat with token statistics and context tracking
+            setCurrentChat(prevChat => {
+              if (!prevChat) return null;
+              
+              // Update messages - DON'T change user message contextTokensUsed (keep immediate display)
+              const updatedMessages = prevChat.messages.map(msg => {
+                if (msg.id === aiMessageId) {
+                  // AI message: Calculate async for accurate token count
+                  (async () => {
+                    if (msg.content) {
+                      const aiTokenCount = await tokenCountingService.countMessageTokensAsync(msg);
+                      // Update the message with async calculated tokens
+                      setCurrentChat(currentChat => {
+                        if (!currentChat) return null;
+                        const updatedMsgs = currentChat.messages.map(m => 
+                          m.id === msg.id ? { ...m, tokenCount: aiTokenCount } : m
+                        );
+                        return { ...currentChat, messages: updatedMsgs };
+                      });
+                    }
+                  })();
+                  // Initially set with API result, will be updated async above
+                  return { ...msg, tokenCount: apiResult.tokensReceived };
+                }
+                return msg; // Keep user message unchanged (preserves immediate contextTokensUsed)
+              });
+              
+              const updatedChat = {
+                ...prevChat,
+                messages: updatedMessages,
+                tokenStats: {
+                  totalTokensSent: (prevChat.tokenStats?.totalTokensSent || 0) + apiResult.tokensSent,
+                  totalTokensReceived: (prevChat.tokenStats?.totalTokensReceived || 0) + apiResult.tokensReceived,
+                  contextLength: contextLength,
+                  lastUpdated: new Date().toISOString()
+                }
+              };
+              
+              // Update the chats array with token stats
+              setChats(prevChats => 
+                prevChats.map(chat => 
+                  chat.id === prevChat.id ? updatedChat : chat
+                )
               );
               
-              // Store the updated chat for saving
-              updatedChatForSaving = updatedChats.find(chat => chat.id === chatIdForTitle) || null;
+              // Save the updated chat with token stats to server
+              saveChatToServer(updatedChat);
               
-              return updatedChats;
+              return updatedChat;
             });
             
-            setCurrentChat(prevChat => 
-              prevChat?.id === chatIdForTitle 
-                ? { ...prevChat, title: newTitle }
-                : prevChat
-            );
+            console.log(`📊 Context Tracking - ACTUAL tokens sent to LLM: ${apiResult.tokensSent}, Pre-calculation was: ${cumulativeContextTokens}`);
             
-            // Save the updated chat to server
-            if (updatedChatForSaving) {
-              await saveChatToServer(updatedChatForSaving);
+            // Send any remaining text in the TTS buffer after streaming is complete
+            if (ttsSettings.fullVoiceMode && isListening && ttsBuffer.trim()) {
+              // console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
+              // Use the current message ID from the centralized function (which now contains the LLM response ID)
+              ttsService.speak(ttsBuffer.trim(), getCurrentMsgId()); // Pass the extracted message ID from LLM
             }
-          } catch (error) {
-            console.error('Error in parallel title generation:', error);
-          }
-        })(); // Immediately invoke the async function
-      } 
-      // Function to handle streaming updates
-      const handleStreamUpdate = (chunk: string, responseData?: any) => {
-        
-        // Update the AI message with the new chunk
-        setCurrentChat(prevChat => {
-          if (!prevChat) return null;
-          
-          // Find the AI message and update its content
-          const updatedMessages = prevChat.messages.map(msg => 
-            msg.id === aiMessageId
-              ? { ...msg, content: msg.content + chunk }
-              : msg
-          );
-          
-          const updatedChat = {
-            ...prevChat,
-            messages: updatedMessages,
-          };
-          
-          // Also update the chats array
-          setChats(prevChats => 
-            prevChats.map(chat => 
-              chat.id === prevChat.id ? updatedChat : chat
-            )
-          );
-          
-          // Save the updated chat to server immediately (individual chat saving)
-          saveChatToServer(updatedChat);
-          
-          return updatedChat;
-        });
-        
-        // Send to TTS if full voice mode is enabled AND microphone is listening
-        if (ttsSettings.fullVoiceMode && isListening) {
-          ttsBuffer += chunk;
-          
-          // Enhanced sentence detection for multiple languages and punctuation patterns
-          // Western: . ! ? : ;
-          // Chinese/Japanese: 。！？：；
-          // Also handle newlines and other natural breaks
-          const sentenceEndings = /[.!?:;。！？：；]\s+|\n\s*/g;
-          let match;
-          let lastIndex = 0;
-          
-          while ((match = sentenceEndings.exec(ttsBuffer)) !== null) {
-            const sentence = ttsBuffer.substring(lastIndex, match.index + match[0].length).trim();
-            if (sentence) {
-              ttsService.speak(sentence, getCurrentMsgId()); // Pass the extracted message ID from LLM
-            }
-            lastIndex = match.index + match[0].length;
-          }
-          
-          // Fallback for languages without punctuation: prioritize line breaks
-          if (lastIndex === 0 && ttsBuffer.length > 500) {
-            // No sentence boundaries found, but we have substantial text
-            
-            // Strategy 1: Look for line breaks first (most natural for languages without punctuation)
-            const lineBreakIndex = ttsBuffer.indexOf('\n');
-            if (lineBreakIndex > 0) {
-              const chunk = ttsBuffer.substring(0, lineBreakIndex).trim();
-              if (chunk) {
-                ttsService.speak(chunk, getCurrentMsgId()); // Pass the extracted message ID from LLM
-              }
-              // Update buffer to remove sent chunk including the line break
-              ttsBuffer = ttsBuffer.substring(lineBreakIndex + 1);
-              lastIndex = 0; // Reset since we manually processed
-            }
-            // Strategy 2: If no line breaks and buffer is getting long, use word-based chunking
-            else if (ttsBuffer.length > 100) {
-              const words = ttsBuffer.split(' ');
-              if (words.length > 15) {
-                // Send first 15 words as a chunk
-                const chunk = words.slice(0, 15).join(' ');
-                ttsService.speak(chunk, getCurrentMsgId()); // Pass the extracted message ID from LLM
-                
-                // Update buffer to remove sent chunk
-                ttsBuffer = words.slice(15).join(' ');
-                lastIndex = 0; // Reset since we manually processed
-              }
-            }
-          } else {
-            // Keep remaining text in buffer
-            ttsBuffer = ttsBuffer.substring(lastIndex);
-          }
-        }
-      };
-      
-      // Start both operations in parallel using Promise.all or separate promises
-      const apiResult = await sendMessage(
-        selectedModel.id,
-        [...updatedChat.messages], // Include the new user message
-        {
-          num_ctx: contextLength,
-          temperature: temperature
-        }, // Pass model settings
-        handleStreamUpdate, // Streaming callback
-        isListening // Pass listening state for system message logic
-      );
-      
-      // Update chat with token statistics and context tracking
-      setCurrentChat(prevChat => {
-        if (!prevChat) return null;
-        
-        // Update messages - DON'T change user message contextTokensUsed (keep immediate display)
-        const updatedMessages = prevChat.messages.map(msg => {
-          if (msg.id === aiMessageId) {
-            // AI message: Calculate async for accurate token count
-            (async () => {
-              if (msg.content) {
-                const aiTokenCount = await tokenCountingService.countMessageTokensAsync(msg);
-                // Update the message with async calculated tokens
-                setCurrentChat(currentChat => {
-                  if (!currentChat) return null;
-                  const updatedMsgs = currentChat.messages.map(m => 
-                    m.id === msg.id ? { ...m, tokenCount: aiTokenCount } : m
-                  );
-                  return { ...currentChat, messages: updatedMsgs };
-                });
-              }
-            })();
-            // Initially set with API result, will be updated async above
-            return { ...msg, tokenCount: apiResult.tokensReceived };
-          }
-          return msg; // Keep user message unchanged (preserves immediate contextTokensUsed)
-        });
-        
-        const updatedChat = {
-          ...prevChat,
-          messages: updatedMessages,
-          tokenStats: {
-            totalTokensSent: (prevChat.tokenStats?.totalTokensSent || 0) + apiResult.tokensSent,
-            totalTokensReceived: (prevChat.tokenStats?.totalTokensReceived || 0) + apiResult.tokensReceived,
-            contextLength: contextLength,
-            lastUpdated: new Date().toISOString()
-          }
-        };
-        
-        // Update the chats array with token stats
-        setChats(prevChats => 
-          prevChats.map(chat => 
-            chat.id === prevChat.id ? updatedChat : chat
-          )
-        );
-        
-        // Save the updated chat with token stats to server
-        saveChatToServer(updatedChat);
-        
-        return updatedChat;
-      });
-      
-      console.log(`📊 Context Tracking - ACTUAL tokens sent to LLM: ${apiResult.tokensSent}, Pre-calculation was: ${cumulativeContextTokens}`);
-      
-      // Send any remaining text in the TTS buffer after streaming is complete
-      if (ttsSettings.fullVoiceMode && isListening && ttsBuffer.trim()) {
-        // console.log('🔊 Sending final text chunk to TTS (mic is listening):', ttsBuffer.trim());
-        // Use the current message ID from the centralized function (which now contains the LLM response ID)
-        ttsService.speak(ttsBuffer.trim(), getCurrentMsgId()); // Pass the extracted message ID from LLM
-      }
 
       // Optional: Wait for title generation to complete (but don't block the main flow)
       if (titleGenerationPromise) {
@@ -886,11 +1033,27 @@ const App: React.FC = () => {
         return updatedChat;
       });
     } finally {
-      setLoading(false);
+      // Set callback to turn off loading when queue is fully drained
+      chunkQueueService.onDrainComplete(() => {
+        setLoading(false);
+        console.log('✅ Queue drained, loading set to false');
+      });
+      
+      // Stop accepting new chunks but continue draining existing ones
+      // The onDrainComplete callback will set loading=false when done
+      chunkQueueService.stop();
+      
+      // If queue is already empty, set loading to false immediately
+      if (!chunkQueueService.hasItems()) {
+        setLoading(false);
+      }
     }
   };
 
   const handleSelectModel = async (model: ModelType) => {
+    // Check if this is a different model than currently selected
+    const isDifferentModel = !selectedModel || selectedModel.id !== model.id;
+    
     setSelectedModel(model);
     
     // Update the model ID in the current chat
@@ -923,6 +1086,36 @@ const App: React.FC = () => {
     } catch (error) {
       console.error('Failed to fetch model details:', error);
     }
+    
+    // If switching to a different model, trigger model loading with progress dialog
+    if (isDifferentModel) {
+      // Use centralized function to load model with dialog
+      await loadModelWithDialog(model.id);
+    }
+  };
+  
+  // Handle model loading dialog close
+  const handleModelLoadingDialogClose = () => {
+    setModelLoadingDialogOpen(false);
+    setModelToLoad('');
+  };
+
+  /**
+   * Centralized function to load a model with loading dialog
+   * Called from: app startup, model switch, settings change
+   */
+  const loadModelWithDialog = async (modelId: string): Promise<boolean> => {
+    // Show loading dialog
+    setModelToLoad(modelId);
+    setModelLoadingDialogOpen(true);
+    
+    // Reset progress state before loading
+    modelLoadingService.resetProgress();
+    
+    // Load the model and wait for completion
+    const loadSuccess = await modelLoadingService.loadModel(modelId);
+    
+    return loadSuccess;
   };
 
   // Centralized function to safely close sidebar with TextField unmount delay
@@ -953,7 +1146,10 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveSettings = (newContextLength: number, newTemperature: number) => {
+  const handleSaveSettings = async (newContextLength: number, newTemperature: number) => {
+    // Check if settings actually changed
+    const settingsChanged = newContextLength !== contextLength || newTemperature !== temperature;
+    
     setContextLength(newContextLength);
     setTemperature(newTemperature);
     
@@ -966,6 +1162,13 @@ const App: React.FC = () => {
       window.dispatchEvent(new Event('contextLengthChanged'));
     } catch (error) {
       console.error('Failed to save settings to localStorage:', error);
+    }
+    
+    // If settings changed and we have a selected model, reload the model with new settings
+    // This is necessary because Ollama needs to reallocate KV cache when num_ctx or temperature changes
+    if (settingsChanged && selectedModel) {
+      // Use centralized function to reload model with dialog
+      await loadModelWithDialog(selectedModel.id);
     }
   };
 
@@ -1034,7 +1237,7 @@ const App: React.FC = () => {
       <CssBaseline />
       <Box sx={styles.container}>
         {/* Startup loader overlay */}
-        <StartupLoader />
+        <StartupLoader sidebarOpen={sidebarOpen} />
       
       {/* Settings dialog */}
       <SettingsDialog
@@ -1051,6 +1254,13 @@ const App: React.FC = () => {
         onOpenChange={setSettingsOpen}
       />
       
+      {/* Model loading progress dialog */}
+      <ModelLoadingDialog
+        open={modelLoadingDialogOpen}
+        onClose={handleModelLoadingDialogClose}
+        modelName={modelToLoad}
+      />
+      
       {/* Chat interface */}
       <Sidebar 
         open={sidebarOpen}
@@ -1058,6 +1268,7 @@ const App: React.FC = () => {
         onCreateNewChat={handleCreateNewChat}
         onSelectChat={handleSelectChat}
         onDeleteChat={handleDeleteChat}
+        onBulkDeleteChats={handleBulkDeleteChats}
         onUpdateChatTitle={handleUpdateChatTitle}
         currentChatId={currentChat?.id}
         onLoadMoreChats={handleLoadMoreChats}

@@ -60,8 +60,11 @@ COPY backend/ /app/backend/
 COPY --from=frontend-build /app/build ./build
 RUN ls -la /app/build && echo "Build files copied successfully" || echo "ERROR: Build files not found"
 
-# Copy nginx config
-COPY nginx.conf /etc/nginx/sites-available/default
+# Remove default nginx site to avoid conflict with our custom config
+RUN rm -f /etc/nginx/sites-enabled/default
+
+# Copy nginx config template
+COPY nginx.conf.template /etc/nginx/templates/nginx.conf.template
 
 # Copy Vosk models (for extraction at runtime)
 COPY backend/models/vosk /app/vosk-models-source/
@@ -83,12 +86,10 @@ COPY start-services.sh /app/start-services.sh
 RUN tr -d '\r' < /app/start-services.sh > /tmp/start-services-fixed.sh && \
     mv /tmp/start-services-fixed.sh /app/start-services.sh && \
     chmod +x /app/start-services.sh
-
 # Copy SSL certificates
-COPY Certification/ /app/Certification/
-
-# Expose ports
-EXPOSE 80 443
+#COPY Certification/ /app/Certification/
+# Expose ports (HTTP only - HTTPS is handled by Electron for desktop network access)
+EXPOSE 80
 
 # Default port mapping hint for Docker Desktop
 LABEL com.docker.desktop.default-port-mapping="3000:80"

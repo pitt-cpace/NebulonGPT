@@ -202,18 +202,29 @@ async function extractPythonBundle() {
         console.log('No Python bundle checksum file found, extracting...');
         needsExtraction = true;
       }
-      // Step 3: Only re-extract if checksum is bigger than current size (files missing)
+      // Step 3: Check if critical Python executable exists AND size is adequate
       else {
         try {
-          const currentExtractedSize = await calculateDirectorySize(pythonBundleDir);
-          const savedSize = parseInt(fs.readFileSync(checksumFile, 'utf8').trim());
+          // First, verify the Python executable actually exists
+          const pythonExecutable = process.platform === 'win32' 
+            ? path.join(pythonBundleDir, 'python-dist', 'python.exe')
+            : path.join(pythonBundleDir, 'python-dist', 'bin', 'python3');
           
-          if (savedSize > currentExtractedSize) {
-            console.log(`Python bundle incomplete (expected: ${savedSize}, current: ${currentExtractedSize}), extracting...`);
+          if (!fs.existsSync(pythonExecutable)) {
+            console.log(`Python executable not found at ${pythonExecutable}, extracting...`);
             needsExtraction = true;
           } else {
-            console.log('Python bundle size adequate, skipping extraction');
-            needsExtraction = false;
+            // Python executable exists, now check size
+            const currentExtractedSize = await calculateDirectorySize(pythonBundleDir);
+            const savedSize = parseInt(fs.readFileSync(checksumFile, 'utf8').trim());
+            
+            if (savedSize > currentExtractedSize) {
+              console.log(`Python bundle incomplete (expected: ${savedSize}, current: ${currentExtractedSize}), extracting...`);
+              needsExtraction = true;
+            } else {
+              console.log('Python bundle size adequate and executable exists, skipping extraction');
+              needsExtraction = false;
+            }
           }
         } catch (error) {
           console.log('Could not read Python bundle checksum file, extracting...');
@@ -336,14 +347,21 @@ async function extractKokoroCache() {
       else {
         try {
           const currentCacheSize = await calculateDirectorySize(PATHS.hfCacheDir);
-          const savedCacheSize = fs.readFileSync(checksumFile, 'utf8').trim();
+          const savedCacheSize = parseInt(fs.readFileSync(checksumFile, 'utf8').trim()) || 0;
           
-          if (savedCacheSize === currentCacheSize.toString()) {
+          // Force re-extraction if:
+          // 1. Saved size is 0 (previous extraction failed)
+          // 2. Current cache size is 0 (folder is empty)
+          // 3. Current size is less than saved size (files missing)
+          if (savedCacheSize === 0 || currentCacheSize === 0 || currentCacheSize < savedCacheSize) {
+            console.log(`HuggingFace cache needs extraction (saved: ${savedCacheSize}, current: ${currentCacheSize}), extracting...`);
+            needsExtraction = true;
+          } else if (savedCacheSize === currentCacheSize) {
             console.log('HuggingFace cache size unchanged, skipping extraction');
             needsExtraction = false;
           } else {
-            console.log(`HuggingFace cache size changed (${savedCacheSize} -> ${currentCacheSize}), extracting...`);
-            needsExtraction = true;
+            console.log(`HuggingFace cache size changed (${savedCacheSize} -> ${currentCacheSize}), skipping (more files added)`);
+            needsExtraction = false;
           }
         } catch (error) {
           console.log('Could not read cache checksum file, extracting...');
@@ -538,15 +556,16 @@ async function extractVoskModels() {
       const voskModelsSource = getResourcePath('models/vosk');
       let voskModelsDir = null;
       
-      if (fs.existsSync(voskModelsSource)) {
+      // Check if primary path exists AND has content (not just an empty directory)
+      if (fs.existsSync(voskModelsSource) && fs.readdirSync(voskModelsSource).length > 0) {
         console.log(`Processing Vosk models from: ${voskModelsSource}`);
         voskModelsDir = voskModelsSource;
       } else {
-        console.log('Vosk models source not found at:', voskModelsSource);
+        console.log('Vosk models source not found or empty at:', voskModelsSource);
         // Try alternative path for development
         const devVoskModelsSource = getResourcePath('backend/models/vosk');
-        if (fs.existsSync(devVoskModelsSource)) {
-          console.log('Found Vosk models at dev path, extracting...');
+        if (fs.existsSync(devVoskModelsSource) && fs.readdirSync(devVoskModelsSource).length > 0) {
+          console.log('Found Vosk models at dev path:', devVoskModelsSource);
           voskModelsDir = devVoskModelsSource;
         } else {
           console.log('No Vosk models found at either path');
@@ -574,14 +593,21 @@ async function extractVoskModels() {
       else {
         try {
           const currentExtractedSize = await calculateDirectorySize(PATHS.voskModelsDir);
-          const savedSize = fs.readFileSync(checksumFile, 'utf8').trim();
+          const savedSize = parseInt(fs.readFileSync(checksumFile, 'utf8').trim()) || 0;
           
-          if (savedSize === currentExtractedSize.toString()) {
+          // Force re-extraction if:
+          // 1. Saved size is 0 (previous extraction failed)
+          // 2. Current extracted size is 0 (folder is empty)
+          // 3. Current size is less than saved size (files missing)
+          if (savedSize === 0 || currentExtractedSize === 0 || currentExtractedSize < savedSize) {
+            console.log(`Vosk models need extraction (saved: ${savedSize}, current: ${currentExtractedSize}), extracting...`);
+            needsExtraction = true;
+          } else if (savedSize === currentExtractedSize) {
             console.log('Vosk models size unchanged, skipping extraction');
             needsExtraction = false;
           } else {
-            console.log(`Vosk models size changed (${savedSize} -> ${currentExtractedSize}), extracting...`);
-            needsExtraction = true;
+            console.log(`Vosk models size changed (${savedSize} -> ${currentExtractedSize}), skipping (more files added)`);
+            needsExtraction = false;
           }
         } catch (error) {
           console.log('Could not read Vosk checksum file, extracting...');
@@ -1015,15 +1041,9 @@ function startFastAPIBackend() {
   });
 }
 
-// Start HTTPS server for network access in production
+// Start HTTPS server for network access (both dev and production)
 function startHTTPSServer() {
   return new Promise((resolve, reject) => {
-    if (isDev) {
-      console.log('Development mode: HTTPS server managed separately');
-      resolve();
-      return;
-    }
-
     console.log('Starting HTTPS server for network access...');
     
     try {
@@ -1031,12 +1051,32 @@ function startHTTPSServer() {
       const HTTP_PORT = 3001;
       const HTTPS_PORT = 3443;
       
-      // Find SSL certificate paths in unpacked location
-      let certPath = path.join(PATHS.buildDir, 'Certification', 'cert.pem');
-      let keyPath = path.join(PATHS.buildDir, 'Certification', 'key.pem');
+      // Find SSL certificate paths - check multiple locations
+      let certPath = null;
+      let keyPath = null;
       
-      // Check unpacked location for certificates
-      if (certPath.includes('app.asar')) {
+      // Possible certificate locations (in order of priority)
+      const certLocations = [
+        // 1. Project root Certification folder (development mode)
+        { cert: path.join(__dirname, 'Certification', 'cert.pem'), key: path.join(__dirname, 'Certification', 'key.pem') },
+        // 2. Build directory (production mode)
+        { cert: path.join(PATHS.buildDir, 'Certification', 'cert.pem'), key: path.join(PATHS.buildDir, 'Certification', 'key.pem') },
+        // 3. Resources path (packaged app)
+        { cert: path.join(process.resourcesPath || '', 'Certification', 'cert.pem'), key: path.join(process.resourcesPath || '', 'Certification', 'key.pem') },
+      ];
+      
+      // Find the first valid certificate location
+      for (const loc of certLocations) {
+        if (fs.existsSync(loc.cert) && fs.existsSync(loc.key)) {
+          certPath = loc.cert;
+          keyPath = loc.key;
+          console.log(`🔐 Found SSL certificates at: ${path.dirname(certPath)}`);
+          break;
+        }
+      }
+      
+      // Check unpacked location for certificates (in asar packages)
+      if (certPath && certPath.includes('app.asar')) {
         const unpackedCertPath = certPath.replace('app.asar', 'app.asar.unpacked');
         const unpackedKeyPath = keyPath.replace('app.asar', 'app.asar.unpacked');
         
@@ -1064,12 +1104,97 @@ function startHTTPSServer() {
         rejectUnauthorized: false
       };
       
-      // Create HTTPS server that proxies to FastAPI backend
+      // Create HTTPS server that:
+      // - In dev mode: proxies web requests to React dev server (3000), API to backend (3001)
+      // - In production: serves static files directly, proxies API to backend (3001)
       const httpsServer = https.createServer(sslOptions, (req, res) => {
         const axios = require('axios');
-        const targetUrl = `http://127.0.0.1:${HTTP_PORT}${req.url}`;
         
-        console.log(`🔐 HTTPS proxy request: ${req.method} ${req.url}`);
+        // Check if this is an API request that should be proxied
+        const isOllamaRequest = req.url.startsWith('/api/ollama');
+        // WebSocket endpoints are exactly /vosk or /tts (not files like /vosk-audio-processor.js)
+        const isWebSocketEndpoint = req.url === '/vosk' || req.url === '/tts';
+        const isApiRequest = req.url.startsWith('/api/') || 
+                            isWebSocketEndpoint || 
+                            req.url === '/health';
+        
+        // In production mode, serve static files directly for non-API requests
+        if (!isDev && !isOllamaRequest && !isApiRequest) {
+          // Serve static files from build directory
+          let filePath = req.url === '/' ? '/index.html' : req.url;
+          
+          // Remove query string if present
+          filePath = filePath.split('?')[0];
+          
+          // Security: prevent directory traversal
+          filePath = filePath.replace(/\.\./g, '');
+          
+          const fullPath = path.join(PATHS.buildDir, filePath);
+          
+          // Check if file exists
+          if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+            // Determine content type
+            const ext = path.extname(fullPath).toLowerCase();
+            const contentTypes = {
+              '.html': 'text/html',
+              '.js': 'application/javascript',
+              '.css': 'text/css',
+              '.json': 'application/json',
+              '.png': 'image/png',
+              '.jpg': 'image/jpeg',
+              '.jpeg': 'image/jpeg',
+              '.gif': 'image/gif',
+              '.svg': 'image/svg+xml',
+              '.ico': 'image/x-icon',
+              '.woff': 'font/woff',
+              '.woff2': 'font/woff2',
+              '.ttf': 'font/ttf',
+              '.eot': 'application/vnd.ms-fontobject',
+              '.map': 'application/json'
+            };
+            
+            const contentType = contentTypes[ext] || 'application/octet-stream';
+            
+            console.log(`📁 HTTPS serving static file: ${filePath}`);
+            
+            const fileStream = fs.createReadStream(fullPath);
+            res.writeHead(200, { 'Content-Type': contentType });
+            fileStream.pipe(res);
+            return;
+          } else {
+            // File not found - serve index.html for SPA routing
+            const indexPath = path.join(PATHS.buildDir, 'index.html');
+            if (fs.existsSync(indexPath)) {
+              console.log(`📁 HTTPS serving index.html for SPA route: ${req.url}`);
+              const fileStream = fs.createReadStream(indexPath);
+              res.writeHead(200, { 'Content-Type': 'text/html' });
+              fileStream.pipe(res);
+              return;
+            }
+          }
+        }
+        
+        // Proxy API requests
+        let targetUrl;
+        let targetPort;
+        
+        if (isOllamaRequest) {
+          // Ollama requests: strip /api/ollama prefix and proxy to Ollama server
+          const ollamaPath = req.url.replace('/api/ollama', '/api');
+          targetUrl = `http://127.0.0.1:11434${ollamaPath}`;
+          targetPort = 11434;
+          console.log(`🔐 HTTPS Ollama proxy: ${req.method} ${req.url} -> ${targetUrl}`);
+        } else if (isApiRequest) {
+          // API requests go to FastAPI backend
+          targetPort = HTTP_PORT;
+          targetUrl = `http://127.0.0.1:${targetPort}${req.url}`;
+          console.log(`🔐 HTTPS API proxy: ${req.method} ${req.url} -> port ${targetPort}`);
+        } else {
+          // Dev mode: proxy web requests to React dev server
+          targetPort = 3000;
+          targetUrl = `http://127.0.0.1:${targetPort}${req.url}`;
+          console.log(`🔐 HTTPS dev proxy: ${req.method} ${req.url} -> port ${targetPort}`);
+        }
         
         // Collect request body for non-GET/HEAD requests
         let body = '';
@@ -1078,14 +1203,27 @@ function startHTTPSServer() {
         });
         
         req.on('end', () => {
+          // Build headers for the proxy request
+          const proxyHeaders = { ...req.headers };
+          
+          // Remove/modify headers that shouldn't be forwarded or cause issues
+          delete proxyHeaders['host'];
+          delete proxyHeaders['origin'];
+          delete proxyHeaders['referer'];
+          
+          // Set appropriate host header based on target
+          if (isOllamaRequest) {
+            proxyHeaders['host'] = 'localhost:11434';
+            // Ollama needs these headers to accept requests
+            proxyHeaders['origin'] = 'http://localhost:11434';
+          } else {
+            proxyHeaders['host'] = `localhost:${targetPort}`;
+          }
+          
           const config = {
             method: req.method,
             url: targetUrl,
-            headers: {
-              ...req.headers,
-              // Remove headers that shouldn't be forwarded
-              host: `localhost:${HTTP_PORT}`
-            },
+            headers: proxyHeaders,
             responseType: 'stream',
             timeout: 60000, // 60 second timeout
             validateStatus: () => true, // Accept all status codes
@@ -1570,14 +1708,12 @@ async function initializeBackgroundServices() {
     // Extract bundled resources in background
     await extractBundledResources();
     
-    // Start HTTPS server for network access (production only)
-    if (!isDev) {
-      await startHTTPSServer();
-    }
-    
     // Start unified FastAPI backend (replaces separate Vosk and TTS servers)
     console.log('Starting FastAPI unified backend in background...');
     await startFastAPIBackend();
+    
+    // Start HTTPS server for network access (both dev and production)
+    await startHTTPSServer();
     
     console.log('✅ All background services started successfully');
   } catch (error) {
@@ -1829,6 +1965,145 @@ ipcMain.handle('update-vosk-models-checksum', async () => {
   }
 });
 
+// TTS models management (HuggingFace cache)
+ipcMain.handle('copy-file-to-tts-models', async (event, fileName, fileData) => {
+  try {
+    // Create a temp directory for the ZIP file
+    const tempDir = path.join(os.tmpdir(), 'nebulon-tts-upload');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const filePath = path.join(tempDir, fileName);
+    
+    console.log(`Copying TTS model file to temp directory: ${fileName}`);
+    
+    // Write the file data to temp directory
+    fs.writeFileSync(filePath, Buffer.from(fileData));
+    
+    console.log(`Successfully copied TTS model: ${fileName}`);
+    return { success: true, tempPath: filePath };
+  } catch (error) {
+    console.error('Error copying TTS model file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('extract-tts-model', async (event, zipFilePath) => {
+  try {
+    console.log(`Extracting TTS model from: ${zipFilePath}`);
+    
+    if (!fs.existsSync(zipFilePath)) {
+      return { success: false, error: 'ZIP file not found' };
+    }
+    
+    if (!zipFilePath.endsWith('.zip')) {
+      return { success: false, error: 'File is not a ZIP archive' };
+    }
+    
+    // Create temp directory for extraction
+    const tempExtractDir = path.join(os.tmpdir(), 'nebulon-tts-extract');
+    
+    // Clean up any existing temp directory
+    if (fs.existsSync(tempExtractDir)) {
+      try {
+        fs.rmSync(tempExtractDir, { recursive: true, force: true });
+      } catch (error) {
+        console.log('Warning: Could not clean temp extraction directory:', error.message);
+      }
+    }
+    
+    // Create temp directory
+    fs.mkdirSync(tempExtractDir, { recursive: true });
+    
+    // Extract ZIP to temp directory
+    console.log(`Extracting to temp directory: ${tempExtractDir}`);
+    await extractZip(zipFilePath, { dir: tempExtractDir });
+    
+    // Move extracted content to huggingface directory
+    // Check for common folder structures
+    const extractedItems = fs.readdirSync(tempExtractDir);
+    console.log(`Extracted items: ${extractedItems.join(', ')}`);
+    
+    // Cross-platform recursive copy function
+    const copyRecursive = (src, dest) => {
+      if (!fs.existsSync(src)) return;
+      
+      const stats = fs.statSync(src);
+      if (stats.isDirectory()) {
+        if (!fs.existsSync(dest)) {
+          fs.mkdirSync(dest, { recursive: true });
+        }
+        const items = fs.readdirSync(src);
+        for (const item of items) {
+          copyRecursive(path.join(src, item), path.join(dest, item));
+        }
+      } else {
+        const destDir = path.dirname(dest);
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+        fs.copyFileSync(src, dest);
+      }
+    };
+    
+    // Check if there's a huggingface or huggingface-cache folder inside
+    let sourceDir = tempExtractDir;
+    if (extractedItems.includes('huggingface')) {
+      sourceDir = path.join(tempExtractDir, 'huggingface');
+    } else if (extractedItems.includes('huggingface-cache')) {
+      sourceDir = path.join(tempExtractDir, 'huggingface-cache');
+    }
+    
+    // Copy to huggingface cache directory
+    console.log(`Copying TTS models from ${sourceDir} to ${PATHS.hfCacheDir}`);
+    copyRecursive(sourceDir, PATHS.hfCacheDir);
+    
+    // Ensure datasets directory exists (required by TTS server)
+    const datasetsDir = path.join(PATHS.hfCacheDir, 'datasets');
+    if (!fs.existsSync(datasetsDir)) {
+      fs.mkdirSync(datasetsDir, { recursive: true });
+      console.log('Created datasets directory for TTS server');
+    }
+    
+    // Cleanup temp directories
+    if (fs.existsSync(tempExtractDir)) {
+      fs.rmSync(tempExtractDir, { recursive: true, force: true });
+    }
+    
+    // Clean up the uploaded ZIP file
+    const tempUploadDir = path.dirname(zipFilePath);
+    if (tempUploadDir.includes('nebulon-tts-upload') && fs.existsSync(tempUploadDir)) {
+      fs.rmSync(tempUploadDir, { recursive: true, force: true });
+    }
+    
+    console.log(`Successfully extracted TTS model to: ${PATHS.hfCacheDir}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Error extracting TTS model:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('update-tts-models-checksum', async () => {
+  try {
+    console.log('📊 Updating TTS models (HuggingFace) checksum...');
+    
+    // Calculate current HuggingFace cache directory size
+    const currentCacheSize = await calculateDirectorySize(PATHS.hfCacheDir);
+    
+    // Save updated checksum
+    const checksumFile = path.join(PATHS.dataDir, '.huggingface-checksum');
+    fs.writeFileSync(checksumFile, currentCacheSize.toString());
+    
+    console.log(`✅ TTS models checksum updated. New size: ${currentCacheSize} bytes`);
+    return { success: true, size: currentCacheSize };
+  } catch (error) {
+    console.error('Error updating TTS models checksum:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Clipboard operations
 ipcMain.handle('copy-to-clipboard', (event, text) => {
   try {
@@ -1841,13 +2116,56 @@ ipcMain.handle('copy-to-clipboard', (event, text) => {
   }
 });
 
+// Execute shell command (for system monitoring like memory usage)
+ipcMain.handle('execute-command', async (event, command) => {
+  return new Promise((resolve, reject) => {
+    try {
+      // Security: Only allow specific safe commands for monitoring
+      const allowedPatterns = [
+        /^pgrep/,
+        /^ps\s+-o\s+pid,rss/,
+        /^tasklist/,
+        /^ollama\s+ps$/
+      ];
+      
+      const isAllowed = allowedPatterns.some(pattern => pattern.test(command));
+      
+      if (!isAllowed) {
+        console.warn(`⚠️ Blocked potentially unsafe command: ${command}`);
+        resolve({ stdout: '', stderr: 'Command not allowed', code: 1 });
+        return;
+      }
+      
+      exec(command, { encoding: 'utf8', timeout: 10000 }, (error, stdout, stderr) => {
+        if (error) {
+          resolve({ stdout: stdout || '', stderr: stderr || error.message, code: error.code || 1 });
+        } else {
+          resolve({ stdout: stdout || '', stderr: stderr || '', code: 0 });
+        }
+      });
+    } catch (error) {
+      console.error('Error executing command:', error);
+      resolve({ stdout: '', stderr: error.message, code: 1 });
+    }
+  });
+});
+
+// Open external URL in default browser
+ipcMain.handle('open-external', async (event, url) => {
+  try {
+    await shell.openExternal(url);
+  } catch (error) {
+    console.error('Failed to open external URL:', error);
+  }
+});
+
 // Get network addresses for the application - fetches from backend server
 ipcMain.handle('get-network-addresses', async () => {
   try {
     // Fetch network info from backend server API
     const axios = require('axios');
-    const backendPort = isDev ? 3001 : 3000;
-    const response = await axios.get(`http://127.0.0.1:${backendPort}/api/network-info`);
+    const backendPort = 3001; // Backend always runs on 3001
+    const response = await axios.get(`http://127.0.0.1:${backendPort}/api/network-info`, { timeout: 3000 });
     const { wifiIPs, ethernetIPs, httpsPort, httpPort } = response.data;
     
     const addresses = {
@@ -1860,9 +2178,9 @@ ipcMain.handle('get-network-addresses', async () => {
     console.log('🌐 Network addresses from backend:', addresses);
     return addresses;
   } catch (error) {
-    console.error('Error getting network addresses from backend:', error);
-    // Fallback - generate addresses manually
-    const backendPort = isDev ? 3001 : 3000;
+    console.error('Error getting network addresses from backend:', error.message);
+    // Fallback - generate addresses manually with improved Windows detection
+    const backendPort = 3001;
     const addresses = {
       localhost: `http://localhost:${backendPort}`,
       loopback: `http://127.0.0.1:${backendPort}`,
@@ -1872,10 +2190,83 @@ ipcMain.handle('get-network-addresses', async () => {
     
     const networkInterfaces = os.networkInterfaces();
     
-    // Get WiFi interface names using platform-specific commands
-    let wifiInterfaceNames = new Set();
+    // Enhanced Windows interface detection using PowerShell (more reliable than wmic)
+    let windowsWifiInterfaces = new Set();
+    let windowsInterfaceDescriptions = new Map();
     
-    // For macOS: use networksetup to get accurate WiFi interfaces
+    if (process.platform === 'win32') {
+      try {
+        // Use PowerShell Get-NetAdapter for comprehensive detection
+        const psCommand = 'Get-NetAdapter | Select-Object Name,InterfaceDescription,PhysicalMediaType | ConvertTo-Json';
+        const psOutput = execSync(`powershell -Command "${psCommand}"`, { encoding: 'utf8', timeout: 10000 });
+        
+        if (psOutput.trim()) {
+          const adapters = JSON.parse(psOutput);
+          // Handle both single adapter (object) and multiple adapters (array)
+          const adapterList = Array.isArray(adapters) ? adapters : [adapters];
+          
+          for (const adapter of adapterList) {
+            const name = adapter.Name || '';
+            const description = (adapter.InterfaceDescription || '').toLowerCase();
+            const mediaType = (adapter.PhysicalMediaType || '').toLowerCase();
+            
+            if (!name) continue;
+            
+            windowsInterfaceDescriptions.set(name, description);
+            
+            // Check if this is a WiFi adapter based on description or media type
+            const isWifiAdapter = 
+              description.includes('wi-fi') || 
+              description.includes('wifi') || 
+              description.includes('wireless') || 
+              description.includes('802.11') || 
+              description.includes('wlan') ||
+              description.includes('wi-fi direct') ||
+              description.includes('wifi direct') ||
+              mediaType.includes('wireless') ||
+              mediaType.includes('802.11') ||
+              mediaType.includes('native 802.11');
+            
+            if (isWifiAdapter) {
+              windowsWifiInterfaces.add(name);
+              console.log(`🔍 Windows WiFi interface (PowerShell): ${name} → ${description}`);
+            } else {
+              console.log(`🔍 Windows Ethernet interface (PowerShell): ${name} → ${description}`);
+            }
+          }
+        }
+      } catch (psError) {
+        console.warn('Could not run PowerShell command for Windows interface detection:', psError.message);
+        
+        // Fallback to wmic if PowerShell fails
+        try {
+          const wmicOutput = execSync('wmic path win32_networkadapter where "NetConnectionStatus=2" get NetConnectionID,Description /format:csv', { encoding: 'utf8' });
+          
+          const lines = wmicOutput.split('\n').filter(line => line.trim() && !line.startsWith('Node'));
+          for (const line of lines) {
+            const parts = line.split(',');
+            if (parts.length >= 3) {
+              const description = (parts[1] || '').trim().toLowerCase();
+              const connectionId = (parts[2] || '').trim();
+              
+              if (description && connectionId) {
+                windowsInterfaceDescriptions.set(connectionId, description);
+                
+                if (description.includes('wi-fi') || description.includes('wireless') || description.includes('802.11')) {
+                  windowsWifiInterfaces.add(connectionId);
+                  console.log(`🔍 Windows WiFi interface (wmic): ${connectionId} → ${description}`);
+                }
+              }
+            }
+          }
+        } catch (wmicError) {
+          console.warn('Could not run wmic command either:', wmicError.message);
+        }
+      }
+    }
+    
+    // Get WiFi interface names using platform-specific commands (macOS)
+    let macosWifiInterfaces = new Set();
     if (process.platform === 'darwin') {
       try {
         const output = execSync('networksetup -listallhardwareports', { encoding: 'utf8' });
@@ -1888,7 +2279,8 @@ ipcMain.handle('get-network-addresses', async () => {
             if (i + 1 < lines.length && lines[i + 1].includes('Device:')) {
               const deviceMatch = lines[i + 1].match(/Device:\s*(\S+)/);
               if (deviceMatch) {
-                wifiInterfaceNames.add(deviceMatch[1]);
+                macosWifiInterfaces.add(deviceMatch[1]);
+                console.log(`🔍 Detected WiFi interface on macOS: ${deviceMatch[1]}`);
               }
             }
           }
@@ -1907,29 +2299,78 @@ ipcMain.handle('get-network-addresses', async () => {
         // Get all IPv4 addresses that are not internal
         if (iface.family === 'IPv4' && !iface.internal) {
           const address = `https://${iface.address}:3443`;
+          const ipAddress = iface.address;
           
-          // Check if this interface was identified as WiFi by platform-specific command
-          if (wifiInterfaceNames.has(interfaceName)) {
+          console.log(`📡 Processing interface: ${interfaceName} → ${ipAddress}`);
+          
+          let isWiFi = false;
+          
+          // Enhanced Windows-specific detection
+          if (process.platform === 'win32') {
+            const description = windowsInterfaceDescriptions.get(interfaceName) || '';
+            
+            // Method 1: Check against known WiFi interfaces from PowerShell/wmic
+            if (windowsWifiInterfaces.has(interfaceName)) {
+              console.log(`  ✅ Classified as WiFi (known WiFi interface: ${interfaceName})`);
+              isWiFi = true;
+            }
+            // Method 2: Check interface description for WiFi keywords
+            else if (description && (
+              description.includes('wi-fi') || 
+              description.includes('wifi') || 
+              description.includes('wireless') || 
+              description.includes('802.11') || 
+              description.includes('wlan') ||
+              description.includes('wi-fi direct')
+            )) {
+              console.log(`  ✅ Classified as WiFi (description: ${description})`);
+              isWiFi = true;
+            }
+            // Method 3: Windows Mobile Hotspot IP range (192.168.137.x is default)
+            else if (ipAddress.startsWith('192.168.137.')) {
+              console.log(`  ✅ Classified as WiFi (Windows hotspot IP range: ${ipAddress})`);
+              isWiFi = true;
+            }
+            // Method 4: Check for "Local Area Connection*" which is often used by Mobile Hotspot
+            else if (lowerName.includes('local area connection') && lowerName.includes('*')) {
+              // This is likely a Mobile Hotspot interface
+              if (description.includes('wi-fi direct') || description.includes('microsoft wi-fi')) {
+                console.log(`  ✅ Classified as WiFi (Mobile Hotspot: ${interfaceName})`);
+                isWiFi = true;
+              }
+            }
+            
+            if (!isWiFi) {
+              console.log(`  ℹ️ Classified as Ethernet (no WiFi indicators: ${interfaceName})`);
+            }
+          }
+          
+          // macOS-specific detection
+          else if (process.platform === 'darwin') {
+            if (macosWifiInterfaces.has(interfaceName)) {
+              console.log(`  ✅ Classified as WiFi (macOS platform detection: ${interfaceName})`);
+              isWiFi = true;
+            }
+          }
+          
+          // Cross-platform pattern-based detection (Linux and fallback)
+          if (!isWiFi && process.platform !== 'win32') {
+            // Standard WiFi interface patterns
+            if (/^(wlan|wlp|wl|wifi|wi-?fi|air|airport|wlx|wireless|wi_fi|wlan\d+)/i.test(lowerName)) {
+              console.log(`  ✅ Classified as WiFi (name pattern: ${interfaceName})`);
+              isWiFi = true;
+            }
+            // AWDL (Apple Wireless Direct Link)
+            else if (lowerName.includes('awdl')) {
+              console.log(`  ✅ Classified as WiFi (AWDL: ${interfaceName})`);
+              isWiFi = true;
+            }
+          }
+          
+          // Classification result
+          if (isWiFi) {
             addresses.wifi.push(address);
-          }
-          // Detect WiFi by interface name patterns
-          else if (/^(wlan|wlp|wl|wifi|wi-?fi|air|airport|wlx|wireless|wi_fi|wlan\d+)/i.test(lowerName)) {
-            addresses.wifi.push(address);
-          }
-          // Detect WiFi by AWDL (Apple Wireless Direct Link)
-          else if (lowerName.includes('awdl')) {
-            addresses.wifi.push(address);
-          }
-          // Bridge interfaces - for hotspot scenarios
-          else if (lowerName.includes('bridge')) {
-            addresses.wifi.push(address);
-          }
-          // Detect Ethernet by name patterns
-          else if (/^(eth|enp|en|eno|ens|em|ethernet|lan|enx|usb|eth\d+)/i.test(lowerName)) {
-            addresses.ethernet.push(address);
-          }
-          // Fallback: unknown interfaces go to Ethernet
-          else {
+          } else {
             addresses.ethernet.push(address);
           }
         }

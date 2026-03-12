@@ -17,132 +17,551 @@ NEBULON_DIR="$USER_HOME/.nebulon-gpt"
 RESOURCES_DIR="/Applications/NebulonGPT.app/Contents/Resources"
 
 echo "Target directory: $NEBULON_DIR" >&2
+echo "Current user: $CURRENT_USER" >&2
 
 # Create .nebulon-gpt directory with proper ownership
 mkdir -p "$NEBULON_DIR"
 chown -R "$CURRENT_USER:staff" "$NEBULON_DIR"
 
-# Extract Python bundle
+# Track what was installed for final summary
+
+OLLAMA_STATUS="not installed"
+MODEL_STATUS=""
+
+# Helper function to calculate directory size (like electron.js calculateDirectorySize)
+# Includes ALL files for exact match with electron.js behavior
+calculate_directory_size() {
+    local dir="$1"
+    if [ -d "$dir" ]; then
+        # Use find + stat for accurate size calculation (includes all files like electron.js)
+        find "$dir" -type f -exec stat -f%z {} + 2>/dev/null | awk '{sum += $1} END {print sum+0}'
+    else
+        echo "0"
+    fi
+}
+
+# ============================================
+# EXTRACT PYTHON BUNDLE (force overwrite, like electron.js)
+# ============================================
+
 if [ -f "$RESOURCES_DIR/python-bundle.zip" ]; then
-    if [ ! -d "$NEBULON_DIR/python-bundle" ]; then
-        echo "Extracting Python bundle (~500MB)..." >&2
-        osascript -e 'display notification "Extracting Python environment (this may take a moment)..." with title "NebulonGPT Installer"' 2>/dev/null
-        
-        unzip -q "$RESOURCES_DIR/python-bundle.zip" -d "$NEBULON_DIR"
-        chown -R "$CURRENT_USER:staff" "$NEBULON_DIR/python-bundle"
-        
-        echo "Python bundle extracted" >&2
-        osascript -e 'display notification "Python environment ready ✓" with title "NebulonGPT Installer"' 2>/dev/null
-    else
-        echo "Python bundle already exists" >&2
-    fi
-fi
-
-# Extract Vosk models
-if [ -d "$RESOURCES_DIR/models/vosk" ]; then
-    if [ ! -d "$NEBULON_DIR/vosk-models" ]; then
-        echo "Extracting Vosk speech models..." >&2
-        osascript -e 'display notification "Installing speech recognition models..." with title "NebulonGPT Installer"' 2>/dev/null
-        
-        mkdir -p "$NEBULON_DIR/vosk-models"
-        
-        # Copy zip files
-        find "$RESOURCES_DIR/models/vosk" -name "*.zip*" -exec cp {} "$NEBULON_DIR/vosk-models/" \;
-        
-        # Concatenate split zips and extract
-        cd "$NEBULON_DIR/vosk-models"
-        for base in $(ls *.zip.* 2>/dev/null | sed 's/\.zip\..*//' | sort -u); do
-            if [ -f "${base}.zip.001" ]; then
-                echo "Processing $base..." >&2
-                cat ${base}.zip.* > ${base}.zip
-                unzip -q ${base}.zip
-                rm ${base}.zip*
-            fi
-        done
-        
-        chown -R "$CURRENT_USER:staff" "$NEBULON_DIR/vosk-models"
-        echo "Vosk models extracted" >&2
-        osascript -e 'display notification "Speech recognition models ready ✓" with title "NebulonGPT Installer"' 2>/dev/null
-    else
-        echo "Vosk models already exist" >&2
-    fi
-fi
-
-# Extract Kokoro TTS cache
-if [ -d "$RESOURCES_DIR/models/kokoro" ]; then
-    if [ ! -d "$NEBULON_DIR/huggingface" ]; then
-        echo "Extracting Kokoro TTS cache..." >&2
-        osascript -e 'display notification "Installing text-to-speech models..." with title "NebulonGPT Installer"' 2>/dev/null
-        
-        mkdir -p "$NEBULON_DIR/huggingface"
-        
-        # Copy zip files
-        find "$RESOURCES_DIR/models/kokoro" -name "*.zip*" -exec cp {} "$NEBULON_DIR/huggingface/" \;
-        
-        # Concatenate split zips and extract
-        cd "$NEBULON_DIR/huggingface"
-        for base in $(ls *.zip.* 2>/dev/null | sed 's/\.zip\..*//' | sort -u); do
-            if [ -f "${base}.zip.001" ]; then
-                echo "Processing $base..." >&2
-                cat ${base}.zip.* > ${base}.zip
-                unzip -q ${base}.zip -d "$NEBULON_DIR"
-                rm ${base}.zip*
-            fi
-        done
-        
-        # Rename huggingface-cache to huggingface if needed
-        if [ -d "$NEBULON_DIR/huggingface-cache" ]; then
-            mv "$NEBULON_DIR/huggingface-cache"/* "$NEBULON_DIR/huggingface/" 2>/dev/null
-            rmdir "$NEBULON_DIR/huggingface-cache" 2>/dev/null
-        fi
-        
-        chown -R "$CURRENT_USER:staff" "$NEBULON_DIR/huggingface"
-        echo "TTS cache extracted" >&2
-        osascript -e 'display notification "Text-to-speech models ready ✓" with title "NebulonGPT Installer"' 2>/dev/null
-    else
-        echo "TTS cache already exists" >&2
-    fi
-fi
-
-# Check and start Ollama if installed but not running
-if [ -d "/Applications/Ollama.app" ]; then
-    echo "Checking Ollama status..." >&2
+    echo "Extracting Python bundle (force overwrite)..." >&2
     
-    # Check if Ollama is already running
-    if pgrep -f "Ollama" > /dev/null 2>&1; then
+    PYTHON_BUNDLE_DIR="$NEBULON_DIR/python-bundle"
+    CHECKSUM_FILE="$NEBULON_DIR/.python-bundle-checksum"
+    
+    # Remove existing directory if it exists (force overwrite)
+    if [ -d "$PYTHON_BUNDLE_DIR" ]; then
+        echo "Removing existing Python bundle directory..." >&2
+        rm -rf "$PYTHON_BUNDLE_DIR"
+    fi
+    
+    # Create the python-bundle directory
+    mkdir -p "$PYTHON_BUNDLE_DIR"
+    
+    # Extract ZIP directly into the python-bundle folder
+    unzip -q "$RESOURCES_DIR/python-bundle.zip" -d "$PYTHON_BUNDLE_DIR"
+    
+    # Set proper ownership
+    chown -R "$CURRENT_USER:staff" "$PYTHON_BUNDLE_DIR"
+    
+    # Calculate final bundle size and save checksum (like electron.js)
+    FINAL_SIZE=$(calculate_directory_size "$PYTHON_BUNDLE_DIR")
+    echo "$FINAL_SIZE" > "$CHECKSUM_FILE"
+    chown "$CURRENT_USER:staff" "$CHECKSUM_FILE"
+    
+    echo "Python bundle extraction completed. Final size: $FINAL_SIZE bytes" >&2
+    PYTHON_READY="true"
+fi
+
+# ============================================
+# EXTRACT VOSK MODELS (force overwrite, like electron.js)
+# ============================================
+
+if [ -d "$RESOURCES_DIR/models/vosk" ] && [ "$(ls -A "$RESOURCES_DIR/models/vosk" 2>/dev/null)" ]; then
+    echo "Extracting Vosk speech models (force overwrite)..." >&2
+    
+    VOSK_MODELS_DIR="$NEBULON_DIR/vosk-models"
+    CHECKSUM_FILE="$NEBULON_DIR/.vosk-models-checksum"
+    
+    # Remove existing extracted models (like electron.js cleanupExtractedModels)
+    if [ -d "$VOSK_MODELS_DIR" ]; then
+        echo "Removing existing Vosk models directory..." >&2
+        # Remove vosk-model-* directories (extracted models)
+        find "$VOSK_MODELS_DIR" -maxdepth 1 -type d -name "vosk-model-*" -exec rm -rf {} + 2>/dev/null
+    fi
+    
+    # Create models directory
+    mkdir -p "$VOSK_MODELS_DIR"
+    
+    # Copy all files from source to destination (like electron.js)
+    cp -R "$RESOURCES_DIR/models/vosk/"* "$VOSK_MODELS_DIR/" 2>/dev/null
+    
+    cd "$VOSK_MODELS_DIR"
+    
+    # Step 1: Find and concatenate split archive parts (like electron.js)
+    # Group split parts by base name (everything before .zip)
+    for base in $(ls *.zip.* 2>/dev/null | sed 's/\.zip\..*//' | sort -u); do
+        if [ -f "${base}.zip.001" ]; then
+            echo "Concatenating split archive: $base" >&2
+            
+            # Sort and concatenate all parts in order
+            cat $(ls -1 ${base}.zip.* | sort -V) > "${base}.zip"
+            
+            echo "Created: ${base}.zip" >&2
+        fi
+    done
+    
+    # Step 2: Extract all complete zip files (like electron.js)
+    for zipfile in *.zip; do
+        if [ -f "$zipfile" ] && [[ ! "$zipfile" =~ \.zip\..+$ ]]; then
+            echo "Extracting: $zipfile" >&2
+            unzip -q -o "$zipfile" -d "$VOSK_MODELS_DIR"
+            echo "Successfully extracted: $zipfile" >&2
+        fi
+    done
+    
+    # Step 3: Clean up - remove all zip files and split parts (like electron.js)
+    echo "Cleaning up zip files and split parts..." >&2
+    rm -f "$VOSK_MODELS_DIR"/*.zip* 2>/dev/null
+    
+    # Set proper ownership
+    chown -R "$CURRENT_USER:staff" "$VOSK_MODELS_DIR"
+    
+    # Calculate final vosk-models folder size and save checksum (like electron.js)
+    FINAL_SIZE=$(calculate_directory_size "$VOSK_MODELS_DIR")
+    echo "$FINAL_SIZE" > "$CHECKSUM_FILE"
+    chown "$CURRENT_USER:staff" "$CHECKSUM_FILE"
+    
+    echo "Vosk models extraction completed. Final size: $FINAL_SIZE bytes" >&2
+    VOSK_READY="true"
+fi
+
+# ============================================
+# EXTRACT KOKORO TTS CACHE (force overwrite, like electron.js)
+# ============================================
+
+if [ -d "$RESOURCES_DIR/models/kokoro" ] && [ "$(ls -A "$RESOURCES_DIR/models/kokoro" 2>/dev/null)" ]; then
+    echo "Extracting Kokoro TTS cache (force overwrite)..." >&2
+    
+    HF_CACHE_DIR="$NEBULON_DIR/huggingface"
+    CHECKSUM_FILE="$NEBULON_DIR/.huggingface-checksum"
+    KOKORO_WORK_DIR="$NEBULON_DIR/kokoro-work"
+    
+    # Remove existing directory if it exists (force overwrite)
+    if [ -d "$HF_CACHE_DIR" ]; then
+        echo "Removing existing HuggingFace cache directory..." >&2
+        rm -rf "$HF_CACHE_DIR"
+    fi
+    
+    # Clean up any existing work directory
+    if [ -d "$KOKORO_WORK_DIR" ]; then
+        rm -rf "$KOKORO_WORK_DIR"
+    fi
+    
+    # Create work directory in target location for processing split archives
+    mkdir -p "$KOKORO_WORK_DIR"
+    
+    # Copy all files from source to work directory for processing
+    cp -R "$RESOURCES_DIR/models/kokoro/"* "$KOKORO_WORK_DIR/" 2>/dev/null
+    
+    cd "$KOKORO_WORK_DIR"
+    
+    # Only process if zip files exist
+    if ls *.zip.* 2>/dev/null | head -1 > /dev/null || ls *.zip 2>/dev/null | head -1 > /dev/null; then
+        # Step 1: Find and concatenate split archive parts (like electron.js)
+        for base in $(ls *.zip.* 2>/dev/null | sed 's/\.zip\..*//' | sort -u); do
+            if [ -f "${base}.zip.001" ]; then
+                echo "Concatenating split archive: $base" >&2
+                
+                # Sort and concatenate all parts in order
+                cat $(ls -1 ${base}.zip.* | sort -V) > "${base}.zip"
+                
+                echo "Created: ${base}.zip" >&2
+            fi
+        done
+        
+        # Step 2: Extract all complete zip files directly to target location
+        for zipfile in *.zip; do
+            if [ -f "$zipfile" ] && [[ ! "$zipfile" =~ \.zip\..+$ ]]; then
+                echo "Extracting: $zipfile" >&2
+                unzip -q -o "$zipfile" -d "$NEBULON_DIR"
+                echo "Successfully extracted: $zipfile" >&2
+            fi
+        done
+    fi
+    
+    # Step 3: Handle extracted content (like electron.js)
+    # ZIP contains 'huggingface-cache' folder, need to rename to 'huggingface'
+    if [ -d "$NEBULON_DIR/huggingface-cache" ]; then
+        # Rename to correct name
+        mv "$NEBULON_DIR/huggingface-cache" "$HF_CACHE_DIR"
+    fi
+    
+    # Cleanup work directory
+    rm -rf "$KOKORO_WORK_DIR"
+    
+    # Ensure datasets directory exists (required by TTS server, like electron.js)
+    mkdir -p "$HF_CACHE_DIR/datasets"
+    
+    # Set proper ownership
+    chown -R "$CURRENT_USER:staff" "$HF_CACHE_DIR"
+    
+    # Calculate final cache size and save checksum (like electron.js)
+    FINAL_SIZE=$(calculate_directory_size "$HF_CACHE_DIR")
+    echo "$FINAL_SIZE" > "$CHECKSUM_FILE"
+    chown "$CURRENT_USER:staff" "$CHECKSUM_FILE"
+    
+    echo "Kokoro TTS extraction completed. Cache size: $FINAL_SIZE bytes" >&2
+    TTS_READY="true"
+fi
+
+# ============================================
+# START OLLAMA AND PULL MODEL
+# ============================================
+
+# Read session info from preinstall
+CHOSEN_MODEL=""
+NEED_DOWNLOAD_MODEL="false"
+MODEL_SIZE="varies"
+
+if [ -f "/var/tmp/nebulon-chosen-model.txt" ]; then
+    CHOSEN_MODEL=$(cat /var/tmp/nebulon-chosen-model.txt 2>/dev/null)
+    echo "Model: $CHOSEN_MODEL" >&2
+fi
+
+if [ -f "/var/tmp/nebulon-installer-session.txt" ]; then
+    NEED_DOWNLOAD_MODEL=$(grep "NEED_DOWNLOAD_MODEL=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
+    MODEL_SIZE=$(grep "MODEL_SIZE=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
+    if [ -z "$CHOSEN_MODEL" ]; then
+        CHOSEN_MODEL=$(grep "CHOSEN_MODEL=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
+    fi
+    echo "Need download model: $NEED_DOWNLOAD_MODEL" >&2
+fi
+
+# Check if Ollama is installed and running
+if [ -d "/Applications/Ollama.app" ]; then
+    echo "Ollama is installed, checking status..." >&2
+    
+    if curl -s --connect-timeout 2 http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
         echo "Ollama is already running" >&2
         OLLAMA_STATUS="running"
     else
-        echo "Ollama is installed but not running. Starting..." >&2
-        osascript -e 'display notification "Starting Ollama service..." with title "NebulonGPT Installer"' 2>/dev/null
+        # Start ollama serve as the current user in background
+        echo "Starting Ollama service..." >&2
+        sudo -u "$CURRENT_USER" /usr/local/bin/ollama serve > /dev/null 2>&1 &
         
-        # Start Ollama as the current user
-        sudo -u "$CURRENT_USER" open -a "Ollama" 2>/dev/null
+        # Wait for API to be ready (up to 60 seconds)
+        echo "Waiting for Ollama to start..." >&2
+        for i in {1..60}; do
+            if curl -s --connect-timeout 2 http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then
+                echo "Ollama is ready" >&2
+                OLLAMA_STATUS="running"
+                break
+            fi
+            sleep 1
+        done
         
-        # Wait a moment for it to start
-        sleep 3
-        
-        # Verify it started
-        if pgrep -f "Ollama" > /dev/null 2>&1; then
-            echo "Ollama started successfully" >&2
-            osascript -e 'display notification "Ollama service started " with title "NebulonGPT Installer"' 2>/dev/null
-            OLLAMA_STATUS="started "
-        else
-            echo "Warning: Ollama did not start automatically" >&2
-            osascript -e 'display notification "Please start Ollama manually" with title "NebulonGPT Installer"' 2>/dev/null
+        if [ "$OLLAMA_STATUS" != "running" ]; then
             OLLAMA_STATUS="installed (not running)"
+            echo "Warning: Could not start Ollama service" >&2
         fi
     fi
+    
+    # ============================================
+    # DOWNLOAD MODEL (only if marked as needed by preinstall)
+    # ============================================
+    
+    if [ "$NEED_DOWNLOAD_MODEL" = "true" ] && [ -n "$CHOSEN_MODEL" ] && [ "$OLLAMA_STATUS" = "running" ]; then
+        echo "Downloading model '$CHOSEN_MODEL'..." >&2
+        
+        # Create a script to show progress in Terminal
+        MODEL_SCRIPT="/tmp/nebulon-download-model.sh"
+        DONE_FLAG="/tmp/nebulon-model-done.txt"
+        ERROR_FLAG="/tmp/nebulon-model-error.txt"
+        
+        MAX_MODEL_RETRIES=3
+        MODEL_ATTEMPT=0
+        MODEL_DOWNLOAD_SUCCESS="false"
+        
+        # ============================================
+        # MODEL DOWNLOAD WITH RETRY LOOP
+        # ============================================
+        
+        while [ "$MODEL_DOWNLOAD_SUCCESS" = "false" ] && [ $MODEL_ATTEMPT -lt $MAX_MODEL_RETRIES ]; do
+            MODEL_ATTEMPT=$((MODEL_ATTEMPT + 1))
+            echo "Model download attempt $MODEL_ATTEMPT of $MAX_MODEL_RETRIES..." >&2
+            
+            rm -f "$DONE_FLAG" "$ERROR_FLAG"
+            
+            cat > "$MODEL_SCRIPT" << 'MODELSCRIPT'
+#!/bin/bash
+DONE_FLAG="__DONE_FLAG__"
+ERROR_FLAG="__ERROR_FLAG__"
+LOG_FILE="__LOG_FILE__"
+
+clear
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║       NebulonGPT Installer - Downloading AI Model            ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  Model: __MODEL_NAME__                                       "
+echo "║  Size: __MODEL_SIZE__                                        "
+echo "║  Attempt: __ATTEMPT__ of __MAX_ATTEMPTS__                    "
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Download progress:"
+echo ""
+
+# Run ollama pull with live output (shows progress bar)
+# Use tee to both display AND capture output for error analysis
+/usr/local/bin/ollama pull "__MODEL_NAME__" 2>&1 | tee "$LOG_FILE"
+EXIT_CODE=${PIPESTATUS[0]}
+
+echo ""
+if [ $EXIT_CODE -eq 0 ]; then
+    # Verify model was actually downloaded by checking if it exists
+    MODEL_CHECK=$(/usr/local/bin/ollama list 2>/dev/null | grep -c "__MODEL_NAME__")
+    if [ "$MODEL_CHECK" -gt 0 ]; then
+        echo "✅ Model download complete!"
+        echo "success" > "$DONE_FLAG"
+    else
+        echo "❌ Model verification failed!"
+        echo "verification_failed" > "$ERROR_FLAG"
+        echo "failed" > "$DONE_FLAG"
+    fi
 else
+    echo "❌ Model download failed! (Exit code: $EXIT_CODE)"
+    
+    # Read captured output for error analysis
+    OUTPUT=$(cat "$LOG_FILE" 2>/dev/null)
+    
+    # Determine error type from output
+    if echo "$OUTPUT" | grep -qi "connection refused\|could not connect"; then
+        echo "connection_error" > "$ERROR_FLAG"
+    elif echo "$OUTPUT" | grep -qi "timeout\|timed out"; then
+        echo "timeout_error" > "$ERROR_FLAG"
+    elif echo "$OUTPUT" | grep -qi "not found\|does not exist"; then
+        echo "model_not_found" > "$ERROR_FLAG"
+    elif echo "$OUTPUT" | grep -qi "disk space\|no space\|storage"; then
+        echo "disk_space_error" > "$ERROR_FLAG"
+    elif echo "$OUTPUT" | grep -qi "network\|internet"; then
+        echo "network_error" > "$ERROR_FLAG"
+    elif echo "$OUTPUT" | grep -qi "unauthorized\|forbidden\|access denied"; then
+        echo "auth_error" > "$ERROR_FLAG"
+    else
+        echo "unknown_error:$EXIT_CODE" > "$ERROR_FLAG"
+    fi
+    echo "failed" > "$DONE_FLAG"
+fi
+
+# Cleanup log file
+rm -f "$LOG_FILE"
+
+echo ""
+echo "This window will close shortly..."
+sleep 2
+
+# Schedule window close
+(sleep 1 && osascript -e 'tell application "Terminal" to close front window' 2>/dev/null) &
+
+exit 0
+MODELSCRIPT
+            
+            # Replace placeholders in the script
+            LOG_FILE="/tmp/nebulon-model-output.log"
+            sed -i '' "s|__MODEL_NAME__|$CHOSEN_MODEL|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__MODEL_SIZE__|$MODEL_SIZE|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__DONE_FLAG__|$DONE_FLAG|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__ERROR_FLAG__|$ERROR_FLAG|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__LOG_FILE__|$LOG_FILE|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__ATTEMPT__|$MODEL_ATTEMPT|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__MAX_ATTEMPTS__|$MAX_MODEL_RETRIES|g" "$MODEL_SCRIPT"
+            chmod +x "$MODEL_SCRIPT"
+            
+            # Open Terminal to show download progress
+            osascript <<EOF
+tell application "Terminal"
+    activate
+    do script "$MODEL_SCRIPT"
+end tell
+EOF
+            
+            # Wait for model download to complete
+            echo "Waiting for model download to complete..." >&2
+            PULL_RESULT=1
+            for i in {1..7200}; do  # Wait up to 2 hours for large models
+                sleep 1
+                if [ -f "$DONE_FLAG" ]; then
+                    if grep -q "success" "$DONE_FLAG" 2>/dev/null && [ ! -f "$ERROR_FLAG" ]; then
+                        PULL_RESULT=0
+                    fi
+                    break
+                fi
+            done
+            
+            # Give user a moment to see the completion message
+            sleep 2
+            
+            # Close the Terminal window
+            osascript -e 'tell application "Terminal" to close (first window whose name contains "nebulon")' 2>/dev/null
+            
+            rm -f "$MODEL_SCRIPT"
+            
+            if [ $PULL_RESULT -eq 0 ]; then
+                MODEL_DOWNLOAD_SUCCESS="true"
+                echo "Model '$CHOSEN_MODEL' pulled successfully ✓" >&2
+                MODEL_STATUS="$CHOSEN_MODEL (installed)"
+            else
+                # Read error type for specific message
+                ERROR_TYPE=""
+                if [ -f "$ERROR_FLAG" ]; then
+                    ERROR_TYPE=$(cat "$ERROR_FLAG")
+                fi
+                rm -f "$DONE_FLAG" "$ERROR_FLAG"
+                
+                # Determine user-friendly error message
+                case "$ERROR_TYPE" in
+                    "connection_error")
+                        ERROR_MSG="Could not connect to Ollama service. The service may have stopped."
+                        ;;
+                    "timeout_error")
+                        ERROR_MSG="Download timed out. Your internet connection may be slow or unstable."
+                        ;;
+                    "model_not_found")
+                        ERROR_MSG="The model '$CHOSEN_MODEL' was not found in the Ollama registry."
+                        ;;
+                    "disk_space_error")
+                        ERROR_MSG="Not enough disk space to download this model. Please free up some space and try again."
+                        ;;
+                    "network_error")
+                        ERROR_MSG="Network error occurred. Please check your internet connection."
+                        ;;
+                    "auth_error")
+                        ERROR_MSG="Access denied. The model may require authentication or special permissions."
+                        ;;
+                    "verification_failed")
+                        ERROR_MSG="Model download completed but verification failed. The model may be corrupted."
+                        ;;
+                    *)
+                        ERROR_MSG="An unexpected error occurred during model download."
+                        ;;
+                esac
+                
+                echo "Model download failed: $ERROR_MSG" >&2
+                
+                if [ $MODEL_ATTEMPT -lt $MAX_MODEL_RETRIES ]; then
+                    # Ask user if they want to retry
+                    RETRY_RESPONSE=$(osascript <<EOF
+display dialog "⚠️ Model Download Failed (Attempt $MODEL_ATTEMPT of $MAX_MODEL_RETRIES)
+
+Model: $CHOSEN_MODEL
+Size: $MODEL_SIZE
+
+$ERROR_MSG
+
+Would you like to try again?" with title "NebulonGPT Installer - Model Download Error" buttons {"Skip Model", "Try Again"} default button "Try Again" with icon caution
+return button returned of result
+EOF
+)
+                    
+                    case "$RETRY_RESPONSE" in
+                        "Skip Model")
+                            echo "User chose to skip model download" >&2
+                            MODEL_STATUS="$CHOSEN_MODEL (skipped)"
+                            break
+                            ;;
+                        "Try Again")
+                            echo "User chose to retry model download" >&2
+                            
+                            # If connection error, try to restart Ollama
+                            if [ "$ERROR_TYPE" = "connection_error" ]; then
+                                echo "Attempting to restart Ollama service..." >&2
+                                sudo -u "$CURRENT_USER" /usr/local/bin/ollama serve > /dev/null 2>&1 &
+                                sleep 5
+                            fi
+                            continue
+                            ;;
+                    esac
+                else
+                    # Max retries reached
+                    FINAL_RESPONSE=$(osascript <<EOF
+display dialog "❌ Model Download Failed
+
+Maximum retry attempts ($MAX_MODEL_RETRIES) reached.
+
+Model: $CHOSEN_MODEL
+$ERROR_MSG
+
+You can download this model later by running:
+ollama pull $CHOSEN_MODEL
+
+What would you like to do?" with title "NebulonGPT Installer - Model Download Failed" buttons {"OK"} default button "OK" with icon stop
+EOF
+)
+                    
+                    MODEL_STATUS="$CHOSEN_MODEL (download failed)"
+                    echo "Model download failed after $MAX_MODEL_RETRIES attempts" >&2
+                fi
+            fi
+        done
+        
+        # Cleanup
+        rm -f "$DONE_FLAG" "$ERROR_FLAG"
+        
+    elif [ -n "$CHOSEN_MODEL" ]; then
+        # Model already exists or not needed
+        MODEL_STATUS="$CHOSEN_MODEL (ready)"
+    fi
+    
+    # ============================================
+    # LAUNCH GUI APP FOR STATUS BAR ICON
+    # ============================================
+    
+    # Launch GUI app to provide status bar icon (it will connect to the running serve process)
+    if [ "$OLLAMA_STATUS" = "running" ]; then
+        echo "Launching Ollama GUI app for status bar icon..." >&2
+        
+        # Use launchctl to properly start Ollama in user context
+        sudo -u "$CURRENT_USER" launchctl asuser "$(id -u "$CURRENT_USER")" /usr/bin/open -a "Ollama.app" 2>/dev/null
+        
+        # Give it a moment to launch
+        sleep 2
+        
+        echo "Ollama GUI app launched" >&2
+    fi
+else
+    echo "Ollama is not installed" >&2
     OLLAMA_STATUS="not installed"
 fi
 
-echo "NebulonGPT setup complete!" >&2
-echo "" >&2
-echo "Installation Summary:" >&2
-echo "- Application: /Applications/NebulonGPT.app" >&2
-echo "- User Data: $NEBULON_DIR" >&2
-echo "- Ollama: $OLLAMA_STATUS" >&2
+# ============================================
+# FINAL COMPLETION (NO DIALOG)
+# ============================================
 
-# Show final completion notification
-osascript -e 'display notification "Installation complete! NebulonGPT is ready to use." with title "NebulonGPT Installer"' 2>/dev/null
+echo "" >&2
+echo "NebulonGPT setup complete!" >&2
+
+# ============================================
+# CLEANUP SESSION FILES (keep completion flag for duplicate prevention)
+# ============================================
+
+rm -f /var/tmp/nebulon-installer-session.txt
+rm -f /var/tmp/nebulon-chosen-model.txt
+rm -f /tmp/nebulon-model-progress.txt
+rm -f /tmp/nebulon-model-output.log
+
+# ============================================
+# FINALIZE INSTALLATION
+# ============================================
+
+echo "Finalizing installation..." >&2
+
+# Wait for any background processes to complete
+wait
+
+# Sync all disk operations to ensure everything is written
+sync
+
+echo "" >&2
+echo "NebulonGPT setup complete!" >&2

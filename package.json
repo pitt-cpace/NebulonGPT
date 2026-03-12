@@ -9,16 +9,22 @@
     "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^5.11.16",
     "@mui/material": "^5.13.0",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "adm-zip": "^0.5.10",
     "axios": "^1.4.0",
+    "body-parser": "^1.20.2",
     "canvas": "^3.2.0",
     "concurrently": "^8.0.1",
+    "cors": "^2.8.5",
     "electron-is-dev": "^2.0.0",
+    "express": "^4.18.2",
     "extract-zip": "^2.0.1",
+    "http-proxy-middleware": "^3.0.5",
     "js-tiktoken": "^1.0.21",
     "katex": "^0.16.25",
     "mammoth": "^1.9.0",
     "micromark-extension-math": "^3.1.0",
+    "multer": "^1.4.5-lts.1",
     "qrcode.react": "^4.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -27,8 +33,11 @@
     "react-markdown": "^8.0.7",
     "react-router-dom": "^6.11.1",
     "react-scripts": "5.0.1",
+    "react-syntax-highlighter": "^16.1.1",
     "rehype-katex": "^6.0.3",
     "rehype-raw": "^7.0.0",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^3.0.1",
     "remark-math": "^5.1.1",
     "typescript": "^4.9.5"
   },
@@ -46,27 +55,24 @@
   "scripts": {
     "electron-dev-win": "set NODE_ENV=development && npm run bundle-python-win && concurrently \"npm start\" \"uvicorn backend.main:app --host 0.0.0.0 --port 3001\" \"wait-on http://localhost:3000 && node node_modules\\electron\\cli.js .\"",
     "electron-dev-mac": "export NODE_ENV=development && npm run bundle-python-mac && concurrently \"npm start\" \"uvicorn backend.main:app --host 0.0.0.0 --port 3001\" \"wait-on http://localhost:3000 && npx electron .\"",
-    
-    
-    "dist:mac-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && dotenv -e .env.development -- electron-builder --mac --x64 && ./signing-scripts/notarize-app.sh x64",
-    "dist:mac-dmg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && dotenv -e .env.development -- electron-builder --mac dmg --x64 && ./signing-scripts/notarize-app.sh x64",
-    "dist:mac-pkg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && dotenv -e .env.development -- electron-builder --mac pkg --x64 && ./signing-scripts/notarize-app.sh x64",
 
-    "dist:mac-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && dotenv -e .env.development -- electron-builder --mac --arm64 && ./signing-scripts/notarize-app.sh arm64",
-    "dist:mac-dmg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && dotenv -e .env.development -- electron-builder --mac dmg --arm64 && ./signing-scripts/notarize-app.sh arm64",
-    "dist:mac-pkg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && dotenv -e .env.development -- electron-builder --mac pkg --arm64 && ./signing-scripts/notarize-app.sh arm64",
+    "dist:mac-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac --x64",
+    "dist:mac-dmg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac dmg --x64",
+    "dist:mac-pkg-x64": "npm run build && ./build-python-bundle-mac.sh x64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac pkg --x64",
+
+    "dist:mac-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac --arm64",
+    "dist:mac-dmg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac dmg --arm64",
+    "dist:mac-pkg-arm64": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && npx dotenv -e .env.development -- electron-builder --mac pkg --arm64",
     "dist:mac-dmg-arm64-dev": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && CSC_IDENTITY_AUTO_DISCOVERY=false CSC_SKIP_NOTARIZATION=true electron-builder -c.mac.identity=null --mac dmg --arm64",
-    "dist:mac-pkg-arm64-dev": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && CSC_IDENTITY_AUTO_DISCOVERY=false CSC_SKIP_NOTARIZATION=true dotenv electron-builder --mac pkg --arm64",
-
+    "dist:mac-pkg-arm64-dev": "npm run build && ./build-python-bundle-mac.sh arm64 && npm run copy-build-files-mac && CSC_IDENTITY_AUTO_DISCOVERY=false CSC_SKIP_NOTARIZATION=true npx dotenv electron-builder --mac pkg --arm64",
 
     "dist:win": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64 && npm run copy-build-files-win && electron-builder --win",
-    
+
     "bundle-python-mac": "chmod +x build-python-bundle-mac.sh && ./build-python-bundle-mac.sh",
     "bundle-python-win": "powershell -NoProfile -ExecutionPolicy Bypass -File build-python-bundle-win.ps1 -Architecture x64",
-    
+
     "copy-build-files-mac": "cp electron.js build/ && cp preload.js build/ && cp public/vosk-audio-processor.js build/ && cp -r Certification build/ && cp -r pkg-scripts build/",
     "copy-build-files-win": "copy electron.js build\\ && copy preload.js build\\ && copy public\\vosk-audio-processor.js build\\ && xcopy /E /I /Y Certification build\\Certification",
-
     
     "start": "react-scripts start",
     "build": "react-scripts build",
@@ -122,6 +128,7 @@
     "nodeGypRebuild": false,
     "includeSubNodeModules": true,
     "npmRebuild": false,
+    "afterAllArtifactBuild": "./signing-scripts/notarize-pkg.js",
     "extraResources": [
       {
         "from": "backend",
@@ -139,7 +146,7 @@
         ]
       },
       {
-        "from": "backend/models/kokoro",
+        "from": "_comment_backend/models/kokoro",
         "to": "models/kokoro",
         "filter": [
           "huggingface-cache.zip.*"
@@ -151,8 +158,9 @@
       }
     ],
     "mac": {
+      "notarize": true,
       "category": "public.app-category.productivity",
-      "icon": "public/icon.icns",
+      "icon": "public/AppLogo.icns",
       "target": [
         "dmg",
         "pkg"
@@ -174,7 +182,7 @@
       "welcome": "./install notice.txt"
     },
     "win": {
-      "icon": "public/cpace-logo-icon-256.ico",
+      "icon": "public/AppLogo.ico",
       "target": [
         {
           "target": "nsis",
@@ -214,9 +222,9 @@
       "menuCategory": false,
       "shortcutName": "${productName}",
       "uninstallDisplayName": "${productName}",
-      "installerIcon": "public/cpace-logo-icon-256.ico",
-      "uninstallerIcon": "public/cpace-logo-icon-256.ico",
-      "installerHeaderIcon": "public/cpace-logo-icon-256.ico",
+      "installerIcon": "public/AppLogo.ico",
+      "uninstallerIcon": "public/AppLogo.ico",
+      "installerHeaderIcon": "public/AppLogo.ico",
       "differentialPackage": false,
       "include": "installer.nsh",
       "displayLanguageSelector": false,

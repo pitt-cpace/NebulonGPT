@@ -48,6 +48,26 @@ const getHeaders = (): Record<string, string> => {
 // Get the initial base URL
 let baseURL = getBaseURL();
 
+// Export function to get Ollama base URL (without /api suffix)
+export const getOllamaBaseUrl = (): string => {
+  // Check if user has set a custom Ollama API URL
+  const customUrl = localStorage.getItem('ollamaApiUrl');
+  if (customUrl && customUrl.trim() !== '') {
+    // Remove /api suffix if present
+    const url = customUrl.trim();
+    return url.endsWith('/api') ? url.slice(0, -4) : url;
+  }
+  
+  // Electron app: Direct connection to Ollama
+  if (isElectron()) {
+    const ollamaUrl = process.env.REACT_APP_OLLAMA_URL || 'http://localhost:11434';
+    return ollamaUrl;
+  }
+  
+  // Browser/Docker: Use nginx proxy
+  return '/api/ollama';
+};
+
 const api = axios.create({
   baseURL,
   headers: {
@@ -69,8 +89,14 @@ export const fetchModels = async (): Promise<ModelType[]> => {
       headers: getHeaders(),
     });
     
-    if (response.data && response.data.models) {
-      return response.data.models.map((model: any) => ({
+if (response.data && response.data.models) {
+      // Filter out embedding models (nomic, embed) - these are not for chat
+      const chatModels = response.data.models.filter((model: any) => {
+        const modelName = model.name.toLowerCase();
+        return !modelName.includes('nomic') && !modelName.includes('embed');
+      });
+      
+      return chatModels.map((model: any) => ({
         id: model.name,
         name: model.name,
         size: model.size,
@@ -300,6 +326,7 @@ const endpoint = '/chat';
         model: modelId,
         messages: finalMessages,
         stream: true,
+        keep_alive: -1, // Keep model loaded in RAM indefinitely
         options: options || {
           num_ctx: 4096,
           temperature: 0.8,
@@ -410,6 +437,7 @@ const endpoint = '/chat';
         model: modelId,
         messages: finalMessages,
         stream: false,
+        keep_alive: -1, // Keep model loaded in RAM indefinitely
         options: options || {
           num_ctx: 4096,
           temperature: 0.8,

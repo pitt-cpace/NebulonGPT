@@ -4,7 +4,7 @@ echo "Starting NebulonGPT"
 echo "Timestamp: $(date)"
 
 # ============================================================================
-# RUNTIME CONFIGURATION - Process Nginx Config with Environment Variables
+# RUNTIME CONFIGURATION - Process Nginx Config from Template
 # ============================================================================
 
 # Set default Ollama URL if not provided
@@ -12,26 +12,35 @@ export OLLAMA_URL="${OLLAMA_URL:-http://host.docker.internal:11434}"
 
 echo "Configuring Ollama URL: $OLLAMA_URL"
 
-# Process nginx config with envsubst to replace ${OLLAMA_URL}
-envsubst '${OLLAMA_URL}' < /etc/nginx/sites-available/default > /tmp/nginx-temp.conf
+# Render nginx config from template (replaces all environment variables)
+TEMPLATE="/etc/nginx/templates/nginx.conf.template"
+OUT="/etc/nginx/conf.d/default.conf"
 
-# Conditionally add custom header if environment variables are provided
-if [ -n "$OLLAMA_CUSTOM_HEADER_NAME" ] && [ -n "$OLLAMA_CUSTOM_HEADER_VALUE" ]; then
-    echo "Custom header configured: $OLLAMA_CUSTOM_HEADER_NAME"
-    # Use sed to replace the placeholder with the actual header directive
-    sed -i "s|# __CUSTOM_HEADER_PLACEHOLDER__|proxy_set_header $OLLAMA_CUSTOM_HEADER_NAME \"$OLLAMA_CUSTOM_HEADER_VALUE\";|g" /tmp/nginx-temp.conf
+if [ -f "$TEMPLATE" ]; then
+    echo "Rendering nginx config from template..."
+    
+    # Get all the vars with ${VAR} formatting
+    VARS="$(grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*\}' "$TEMPLATE" | sort -u | tr '\n' ' ')"
+    envsubst "$VARS" < "$TEMPLATE" > "$OUT"
+    
+    # Conditionally add custom header if environment variables are provided
+    if [ -n "$OLLAMA_CUSTOM_HEADER_NAME" ] && [ -n "$OLLAMA_CUSTOM_HEADER_VALUE" ]; then
+        echo "Custom header configured: $OLLAMA_CUSTOM_HEADER_NAME"
+        # Use sed to replace the placeholder with the actual header directive
+        sed -i "s|# __CUSTOM_HEADER_PLACEHOLDER__|proxy_set_header $OLLAMA_CUSTOM_HEADER_NAME \"$OLLAMA_CUSTOM_HEADER_VALUE\";|g" "$OUT"
+    else
+        echo "No custom header configured (optional)"
+        # Remove the placeholder line
+        sed -i "s|        # __CUSTOM_HEADER_PLACEHOLDER__||g" "$OUT"
+    fi
+    
+    echo "Nginx configuration rendered successfully"
 else
-    echo "No custom header configured (optional)"
-    # Remove the placeholder line
-    sed -i "s|        # __CUSTOM_HEADER_PLACEHOLDER__||g" /tmp/nginx-temp.conf
+    echo "ERROR: Nginx template not found at $TEMPLATE"
+    exit 1
 fi
 
-# Move the processed config to final location
-mv /tmp/nginx-temp.conf /etc/nginx/sites-available/default
-
-echo "Nginx configuration processed successfully"
-
-# Start NGINX
+# Start NGINX with the updated config
 echo "Starting Nginx..."
 nginx &
 NGINX_PID=$!
@@ -134,7 +143,6 @@ echo "============================================"
 echo ""
 echo "All services started successfully!"
 echo "Application ready at http://localhost"
-echo "Network access via HTTPS on port 443"
 echo ""
 
 # Keep container running and monitor processes

@@ -17,10 +17,125 @@ import {
   Description as DescriptionIcon,
   Error as ErrorIcon,
   Warning as WarningIcon,
+  Block as BlockIcon,
 } from '@mui/icons-material';
 import { FileAttachment } from '../types';
 import { getTextDirectionStyles } from '../services/rtlDetection';
 import * as styles from '../styles/components/ChatArea.styles';
+
+// ============================================================================
+// VISION MODEL SUPPORT LISTS
+// ============================================================================
+
+// Models that SUPPORT vision/image input (lowercase for matching)
+const VISION_SUPPORTED_MODELS: string[] = [
+  // OpenAI
+  'gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4-vision', 'gpt-5',
+  // Google
+  'gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-3-pro', 'gemini-3-flash',
+  'gemma3', 'gemma3n',
+  // Anthropic
+  'claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku', 'claude-3.5',
+  // Ollama Vision Models (from Ollama library "Vision" category)
+  'llava', 'llava:7b', 'llava:13b', 'llava:34b',
+  'bakllava',
+  'qwen-vl', 'qwen2-vl', 'qwen2.5-vl', 'qwen2.5vl', 'qwen3-vl',
+  'minicpm-v',
+  'moondream',
+  'deepseek-vl', 'deepseek-ocr',
+  'cogvlm',
+  'idefics', 'idefics2',
+  'llava-llama3', 'llava-phi3',
+  'llama3.2-vision', 'llama4',
+  'granite3.2-vision',
+  'mistral-small3.1', 'mistral-small3.2',
+  'translategemma',
+  'ministral-3',
+  'devstral-small-2', 'devstral-2',
+  'kimi-k2.5', // native multimodal
+];
+
+// Models that do NOT support vision (text-only) - will BLOCK image upload
+const NON_VISION_MODELS: string[] = [
+  // Llama series (non-vision)
+  'llama2', 'llama3', 'llama3.1', 'llama3.3', 'llama2-uncensored', 'llama2-chinese',
+  // Mistral/Mixtral (non-vision)
+  'mistral', 'mixtral', 'mistral-nemo', 'mistral-large', 'mistral-small', 'mistral-openorca',
+  // Phi series
+  'phi', 'phi-2', 'phi3', 'phi3.5', 'phi4', 'phi4-mini', 'phi4-reasoning', 'phi4-mini-reasoning',
+  // Gemma (non-vision)
+  'gemma', 'gemma2',
+  // DeepSeek (non-vision)
+  'deepseek-r1', 'deepseek-coder', 'deepseek-v2', 'deepseek-v2.5', 'deepseek-v3', 'deepseek-v3.1', 'deepseek-v3.2', 'deepseek-llm', 'deepcoder',
+  // GPT-OSS
+  'gpt-oss', 'gpt-oss-20b', 'gpt-oss-120b', 'gpt-oss-safeguard',
+  // Qwen (non-vision)
+  'qwen', 'qwen2', 'qwen2.5', 'qwen3', 'qwen3-coder', 'qwen2.5-coder', 'qwen2-math', 'qwq',
+  // Falcon, StarCoder, Granite (non-vision)
+  'falcon', 'falcon2', 'falcon3', 'starcoder', 'starcoder2',
+  'granite-code', 'granite3', 'granite3-dense', 'granite3-moe', 'granite3.1-dense', 'granite3.1-moe', 'granite3.2', 'granite3.3', 'granite4',
+  // Yi, Vicuna, CodeLlama
+  'yi', 'yi-coder', 'vicuna', 'wizard-vicuna', 'wizard-vicuna-uncensored', 'codellama',
+  // Dolphin series
+  'dolphin-phi', 'dolphin-llama3', 'dolphin-mistral', 'dolphin-mixtral', 'dolphin3', 'dolphincoder', 'megadolphin', 'tinydolphin',
+  // Other text-only models
+  'codestral', 'codegemma', 'codeqwen', 'codegeex4', 'opencoder',
+  'command-r', 'command-r-plus', 'command-r7b', 'command-r7b-arabic', 'command-a',
+  'olmo2', 'olmo-3', 'olmo-3.1', 'smollm', 'smollm2', 'smallthinker', 'tinyllama',
+  'hermes3', 'nous-hermes', 'nous-hermes2', 'nous-hermes2-mixtral', 'openhermes', 'openchat', 'neural-chat',
+  'stablelm2', 'stablelm-zephyr', 'stable-beluga', 'stable-code', 'zephyr', 'orca-mini', 'orca2',
+  'wizardlm', 'wizardlm2', 'wizardlm-uncensored', 'wizardcoder', 'wizard-math',
+  'solar', 'solar-pro', 'athene-v2', 'reflection', 'nemotron', 'nemotron-mini', 'nemotron-3-nano',
+  'exaone-deep', 'exaone3.5', 'cogito', 'cogito-2.1', 'aya', 'aya-expanse',
+  'glm4', 'glm-4.6', 'glm-4.7', 'glm-4.7-flash', 'internlm2', 'reader-lm', 'tulu3', 'dbrx', 'marco-o1',
+  'samantha-mistral', 'xwinlm', 'yarn-llama2', 'yarn-mistral', 'mathstral',
+  'llama-pro', 'llama-guard3', 'llama3-groq-tool-use', 'llama3-gradient', 'llama3-chatqa',
+  'phind-codellama', 'nuextract', 'meditron', 'firefunction-v2', 'starling-lm', 'bespoke-minicheck',
+  'sailor2', 'magistral', 'openthinker', 'devstral', 'r1-1776', 'deepscaler',
+  'shieldgemma', 'functiongemma', 'embeddinggemma', 'lfm2.5-thinking', 'rnj-1',
+  'minimax-m2', 'minimax-m2.1', 'kimi-k2', 'kimi-k2-thinking',
+  'notus', 'codeup', 'mistrallite', 'everythinglm', 'codebooga', 'goliath', 'open-orca-platypus2', 'alfred',
+  'magicoder', 'notux', 'duckdb-nsql', 'medllama2', 'nexusraven', 'sqlcoder',
+];
+
+// Helper function to check if a model supports vision
+// Returns: 'supported' | 'not-supported' | 'unknown'
+const checkVisionSupport = (modelName: string | undefined): 'supported' | 'not-supported' | 'unknown' => {
+  if (!modelName) return 'unknown';
+  
+  const normalizedName = modelName.toLowerCase().trim();
+  
+  // Check if it's in the vision-supported list
+  for (const visionModel of VISION_SUPPORTED_MODELS) {
+    if (normalizedName === visionModel || 
+        normalizedName.startsWith(visionModel + ':') ||
+        normalizedName.startsWith(visionModel + '-') ||
+        normalizedName.includes(visionModel)) {
+      return 'supported';
+    }
+  }
+  
+  // Check if it's in the non-vision list (should block)
+  for (const nonVisionModel of NON_VISION_MODELS) {
+    if (normalizedName === nonVisionModel || 
+        normalizedName.startsWith(nonVisionModel + ':') ||
+        normalizedName.startsWith(nonVisionModel + '-') ||
+        normalizedName.includes(nonVisionModel)) {
+      return 'not-supported';
+    }
+  }
+  
+  // Additional heuristic: if name contains vision-related keywords, likely supports vision
+  if (normalizedName.includes('vision') || 
+      normalizedName.includes('-vl') || 
+      normalizedName.includes('vl-') ||
+      normalizedName.includes('multimodal') ||
+      normalizedName.includes('llava')) {
+    return 'supported';
+  }
+  
+  return 'unknown';
+};
 
 interface InputAreaProps {
   loading: boolean;
@@ -38,6 +153,7 @@ interface InputAreaProps {
   onClearInput?: React.MutableRefObject<(() => void) | null>; // Ref callback to clear input
   onGetAttachments?: React.MutableRefObject<(() => FileAttachment[]) | null>; // Ref callback to get current attachments
   isMobile: boolean;
+  modelName?: string; // Current selected model name for vision support warning
 }
 
 const InputArea: React.FC<InputAreaProps> = ({
@@ -56,6 +172,7 @@ const InputArea: React.FC<InputAreaProps> = ({
   onClearInput,
   onGetAttachments,
   isMobile,
+  modelName,
 }) => {
   const [message, setMessage] = useState(initialMessage || '');
   
@@ -83,6 +200,8 @@ const InputArea: React.FC<InputAreaProps> = ({
     }
   }, [voiceText]);
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [imageWarning, setImageWarning] = useState<string | null>(null);
+  const [imageBlocked, setImageBlocked] = useState<string | null>(null); // Blocked message for non-vision models
   const [contextWarning, setContextWarning] = useState<string | null>(null);
   const [isContextExceeded, setIsContextExceeded] = useState(false);
   const [textDirection, setTextDirection] = useState<{
@@ -196,10 +315,50 @@ const InputArea: React.FC<InputAreaProps> = ({
     }
   }, [chat]);
 
+  // Update image warning/blocked state when attachments or model changes
+  useEffect(() => {
+    const hasImageAttachments = attachments.some(attachment => attachment.type === 'image');
+    
+    if (hasImageAttachments) {
+      const visionSupport = checkVisionSupport(modelName);
+      const currentModel = modelName || 'your selected model';
+      
+      if (visionSupport === 'supported') {
+        // Model supports vision - no warning needed
+        setImageWarning(null);
+        setImageBlocked(null);
+      } else if (visionSupport === 'not-supported') {
+        // Model does NOT support vision - show blocking error
+        setImageBlocked(
+          `Image upload blocked: "${currentModel}" does NOT support vision/image processing. ` +
+          `This is a text-only model. Please remove the image or switch to a vision-capable model ` +
+          `(e.g., llava, qwen2.5-vl, minicpm-v, moondream, gemma3, llama3.2-vision).`
+        );
+        setImageWarning(null);
+      } else {
+        // Unknown model - show warning
+        const searchQuery = modelName ? `"${modelName}" vision support` : '';
+        setImageWarning(
+          `⚠️ Image attached: Your model "${currentModel}" is not in our known list. ` +
+          `It may or may not support images. Please verify it has vision capabilities ` +
+          `(look for "vision", "llava", "-vl", or "multimodal" in the name). ` +
+          `${searchQuery ? `🔍 Search: "${searchQuery}" to check. ` : ''}` +
+          `Models without vision support may hallucinate or provide inaccurate descriptions.`
+        );
+        setImageBlocked(null);
+      }
+    } else {
+      setImageWarning(null);
+      setImageBlocked(null);
+    }
+  }, [attachments, modelName]);
+
   // Function to clear input and recalculate
   const clearInput = useCallback(() => {
     setMessage('');
     setAttachments([]);
+    setImageWarning(null);
+    setImageBlocked(null);
     setContextWarning(null);
     setIsContextExceeded(false);
     setTextDirection({
@@ -275,12 +434,15 @@ const InputArea: React.FC<InputAreaProps> = ({
 
   // Single send function called by both button click and Enter key
   const handleSend = () => {
-    if ((message.trim() || attachments.length > 0) && !loading && !isContextExceeded) {
+    // Block sending if context exceeded OR if image is blocked (non-vision model)
+    if ((message.trim() || attachments.length > 0) && !loading && !isContextExceeded && !imageBlocked) {
       onSendMessage(message.trim(), attachments.length > 0 ? attachments : undefined);
       setMessage('');
       setAttachments([]);
       setContextWarning(null);
       setIsContextExceeded(false);
+      setImageBlocked(null);
+      setImageWarning(null);
     }
   };
   
@@ -316,37 +478,40 @@ const InputArea: React.FC<InputAreaProps> = ({
     const fileArray = Array.from(files);
     
     fileArray.forEach(file => {
+      // IMAGE UPLOAD DISABLED - Only text-based document files are allowed
       if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        
-        reader.onload = (event) => {
-          if (!event.target || typeof event.target.result !== 'string') return;
-          
-          const dataUrl = event.target.result;
-          const newAttachment: FileAttachment = {
-            id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            name: file.name,
-            type: 'image',
-            content: dataUrl,
-            size: file.size,
-            timestamp: new Date().toISOString(),
-          };
-          
-          setAttachments(prevAttachments => {
-            const updated = [...prevAttachments, newAttachment];
-            // Recalculate tokens with updated attachments
-            calculateTokens(message, updated);
-            return updated;
-          });
-        };
-        
-        reader.onerror = () => {
-          alert(`Error reading image: ${file.name}`);
-        };
-        
-        reader.readAsDataURL(file);
+        alert(`Image uploads are not supported. Only text-based document files are allowed (.txt, .doc, .docx).`);
+        return;
+        // const reader = new FileReader();
+        // 
+        // reader.onload = (event) => {
+        //   if (!event.target || typeof event.target.result !== 'string') return;
+        //   
+        //   const dataUrl = event.target.result;
+        //   const newAttachment: FileAttachment = {
+        //     id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        //     name: file.name,
+        //     type: 'image',
+        //     content: dataUrl,
+        //     size: file.size,
+        //     timestamp: new Date().toISOString(),
+        //   };
+        //   
+        //   setAttachments(prevAttachments => {
+        //     const updated = [...prevAttachments, newAttachment];
+        //     // Recalculate tokens with updated attachments
+        //     calculateTokens(message, updated);
+        //     return updated;
+        //   });
+        // };
+        // 
+        // reader.onerror = () => {
+        //   alert(`Error reading image: ${file.name}`);
+        // };
+        // 
+        // reader.readAsDataURL(file);
       } else if (file.name.endsWith('.pdf')) {
-        alert(`PDF files are not supported. Please use text (.txt), Word (.docx), or image files instead.`);
+        alert(`PDF files are not supported. Please use text files (.txt) or Word documents (.doc, .docx) instead.`);
       } else if (file.name.endsWith('.txt')) {
         const reader = new FileReader();
         
@@ -415,7 +580,7 @@ const InputArea: React.FC<InputAreaProps> = ({
         
         reader.readAsArrayBuffer(file);
       } else {
-        alert(`Only .txt, .docx, and image files are supported. Skipping ${file.name}`);
+        alert(`Only text-based document files are supported (.txt, .doc, .docx). Skipping ${file.name}`);
       }
     });
     
@@ -468,69 +633,81 @@ const InputArea: React.FC<InputAreaProps> = ({
       return;
     }
 
+    // IMAGE DRAG & DROP DISABLED - Only text-based document files are allowed
     // Second, check for image data (dragging images from within the page)
     const imageUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/html');
     
     if (imageUrl) {
-      try {
-        // Extract image URL if it's wrapped in HTML
-        let imgSrc = imageUrl;
-        if (imageUrl.includes('<img')) {
-          const match = imageUrl.match(/src=["']([^"']+)["']/);
-          if (match && match[1]) {
-            imgSrc = match[1];
-          }
+      // Check if it's an image and show alert
+      let imgSrc = imageUrl;
+      if (imageUrl.includes('<img')) {
+        const match = imageUrl.match(/src=["']([^"']+)["']/);
+        if (match && match[1]) {
+          imgSrc = match[1];
         }
-
-        // If it's a data URL (base64 image)
-        if (imgSrc.startsWith('data:image/')) {
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-          const newAttachment: FileAttachment = {
-            id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            name: `dragged-image-${timestamp}.png`,
-            type: 'image',
-            content: imgSrc,
-            size: Math.round((imgSrc.length * 3) / 4), // Approximate size from base64
-            timestamp: new Date().toISOString(),
-          };
-          
-          setAttachments(prevAttachments => {
-            const updated = [...prevAttachments, newAttachment];
-            calculateTokens(message, updated);
-            return updated;
-          });
-        }
-        // If it's a regular URL, fetch and convert
-        else if (imgSrc.startsWith('http://') || imgSrc.startsWith('https://') || imgSrc.startsWith('/')) {
-          const response = await fetch(imgSrc);
-          const blob = await response.blob();
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-          
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            if (!event.target || typeof event.target.result !== 'string') return;
-            
-            const newAttachment: FileAttachment = {
-              id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              name: `dragged-image-${timestamp}.png`,
-              type: 'image',
-              content: event.target.result,
-              size: blob.size,
-              timestamp: new Date().toISOString(),
-            };
-            
-            setAttachments(prevAttachments => {
-              const updated = [...prevAttachments, newAttachment];
-              calculateTokens(message, updated);
-              return updated;
-            });
-          };
-          reader.readAsDataURL(blob);
-        }
-      } catch (error) {
-        console.error('Error processing dragged image:', error);
-        alert('Failed to process the dragged image. Please try copying and pasting instead.');
       }
+      if (imgSrc.startsWith('data:image/') || imgSrc.includes('image')) {
+        alert(`Image uploads are not supported. Only text-based document files are allowed (.txt, .doc, .docx).`);
+      }
+      // try {
+      //   // Extract image URL if it's wrapped in HTML
+      //   let imgSrc = imageUrl;
+      //   if (imageUrl.includes('<img')) {
+      //     const match = imageUrl.match(/src=["']([^"']+)["']/);
+      //     if (match && match[1]) {
+      //       imgSrc = match[1];
+      //     }
+      //   }
+
+      //   // If it's a data URL (base64 image)
+      //   if (imgSrc.startsWith('data:image/')) {
+      //     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      //     const newAttachment: FileAttachment = {
+      //       id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      //       name: `dragged-image-${timestamp}.png`,
+      //       type: 'image',
+      //       content: imgSrc,
+      //       size: Math.round((imgSrc.length * 3) / 4), // Approximate size from base64
+      //       timestamp: new Date().toISOString(),
+      //     };
+      //     
+      //     setAttachments(prevAttachments => {
+      //       const updated = [...prevAttachments, newAttachment];
+      //       calculateTokens(message, updated);
+      //       return updated;
+      //     });
+      //   }
+      //   // If it's a regular URL, fetch and convert
+      //   else if (imgSrc.startsWith('http://') || imgSrc.startsWith('https://') || imgSrc.startsWith('/')) {
+      //     const response = await fetch(imgSrc);
+      //     const blob = await response.blob();
+      //     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      //     
+      //     const reader = new FileReader();
+      //     reader.onload = (event) => {
+      //       if (!event.target || typeof event.target.result !== 'string') return;
+      //       
+      //       const newAttachment: FileAttachment = {
+      //         id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      //         name: `dragged-image-${timestamp}.png`,
+      //         type: 'image',
+      //         content: event.target.result,
+      //         size: blob.size,
+      //         timestamp: new Date().toISOString(),
+      //       };
+      //       
+      //       setAttachments(prevAttachments => {
+      //         const updated = [...prevAttachments, newAttachment];
+      //         calculateTokens(message, updated);
+      //         return updated;
+      //       });
+      //     };
+      //     reader.readAsDataURL(blob);
+      //   }
+      // } catch (error) {
+      //   console.error('Error processing dragged image:', error);
+      //   alert('Failed to process the dragged image. Please try copying and pasting instead.');
+      // }
     }
 
     e.dataTransfer.clearData();
@@ -548,25 +725,33 @@ const InputArea: React.FC<InputAreaProps> = ({
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       
-      // Handle images
+      // IMAGE PASTE DISABLED - Only text-based document files are allowed
+      // Handle images - block with alert message
       if (item.type.startsWith('image/')) {
         e.preventDefault(); // Prevent default paste behavior for images
-        const file = item.getAsFile();
-        if (file) {
-          // Generate a meaningful filename for pasted images
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-          const extension = item.type.split('/')[1] || 'png';
-          const renamedFile = new File([file], `pasted-image-${timestamp}.${extension}`, { type: file.type });
-          files.push(renamedFile);
-        }
+        alert(`Image uploads are not supported. Only text-based document files are allowed (.txt, .doc, .docx).`);
+        return;
+        // const file = item.getAsFile();
+        // if (file) {
+        //   // Generate a meaningful filename for pasted images
+        //   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        //   const extension = item.type.split('/')[1] || 'png';
+        //   const renamedFile = new File([file], `pasted-image-${timestamp}.${extension}`, { type: file.type });
+        //   files.push(renamedFile);
+        // }
       }
-      // Handle files (if browser supports it)
+      // Handle files (if browser supports it) - only text files allowed
       else if (item.kind === 'file') {
         const file = item.getAsFile();
-        if (file && (file.type.startsWith('image/') || file.name.endsWith('.txt') || file.name.endsWith('.docx'))) {
+        if (file && (file.name.endsWith('.txt') || file.name.endsWith('.docx') || file.name.endsWith('.doc'))) {
           e.preventDefault();
           files.push(file);
         }
+        // Block image files from file paste
+        // if (file && (file.type.startsWith('image/') || file.name.endsWith('.txt') || file.name.endsWith('.docx'))) {
+        //   e.preventDefault();
+        //   files.push(file);
+        // }
       }
     }
 
@@ -615,12 +800,12 @@ const InputArea: React.FC<InputAreaProps> = ({
           )}
         </Box>
 
-        {/* Hidden unified file input */}
+        {/* Hidden unified file input - only text-based files */}
         <input
           type="file"
           ref={fileInputRef}
           style={{ display: 'none' }}
-          accept=".txt,.docx,image/*"
+          accept=".txt,.docx,.doc"
           multiple
           onChange={handleFileSelect}
         />
@@ -666,6 +851,63 @@ const InputArea: React.FC<InputAreaProps> = ({
                 }}
               >
                 {contextWarning}
+              </Typography>
+            </Box>
+          )}
+
+          {/* Image blocked error display (for non-vision models) */}
+          {imageBlocked && (
+            <Box 
+              sx={{ 
+                display: 'flex', 
+                alignItems: 'flex-start',
+                gap: 1,
+                p: 1, 
+                mb: 1,
+                borderRadius: 1,
+                bgcolor: 'rgba(244, 67, 54, 0.1)',
+                border: '1px solid rgba(244, 67, 54, 0.3)',
+                width: '100%'
+              }}
+            >
+              <BlockIcon sx={{ fontSize: 16, color: 'error.main', mt: 0.25, flexShrink: 0 }} />
+              <Typography 
+                variant="caption" 
+                sx={{ 
+                  color: 'error.main',
+                  lineHeight: 1.4,
+                  fontWeight: 'bold'
+                }}
+              >
+                {imageBlocked}
+              </Typography>
+            </Box>
+          )}
+
+          {/* Image vision warning display (for unknown models) */}
+          {imageWarning && !imageBlocked && (
+            <Box 
+              sx={{ 
+                display: 'flex', 
+                alignItems: 'flex-start',
+                gap: 1,
+                p: 1, 
+                mb: 1,
+                borderRadius: 1,
+                bgcolor: 'rgba(255, 152, 0, 0.1)',
+                border: '1px solid rgba(255, 152, 0, 0.3)',
+                width: '100%'
+              }}
+            >
+              <WarningIcon sx={{ fontSize: 16, color: 'warning.main', mt: 0.25, flexShrink: 0 }} />
+              <Typography 
+                variant="caption" 
+                sx={{ 
+                  color: 'warning.main',
+                  lineHeight: 1.4
+                }}
+              >
+                {imageWarning}
               </Typography>
             </Box>
           )}
@@ -855,7 +1097,7 @@ const InputArea: React.FC<InputAreaProps> = ({
 
         {loading ? (
           <IconButton
-            color="error"
+            color="primary"
             onClick={onStopResponse}
             sx={{ ml: 1 }}
           >
@@ -863,13 +1105,19 @@ const InputArea: React.FC<InputAreaProps> = ({
           </IconButton>
         ) : (
           <IconButton
-            color={isContextExceeded ? "error" : "primary"}
+            color={(isContextExceeded || imageBlocked) ? "error" : "primary"}
             onClick={handleSend}
-            disabled={(!message.trim() && attachments.length === 0) || isContextExceeded}
-            title={isContextExceeded ? "Cannot send: Context limit exceeded" : "Send message"}
+            disabled={(!message.trim() && attachments.length === 0) || isContextExceeded || !!imageBlocked}
+            title={
+              imageBlocked 
+                ? "Cannot send: Model does not support images" 
+                : isContextExceeded 
+                  ? "Cannot send: Context limit exceeded" 
+                  : "Send message"
+            }
             sx={{ 
               ml: 1,
-              ...(isContextExceeded && {
+              ...((isContextExceeded || imageBlocked) && {
                 backgroundColor: 'rgba(244, 67, 54, 0.1)',
                 '&:hover': {
                   backgroundColor: 'rgba(244, 67, 54, 0.2)',

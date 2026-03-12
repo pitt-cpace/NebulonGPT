@@ -328,6 +328,150 @@ async def delete_model(model_name: str):
 # REST API ENDPOINTS - NETWORK INFO
 # =============================================================================
 
+def get_macos_wifi_interfaces():
+    """Get WiFi interface names on macOS using networksetup"""
+    wifi_interfaces = set()
+    try:
+        # Get hardware ports mapping
+        result = subprocess.run(
+            ['networksetup', '-listallhardwareports'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            current_is_wifi = False
+            for line in lines:
+                if 'Hardware Port:' in line:
+                    port_name = line.split('Hardware Port:')[1].strip().lower()
+                    # Check if this hardware port is WiFi
+                    current_is_wifi = any(w in port_name for w in ['wi-fi', 'wifi', 'airport', 'wireless'])
+                elif 'Device:' in line and current_is_wifi:
+                    device = line.split('Device:')[1].strip()
+                    if device:
+                        wifi_interfaces.add(device)
+                    current_is_wifi = False
+    except Exception as e:
+        logger.debug(f"Could not get macOS WiFi interfaces: {e}")
+    return wifi_interfaces
+
+def get_macos_hotspot_bridges():
+    """Get bridge interfaces used for Internet Sharing (hotspot) on macOS"""
+    hotspot_bridges = set()
+    try:
+        # Check for active bridge interfaces that are used for Internet Sharing
+        # Internet Sharing creates bridge100, bridge101, etc.
+        result = subprocess.run(
+            ['ifconfig'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            lines = result.stdout.split('\n')
+            current_interface = None
+            for line in lines:
+                # Check for interface definition line (starts with interface name)
+                if line and not line.startswith('\t') and not line.startswith(' '):
+                    if ':' in line:
+                        current_interface = line.split(':')[0]
+                # Look for bridge interfaces with typical hotspot characteristics
+                # bridge100+ interfaces with member ap1 are hotspot bridges
+                if current_interface and current_interface.startswith('bridge'):
+                    # Check if this bridge has an IP in hotspot range (192.168.x.1 pattern)
+                    if 'inet ' in line:
+                        parts = line.strip().split()
+                        if len(parts) >= 2:
+                            ip = parts[1]
+                            # Hotspot bridges typically have .1 as the last octet
+                            if ip.endswith('.1') and not ip.startswith('127.'):
+                                hotspot_bridges.add(current_interface)
+                                logger.info(f"Detected macOS hotspot bridge: {current_interface} with IP {ip}")
+    except Exception as e:
+        logger.debug(f"Could not detect macOS hotspot bridges: {e}")
+    return hotspot_bridges
+
+def get_linux_interface_type(interface: str) -> str:
+    """Determine interface type on Linux"""
+    interface_lower = interface.lower()
+    
+    # Check for wireless indicators in name
+    if any(p in interface_lower for p in ['wlan', 'wlp', 'wl', 'wifi', 'wlo']):
+        return 'wifi'
+    
+    # Check /sys/class/net for wireless capability
+    try:
+        wireless_path = f'/sys/class/net/{interface}/wireless'
+        if os.path.exists(wireless_path):
+            return 'wifi'
+    except:
+        pass
+    
+    # Check for ethernet indicators
+    if any(p in interface_lower for p in ['eth', 'enp', 'eno', 'ens']):
+        return 'ethernet'
+    
+    return 'unknown'
+
+def get_windows_wifi_interfaces():
+    """Get WiFi interface GUIDs on Windows using multiple detection methods"""
+    wifi_interface_guids = set()
+    interface_guid_to_description = {}  # Map interface GUID to description
+    
+    # Method 1: Use PowerShell Get-NetAdapter with InterfaceGuid for comprehensive detection
+    try:
+        # Get all adapters with their GUIDs and descriptions - GUIDs match what netifaces returns
+        ps_command = "Get-NetAdapter | Select-Object Name,InterfaceDescription,PhysicalMediaType,InterfaceGuid | ConvertTo-Json"
+        result = subprocess.run(
+            ['powershell', '-Command', ps_command],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                adapters = json.loads(result.stdout)
+                # Handle both single adapter (dict) and multiple adapters (list)
+                if isinstance(adapters, dict):
+                    adapters = [adapters]
+                
+                for adapter in adapters:
+                    name = adapter.get('Name', '')
+                    description = (adapter.get('InterfaceDescription', '') or '').lower()
+                    media_type = (adapter.get('PhysicalMediaType', '') or '').lower()
+                    interface_guid = adapter.get('InterfaceGuid', '')
+                    
+                    if not interface_guid:
+                        continue
+                    
+                    # Normalize GUID format to match netifaces (with curly braces)
+                    if not interface_guid.startswith('{'):
+                        interface_guid = '{' + interface_guid + '}'
+                    interface_guid = interface_guid.upper()
+                    
+                    interface_guid_to_description[interface_guid] = description
+                    
+                    # Check if this is a WiFi adapter based on description or media type
+                    is_wifi = any(w in description for w in [
+                        'wi-fi', 'wifi', 'wireless', '802.11', 'wlan',
+                        'wi-fi direct', 'wifi direct', 'mobile hotspot'
+                    ]) or any(w in media_type for w in [
+                        'wireless', '802.11', 'native 802.11'
+                    ])
+                    
+                    if is_wifi:
+                        wifi_interface_guids.add(interface_guid)
+                        logger.info(f"Windows WiFi interface found: {name} (GUID: {interface_guid}, desc: {description})")
+                    else:
+                        logger.debug(f"Windows non-WiFi interface: {name} (GUID: {interface_guid}, desc: {description})")
+            except json.JSONDecodeError:
+                logger.debug("Failed to parse PowerShell JSON output")
+    except Exception as e:
+        logger.debug(f"Could not get Windows interfaces via PowerShell: {e}")
+    
+    return wifi_interface_guids, interface_guid_to_description
+
 @app.get("/api/network-info")
 async def get_network_info():
     """Get network addresses"""
@@ -338,26 +482,121 @@ async def get_network_info():
         ethernet_ips = []
         https_port = int(os.environ.get('HTTPS_PORT', 3443))
         
+        # Determine OS and get WiFi interfaces
+        is_macos = platform.system() == 'Darwin'
+        is_linux = platform.system() == 'Linux'
+        is_windows = platform.system() == 'Windows'
+        
+        macos_wifi_interfaces = set()
+        macos_hotspot_bridges = set()
+        windows_wifi_interfaces = set()
+        windows_interface_descriptions = {}
+        
+        if is_macos:
+            macos_wifi_interfaces = get_macos_wifi_interfaces()
+            macos_hotspot_bridges = get_macos_hotspot_bridges()
+            logger.debug(f"macOS WiFi interfaces: {macos_wifi_interfaces}")
+            logger.info(f"macOS hotspot bridges: {macos_hotspot_bridges}")
+        elif is_windows:
+            windows_wifi_interfaces, windows_interface_descriptions = get_windows_wifi_interfaces()
+            logger.info(f"Windows WiFi interfaces: {windows_wifi_interfaces}")
+            logger.info(f"Windows interface descriptions: {windows_interface_descriptions}")
+        
         for interface in netifaces.interfaces():
             try:
+                # Skip virtual/internal interfaces (but NOT on Windows - we need to check descriptions)
+                interface_lower = interface.lower()
+                
+                # On Windows, we only skip clearly virtual interfaces
+                if is_windows:
+                    if any(skip in interface_lower for skip in ['docker', 'veth', 'vmnet', 'vbox', 'loopback']):
+                        continue
+                else:
+                    # On macOS/Linux, skip more interfaces but allow hotspot bridges
+                    # Check if this is a hotspot bridge before skipping
+                    is_hotspot_bridge = is_macos and interface in macos_hotspot_bridges
+                    
+                    if not is_hotspot_bridge:
+                        if any(skip in interface_lower for skip in ['lo', 'docker', 'veth', 'br-', 'vmnet', 'vbox', 'awdl', 'llw', 'utun', 'gif', 'stf', 'anpi', 'bridge', 'loopback']):
+                            continue
+                
                 addrs = netifaces.ifaddresses(interface)
                 if netifaces.AF_INET not in addrs:
                     continue
                 
                 for addr_info in addrs[netifaces.AF_INET]:
                     ip = addr_info.get('addr')
-                    if not ip or ip.startswith('127.'):
+                    if not ip or ip.startswith('127.') or ip.startswith('169.254.'):
                         continue
                     
                     address = f"https://{ip}:{https_port}"
-                    interface_lower = interface.lower()
                     
-                    if any(p in interface_lower for p in ['wlan', 'wl', 'wifi', 'wi-fi', 'air', 'awdl', 'bridge']):
+                    # Determine if WiFi or Ethernet
+                    is_wifi = False
+                    
+                    if is_macos:
+                        # On macOS, check against known WiFi interfaces and hotspot bridges
+                        if interface in macos_wifi_interfaces:
+                            is_wifi = True
+                            logger.debug(f"Interface {interface} ({ip}) -> WiFi (hardware WiFi)")
+                        elif interface in macos_hotspot_bridges:
+                            is_wifi = True
+                            logger.info(f"Interface {interface} ({ip}) -> WiFi (Internet Sharing hotspot)")
+                    elif is_linux:
+                        # On Linux, use interface naming conventions and /sys
+                        is_wifi = get_linux_interface_type(interface) == 'wifi'
+                    elif is_windows:
+                        # On Windows, netifaces returns interface GUIDs like {13698B45-A730-4370-B54B-228754DCB913}
+                        # Normalize the interface name to uppercase for comparison
+                        interface_upper = interface.upper()
+                        
+                        # Method 1: Check against known WiFi interface GUIDs from PowerShell
+                        if interface_upper in windows_wifi_interfaces:
+                            is_wifi = True
+                            logger.info(f"Interface {interface} ({ip}) -> WiFi (matched by GUID)")
+                        
+                        # Method 2: Check interface description for WiFi keywords
+                        elif interface_upper in windows_interface_descriptions:
+                            desc = windows_interface_descriptions[interface_upper]
+                            if any(w in desc for w in ['wi-fi', 'wifi', 'wireless', '802.11', 'wlan', 'wi-fi direct']):
+                                is_wifi = True
+                                logger.info(f"Interface {interface} ({ip}) -> WiFi (description: {desc})")
+                        
+                        # Method 3: Windows Mobile Hotspot IP range (192.168.137.x is default)
+                        elif ip.startswith('192.168.137.'):
+                            is_wifi = True
+                            logger.info(f"Interface {interface} ({ip}) -> WiFi (Windows hotspot IP range)")
+                        
+                        # Method 4: Check for common Windows WiFi adapter naming patterns
+                        elif any(p in interface_lower for p in ['wlan', 'wifi', 'wireless', 'wi-fi']):
+                            is_wifi = True
+                            logger.info(f"Interface {interface} ({ip}) -> WiFi (name pattern)")
+                        
+                        # Method 5: Check for "Local Area Connection*" which is often used by Mobile Hotspot
+                        elif 'local area connection' in interface_lower and '*' in interface:
+                            # Check if description indicates it's WiFi Direct
+                            desc = windows_interface_descriptions.get(interface_upper, '')
+                            if 'wi-fi direct' in desc or 'microsoft wi-fi' in desc:
+                                is_wifi = True
+                                logger.info(f"Interface {interface} ({ip}) -> WiFi (Mobile Hotspot)")
+                        
+                        if not is_wifi:
+                            logger.info(f"Interface {interface} ({ip}) -> Ethernet (no WiFi indicators)")
+                    else:
+                        # Unknown OS - use name patterns as fallback
+                        is_wifi = any(p in interface_lower for p in ['wlan', 'wifi', 'wireless', 'wi-fi'])
+                    
+                    if is_wifi:
                         wifi_ips.append(address)
+                        logger.debug(f"WiFi interface {interface}: {ip}")
                     else:
                         ethernet_ips.append(address)
-            except:
+                        logger.debug(f"Ethernet interface {interface}: {ip}")
+            except Exception as e:
+                logger.debug(f"Error processing interface {interface}: {e}")
                 continue
+        
+        logger.info(f"Network detection - WiFi: {wifi_ips}, Ethernet: {ethernet_ips}")
         
         return {
             'wifiIPs': wifi_ips,
@@ -719,6 +958,69 @@ async def health_check():
         "vosk_models_loaded": len(vosk_model_cache),
         "tts_initialized": tts_pipeline is not None
     }
+
+# =============================================================================
+# TTS MODELS CHECK ENDPOINT
+# =============================================================================
+
+@app.get("/api/tts/models-check")
+async def check_tts_models():
+    """Check if TTS models exist in the huggingface cache directory"""
+    try:
+        # Get the HuggingFace cache directory from environment or use default
+        hf_home = os.environ.get('HF_HOME', '')
+        
+        if not hf_home:
+            # Try to construct the default path based on OS
+            home_dir = os.path.expanduser('~')
+            hf_home = os.path.join(home_dir, '.nebulon-gpt', 'huggingface')
+        
+        # The TTS models are stored in the 'hub' subdirectory
+        tts_models_path = os.path.join(hf_home, 'hub')
+        
+        # Get the base data directory (.nebulon-gpt)
+        data_dir = os.path.dirname(hf_home)
+        
+        logger.info(f"Checking TTS models at: {tts_models_path}")
+        
+        # Check if directory exists and has content
+        exists = False
+        if os.path.exists(tts_models_path) and os.path.isdir(tts_models_path):
+            contents = os.listdir(tts_models_path)
+            # Filter out system files
+            actual_content = [
+                item for item in contents 
+                if not item.startswith('.') and item not in ['Thumbs.db', 'desktop.ini']
+            ]
+            exists = len(actual_content) > 0
+            logger.info(f"TTS models directory exists, has models: {exists}, contents: {len(actual_content)}")
+        else:
+            logger.info(f"TTS models directory not found at: {tts_models_path}")
+        
+        # Determine platform for displaying correct path to user
+        current_platform = platform.system().lower()
+        if current_platform == 'darwin':
+            current_platform = 'macos'
+        elif current_platform == 'windows':
+            current_platform = 'windows'
+        else:
+            current_platform = 'linux'
+        
+        return {
+            "exists": exists,
+            "path": tts_models_path,
+            "dataDirectory": data_dir,
+            "platform": current_platform
+        }
+    except Exception as e:
+        logger.error(f"Error checking TTS models: {e}")
+        return {
+            "exists": False,
+            "path": "",
+            "dataDirectory": "",
+            "platform": platform.system().lower(),
+            "error": str(e)
+        }
 
 # =============================================================================
 # MAIN

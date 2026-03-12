@@ -5,9 +5,13 @@ import katex from 'katex';
 import { useElementHeightVar } from '../hooks/useElementHeightVar';
 import { RO } from '../hooks/ResizeObserverManager';
 import remarkMath from 'remark-math';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import rehypeKatex from 'rehype-katex';
 import rehypeRaw from 'rehype-raw';
 import 'katex/dist/katex.min.css';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import {
   Box,
   Typography,
@@ -42,6 +46,7 @@ import {
   Stop as StopIcon,
   Menu as MenuIcon,
   Mic as MicIcon,
+  MicOff as MicOffIcon,
   MoreVert as MoreVertIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   Add as AddIcon,
@@ -230,6 +235,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onOpenSettings,
   isMobile,
 }) => {
+  // Get theme for syntax highlighting
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
+  
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
   const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
@@ -258,6 +267,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
   const [detectionSensitivity, setDetectionSensitivity] = useState<number>(100); // Default sensitivity display value
   const [showLoadingAnimation, setShowLoadingAnimation] = useState(false);
+  const [isMicMuted, setIsMicMuted] = useState(false); // Mute state for microphone
   const onClearInputAreaRef = useRef<(() => void) | null>(null);
   const onGetAttachmentsRef = useRef<(() => FileAttachment[]) | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -453,14 +463,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         setInterimTranscript(result.partial);   
         
         // Check for "stop stop" command in partial results when in full voice mode
-        if (isFullVoiceMode && isListening) {
+/*         if (isFullVoiceMode && isListening) {
           const partialLower = result.partial.toLowerCase().trim();
           if (detectStopCommand(partialLower)) {
             console.log('🛑 "Stop stop" command detected in partial result - stopping microphone');
             await stopMicListening();
             return;
           }
-        }
+        } */
         
         ttsService.pause();
         voskRecognition.clearSilenceTimer();
@@ -494,16 +504,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         
         const ttsSettings = ttsService.getSettings();
         const isFullVoiceMode = ttsSettings.fullVoiceMode;
-
-        // Check for "stop stop" command in final results when in full voice mode
-        if (isFullVoiceMode && isListening) {
-          const finalTextLower = finalTranscriptRef.current.toLowerCase().trim();
-          if (detectStopCommand(finalTextLower)) {
-            console.log('🛑 "Stop stop" command detected in final result - stopping microphone');
-            await stopMicListening();
-            return;
-          }
-        }
 
         ttsService.pause();
         voskRecognition.clearSilenceTimer();
@@ -658,6 +658,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       
       // Start recognition
       await voskRecognition.start();
+      
+      // Ensure mic is unmuted when starting
+      voskRecognition.unmute();
+      setIsMicMuted(false);
       
       setIsListening(true);
 
@@ -1348,6 +1352,189 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return parts.length > 0 ? <>{parts}</> : <span>{text}</span>;
   };
 
+  // Helper function to parse LaTeX table row with multicolumn support
+  // Returns an array of cells with proper column expansion
+  // IMPORTANT: This function respects nested LaTeX environments like \begin{pmatrix}...\end{pmatrix}
+  // The & inside nested environments should NOT be treated as cell separators
+  const parseLatexTableRow = (row: string): string[] => {
+    const cells: string[] = [];
+    
+    // Smart split by & that respects nested LaTeX environments
+    const smartSplitByAmpersand = (text: string): string[] => {
+      const result: string[] = [];
+      let current = '';
+      let nestingLevel = 0;
+      let i = 0;
+      
+      while (i < text.length) {
+        // Track nested environments
+        if (text.substring(i, i + 7) === '\\begin{') {
+          nestingLevel++;
+          current += text[i];
+          i++;
+          continue;
+        }
+        
+        if (text.substring(i, i + 5) === '\\end{') {
+          nestingLevel--;
+          current += text[i];
+          i++;
+          continue;
+        }
+        
+        // Check for & (cell separator) - only split if not inside nested environment
+        if (text[i] === '&' && nestingLevel === 0) {
+          result.push(current.trim());
+          current = '';
+          i++;
+          continue;
+        }
+        
+        current += text[i];
+        i++;
+      }
+      
+      // Add the last cell
+      if (current.trim().length > 0) {
+        result.push(current.trim());
+      }
+      
+      return result;
+    };
+    
+    // Split by & respecting nested environments
+    const rawCells = smartSplitByAmpersand(row);
+    
+    // Helper function to extract content from nested braces
+    // Handles cases like \textbf{Sprint 1} inside \multicolumn{2}{c|}{\textbf{Sprint 1}}
+    const extractNestedBraceContent = (str: string, startPos: number): { content: string; endPos: number } | null => {
+      if (str[startPos] !== '{') return null;
+      
+      let depth = 0;
+      let content = '';
+      
+      for (let i = startPos; i < str.length; i++) {
+        const char = str[i];
+        
+        if (char === '{') {
+          depth++;
+          if (depth > 1) content += char; // Don't include the outer braces
+        } else if (char === '}') {
+          depth--;
+          if (depth === 0) {
+            return { content, endPos: i };
+          }
+          content += char;
+        } else {
+          if (depth > 0) content += char;
+        }
+      }
+      
+      return null; // Unbalanced braces
+    };
+    
+    for (const cell of rawCells) {
+      // Check if this cell contains \multicolumn{N}{alignment}{content}
+      // First, find the \multicolumn command
+      const multicolStart = cell.indexOf('\\multicolumn{');
+      
+      if (multicolStart !== -1) {
+        // Parse \multicolumn{N}{alignment}{content} with nested brace support
+        let pos = multicolStart + '\\multicolumn'.length;
+        
+        // Extract N (number of columns)
+        const nResult = extractNestedBraceContent(cell, pos);
+        if (!nResult) {
+          cells.push(cell);
+          continue;
+        }
+        const colSpan = parseInt(nResult.content, 10);
+        pos = nResult.endPos + 1;
+        
+        // Extract alignment (skip it)
+        const alignResult = extractNestedBraceContent(cell, pos);
+        if (!alignResult) {
+          cells.push(cell);
+          continue;
+        }
+        pos = alignResult.endPos + 1;
+        
+        // Extract content (this is what we want, may contain nested braces like \textbf{...})
+        const contentResult = extractNestedBraceContent(cell, pos);
+        if (!contentResult) {
+          cells.push(cell);
+          continue;
+        }
+        const content = contentResult.content;
+        
+        // Add the content cell
+        cells.push(content);
+        
+        // Add empty cells for the remaining spanned columns
+        for (let i = 1; i < colSpan; i++) {
+          cells.push(''); // Empty placeholder for spanned column
+        }
+      } else {
+        // Regular cell, just add it
+        cells.push(cell);
+      }
+    }
+    
+    return cells;
+  };
+
+  // Helper function to clean LaTeX table formatting commands from cell content
+  const cleanLatexTableCommands = (text: string): { cleanedText: string; isBold: boolean } => {
+    let cleanedText = text;
+    let isBold = false;
+    
+    // Remove \cline{...} commands completely
+    cleanedText = cleanedText.replace(/\\cline\{[^}]*\}/g, '');
+    
+    // Extract content from \multirow{rows}{width}{content} - keep only the content
+    // Pattern: \multirow{number}{*|width}{content}
+    cleanedText = cleanedText.replace(/\\multirow\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1');
+    
+    // Extract content from \multicolumn{cols}{alignment}{content} - keep only the content
+    // Pattern: \multicolumn{number}{alignment}{content}
+    cleanedText = cleanedText.replace(/\\multicolumn\{[^}]*\}\{[^}]*\}\{([^}]*)\}/g, '$1');
+    
+    // Extract content from \textbf{content} and mark as bold
+    if (/\\textbf\{([^}]*)\}/.test(cleanedText)) {
+      isBold = true;
+      cleanedText = cleanedText.replace(/\\textbf\{([^}]*)\}/g, '$1');
+    }
+    
+    // Extract content from \textit{content} (italic)
+    cleanedText = cleanedText.replace(/\\textit\{([^}]*)\}/g, '$1');
+    
+    // Extract content from \emph{content} (emphasis)
+    cleanedText = cleanedText.replace(/\\emph\{([^}]*)\}/g, '$1');
+    
+    // Extract content from \text{content}
+    cleanedText = cleanedText.replace(/\\text\{([^}]*)\}/g, '$1');
+    
+    // Remove \hline commands
+    cleanedText = cleanedText.replace(/\\hline/g, '');
+    
+    // Remove \toprule, \midrule, \bottomrule (booktabs)
+    cleanedText = cleanedText.replace(/\\(?:top|mid|bottom)rule/g, '');
+    
+    // Remove \rowcolor{...}
+    cleanedText = cleanedText.replace(/\\rowcolor\{[^}]*\}/g, '');
+    
+    // Remove \cellcolor{...}
+    cleanedText = cleanedText.replace(/\\cellcolor\{[^}]*\}/g, '');
+    
+    // Clean up any remaining backslash-escaped characters
+    cleanedText = cleanedText.replace(/\\\\/g, ''); // Remove line breaks
+    
+    // Trim whitespace
+    cleanedText = cleanedText.trim();
+    
+    return { cleanedText, isBold };
+  };
+
   // Helper function to render markdown within table cells with LaTeX support
   const renderCellContent = (content: any): React.ReactNode => {
     // If content is already a React element, return it
@@ -1381,6 +1568,25 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     };
     
     textContent = decodeHtmlEntities(textContent);
+    
+    // Clean LaTeX table formatting commands FIRST before other processing
+    const { cleanedText, isBold } = cleanLatexTableCommands(textContent);
+    textContent = cleanedText;
+    
+    // If content is empty after cleaning, return empty
+    if (!textContent || textContent.trim() === '') {
+      return null;
+    }
+    
+    // If the content was marked as bold, wrap in strong tag
+    if (isBold) {
+      // Check if there's also LaTeX math to render
+      const hasLatexDelimiters = /\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]+?\$\$|\$[^$\n]+\$/.test(textContent);
+      if (hasLatexDelimiters) {
+        return <strong>{renderLatex(textContent)}</strong>;
+      }
+      return <strong>{textContent}</strong>;
+    }
     
     // Check if content is wrapped in backticks (inline code)
     const inlineCodeMatch = textContent.match(/^`([^`]+)`$/);
@@ -1488,7 +1694,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // For content without math, use ReactMarkdown for other markdown features
     return (
       <ReactMarkdown
-        remarkPlugins={[remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
         rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
         components={{
           p: ({ children }) => <span>{children}</span>,
@@ -1576,10 +1782,80 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     );
   };
 
-  // Custom renderers for ReactMarkdown
-  const markdownComponents = {
-    // Override paragraph renderer to use inline span instead of block-level p
-    p: ({ node, children, ...props }: any) => <span {...props}>{children}</span>,
+  // Helper function to extract table data from ReactMarkdown's AST node for copy functionality
+  // This uses the AST node which is more reliable than traversing transformed React components
+  const extractTableDataFromNode = (node: any): { headers: string[], rows: string[][] } | null => {
+    try {
+      if (!node?.children) return null;
+      
+      const headers: string[] = [];
+      const rows: string[][] = [];
+      
+      // Helper to extract text from AST node recursively
+      const extractTextFromAstNode = (astNode: any): string => {
+        if (!astNode) return '';
+        if (astNode.type === 'text') return astNode.value || '';
+        if (typeof astNode === 'string') return astNode;
+        if (astNode.value) return astNode.value;
+        if (astNode.children && Array.isArray(astNode.children)) {
+          return astNode.children.map(extractTextFromAstNode).join('');
+        }
+        return '';
+      };
+      
+      // Process children (thead/tbody or just rows)
+      for (const child of node.children) {
+        if (child.tagName === 'thead' && child.children) {
+          // Process header rows
+          for (const row of child.children) {
+            if (row.tagName === 'tr' && row.children) {
+              const cellTexts = row.children
+                .filter((cell: any) => cell.tagName === 'th')
+                .map((cell: any) => extractTextFromAstNode(cell).trim());
+              if (cellTexts.length > 0 && headers.length === 0) {
+                headers.push(...cellTexts);
+              }
+            }
+          }
+        } else if (child.tagName === 'tbody' && child.children) {
+          // Process body rows
+          for (const row of child.children) {
+            if (row.tagName === 'tr' && row.children) {
+              const cellTexts = row.children
+                .filter((cell: any) => cell.tagName === 'td')
+                .map((cell: any) => extractTextFromAstNode(cell).trim());
+              if (cellTexts.length > 0) {
+                rows.push(cellTexts);
+              }
+            }
+          }
+        } else if (child.tagName === 'tr' && child.children) {
+          // Direct row (no thead/tbody wrapper)
+          const ths = child.children.filter((c: any) => c.tagName === 'th');
+          const tds = child.children.filter((c: any) => c.tagName === 'td');
+          
+          if (ths.length > 0 && headers.length === 0) {
+            headers.push(...ths.map((cell: any) => extractTextFromAstNode(cell).trim()));
+          } else if (tds.length > 0) {
+            rows.push(tds.map((cell: any) => extractTextFromAstNode(cell).trim()));
+          }
+        }
+      }
+      
+      if (headers.length > 0) {
+        return { headers, rows };
+      }
+      return null;
+    } catch (error) {
+      console.error('Error extracting table data from node:', error);
+      return null;
+    }
+  };
+
+  // Custom renderers for ReactMarkdown - memoized to update when theme changes
+  const markdownComponents = React.useMemo(() => ({
+    // Override paragraph renderer to use block-level div (preserves line breaks between paragraphs)
+    p: ({ node, children, ...props }: any) => <div style={{ marginBottom: '0.5em' }} {...props}>{children}</div>,
     // Override the default link renderer
     a: ({ node, children, href, ...props }: any) => (
       <a
@@ -1601,18 +1877,63 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         {children}
       </a>
     ),
-    // Override the default table renderer
-    table: ({ node, children, ...props }: any) => (
-      <TableContainer 
-        component={Paper} 
-        sx={styles.tableContainer}
-        className="enhanced-table"
-      >
-        <Table size="small" {...props}>
-          {children}
-        </Table>
-      </TableContainer>
-    ),
+    // Override the default table renderer - NOW WITH COPY BUTTON
+    table: ({ node, children, ...props }: any) => {
+      // Generate a unique ID for this table
+      const tableId = `md-table-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Extract table data for copy functionality using AST node (more reliable)
+      const tableData = extractTableDataFromNode(node);
+      
+      return (
+        <Box sx={{ mb: 2 }}>
+          <TableContainer 
+            component={Paper} 
+            sx={styles.tableContainer}
+            className="enhanced-table"
+          >
+            <Table size="small" {...props}>
+              {children}
+            </Table>
+          </TableContainer>
+          {/* Copy button for markdown tables */}
+          {tableData && (
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleCopyTable(tableId, tableData.headers, tableData.rows);
+                }}
+                sx={{
+                  opacity: 0.75,
+                  backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                  borderRadius: '8px',
+                  padding: '6px',
+                  border: '1px solid rgba(0, 0, 0, 0.08)',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    opacity: 1,
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    borderColor: 'success.main',
+                    color: 'success.main',
+                    transform: 'scale(1.1)',
+                    boxShadow: '0 2px 6px rgba(76, 175, 80, 0.2)',
+                  },
+                  '&:active': {
+                    transform: 'scale(0.95)',
+                  },
+                }}
+                title="Copy table data"
+              >
+                <ContentCopyIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Box>
+          )}
+        </Box>
+      );
+    },
     // Override the default thead renderer
     thead: ({ node, children, ...props }: any) => (
       <TableHead 
@@ -1643,12 +1964,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       );
     },
     // Override the default th renderer with markdown support
-    th: ({ node, children, isHeader, ...props }: any) => (
+    th: ({ node, children, isHeader, style, className, ...props }: any) => (
       <TableCell 
         component="th"
         align="left"
-        sx={styles.tableHeaderCell} 
-        {...props}
+        sx={{
+          ...styles.tableHeaderCell,
+          // Force color to be visible - override any inherited styles
+          color: (theme: any) => theme.palette.mode === 'dark' ? '#90caf9 !important' : '#0d47a1 !important',
+        }}
       >
         {renderCellContent(children)}
       </TableCell>
@@ -1667,9 +1991,41 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     code: ({ node, inline, className, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(className || '');
       const content = String(children).replace(/\n$/, '');
+      const language = match ? match[1] : '';
       
       // For non-inline code blocks, check if they contain LaTeX tables or formulas
       if (!inline) {
+        // Check if content is primarily RTL text (Persian, Arabic, Hebrew) - prose, not code
+        // If so, render as plain text instead of code block
+        const hasRTLChars = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF]/.test(content);
+        
+        // Count RTL characters vs total alphanumeric characters to determine if it's primarily RTL prose
+        const rtlCharCount = (content.match(/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF]/g) || []).length;
+        const totalTextLength = content.replace(/\s/g, '').length;
+        const rtlRatio = totalTextLength > 0 ? rtlCharCount / totalTextLength : 0;
+        
+        // Only consider it code if it has actual programming STATEMENTS (not just symbols)
+        // Be very strict: require actual code patterns like variable declarations, function calls, etc.
+        const hasActualCodeStatements = /^(const|let|var|function|class|import|export|def|public|private|return)\s|;\s*$|=>\s*{|\(\s*\)\s*{/m.test(content);
+        
+        // If has significant RTL content (>20% RTL chars) and no clear code statements, render as RTL text
+        if (!language && hasRTLChars && rtlRatio > 0.2 && !hasActualCodeStatements) {
+          return (
+            <Box sx={{ my: 1 }}>
+              <Typography 
+                component="div" 
+                sx={{ 
+                  direction: 'rtl',
+                  textAlign: 'right',
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {content}
+              </Typography>
+            </Box>
+          );
+        }
+        
         // Check for LaTeX table (tabular environment)
         const hasTabularTable = /\\begin\{tabular\}[\s\S]*?\\end\{tabular\}/.test(content);
         
@@ -1681,25 +2037,72 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           
           if (tableMatch) {
             const tableContent = tableMatch[1];
-            // Remove all \hline commands and trim
-            const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
+            // Remove all \hline, \toprule, \midrule, \bottomrule commands and trim
+            const cleanedContent = tableContent
+              .replace(/\\hline/g, '')
+              .replace(/\\toprule/g, '')
+              .replace(/\\midrule/g, '')
+              .replace(/\\bottomrule/g, '')
+              .trim();
             
-            // Split by \\ and filter out empty lines
-            const lines = cleanedContent
-              .split('\\\\')
-              .map(line => line.trim())
-              .filter(line => line.length > 0);
+            // Use smart split that respects nested environments like \begin{pmatrix}...\end{pmatrix}
+            // The \\ inside pmatrix should NOT be treated as row separators
+            const smartSplitLatexRows = (text: string): string[] => {
+              const rows: string[] = [];
+              let current = '';
+              let nestingLevel = 0;
+              let i = 0;
+              
+              while (i < text.length) {
+                // Track nested environments
+                if (text.substring(i, i + 7) === '\\begin{') {
+                  nestingLevel++;
+                  current += text[i];
+                  i++;
+                  continue;
+                }
+                
+                if (text.substring(i, i + 5) === '\\end{') {
+                  nestingLevel = Math.max(0, nestingLevel - 1);
+                  current += text[i];
+                  i++;
+                  continue;
+                }
+                
+                // Check for \\ (row separator) - only split if not inside nested environment
+                if (text[i] === '\\' && i + 1 < text.length && text[i + 1] === '\\' && nestingLevel === 0) {
+                  const trimmed = current.trim();
+                  if (trimmed.length > 0) {
+                    rows.push(trimmed);
+                  }
+                  current = '';
+                  i += 2; // Skip both backslashes
+                  continue;
+                }
+                
+                current += text[i];
+                i++;
+              }
+              
+              // Add the last row
+              const trimmed = current.trim();
+              if (trimmed.length > 0) {
+                rows.push(trimmed);
+              }
+              
+              return rows;
+            };
+            
+            // Split by \\ respecting nested environments
+            const lines = smartSplitLatexRows(cleanedContent);
             
             if (lines.length >= 2) {
-              // First line is headers
-              const headerLine = lines[0];
-              const headers = headerLine.split('&').map(h => h.trim()).filter(h => h.length > 0);
+              // First line is headers - use parseLatexTableRow for multicolumn support
+              const headers = parseLatexTableRow(lines[0]);
               
-              // Rest are data rows
+              // Rest are data rows - use parseLatexTableRow for multicolumn support
               const dataRows = lines.slice(1);
-              const rows = dataRows.map(row => 
-                row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
-              );
+              const rows = dataRows.map(row => parseLatexTableRow(row));
               
               // Render as Material-UI table with copy button - use stable ID based on content
               const tableId = `latex-table-${headers.join('-').substring(0, 20)}-${rows.length}`;
@@ -1917,18 +2320,48 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         }
       }
       
+      // Use theme from component level for syntax highlighting style
+      const syntaxStyle = isDarkMode ? oneDark : oneLight;
+      
       return !inline ? (
         <Box sx={{ position: 'relative', mb: 2 }}>
-          <Box
-            component="pre"
-            sx={styles.codeBlock}
-            className={className}
-            {...props}
+          {/* Language badge */}
+          {language && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)',
+                px: 1.5,
+                py: 0.5,
+                borderRadius: '0 8px 0 8px',
+                fontSize: '0.75rem',
+                fontFamily: 'monospace',
+                textTransform: 'lowercase',
+                zIndex: 1,
+              }}
+            >
+              {language}
+            </Box>
+          )}
+          <SyntaxHighlighter
+            language={language || 'text'}
+            style={syntaxStyle}
+            customStyle={{
+              margin: 0,
+              borderRadius: '8px',
+              padding: '16px',
+              fontSize: '0.9rem',
+              lineHeight: 1.5,
+            }}
+            showLineNumbers={content.split('\n').length > 3}
+            wrapLines={true}
+            wrapLongLines={true}
           >
-            <code className={className} {...props}>
-              {children}
-            </code>
-          </Box>
+            {content}
+          </SyntaxHighlighter>
           {/* Enhanced copy button for code blocks */}
           <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
             <IconButton
@@ -1973,7 +2406,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         </code>
       );
     },
-  };
+  }), [isDarkMode, handleCopyCode, renderTableWithCopyButton, renderCellContent]);
 
   // Function to preprocess LaTeX delimiters for proper rendering
   const preprocessLatexDelimiters = (content: string): string => {
@@ -1995,6 +2428,20 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     // Fix complex unit expressions like \text{N·m}^2/\text{kg}^2
     // Replace \text{} with \mathrm{} for better handling of units
     processed = processed.replace(/\\text\{/g, '\\mathrm{');
+    
+    // Fix KaTeX incompatibility: KaTeX does NOT support \multicolumn at all in array environments.
+    // Expand \multicolumn{N}{align}{content} into (N-1) empty cells + content.
+    // This handles nested braces in the content (e.g., \textbf{Subtotal}).
+    processed = processed.replace(
+      /\\multicolumn\{(\d+)\}\{[^}]*\}\{((?:[^{}]|\{[^}]*\})*)\}/g,
+      (match, colsStr, content) => {
+        const cols = parseInt(colsStr, 10);
+        if (cols <= 1) return content; // single column, just return content
+        // Generate (cols-1) empty cells then the content
+        const emptyCells = new Array(cols - 1).fill('').join(' & ');
+        return emptyCells + ' & ' + content;
+      }
+    );
     
     // Convert \( \) to $ $ for inline math (remark-math standard)
     // Use non-greedy match to handle nested parentheses correctly
@@ -2033,6 +2480,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       headers?: string[];
       rows?: string[][];
       language?: string;
+      code?: string; // raw code content for CODE_BLOCK (without fence markers)
     };
   }
 
@@ -2058,6 +2506,53 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return null;
   };
 
+  // Helper function to split LaTeX table content by \\ while respecting nested environments
+  const splitLatexRows = (content: string): string[] => {
+    const rows: string[] = [];
+    let current = '';
+    let nestingLevel = 0;
+    let i = 0;
+    
+    while (i < content.length) {
+      // Track nested environments
+      if (content.substring(i, i + 7) === '\\begin{') {
+        nestingLevel++;
+        current += content[i];
+        i++;
+        continue;
+      }
+      
+      if (content.substring(i, i + 5) === '\\end{') {
+        nestingLevel = Math.max(0, nestingLevel - 1);
+        current += content[i];
+        i++;
+        continue;
+      }
+      
+      // Check for \\ (row separator) - only split if not inside nested environment
+      if (content[i] === '\\' && i + 1 < content.length && content[i + 1] === '\\' && nestingLevel === 0) {
+        const trimmed = current.trim();
+        if (trimmed.length > 0) {
+          rows.push(trimmed);
+        }
+        current = '';
+        i += 2; // Skip both backslashes
+        continue;
+      }
+      
+      current += content[i];
+      i++;
+    }
+    
+    // Add the last row
+    const trimmed = current.trim();
+    if (trimmed.length > 0) {
+      rows.push(trimmed);
+    }
+    
+    return rows;
+  };
+
   const detectLatexTable = (content: string, startIndex: number = 0): ContentBlock | null => {
     const latexTableRegex = /\\begin\{tabular\}\{(?:[^{}]|\{[^}]*\})*\}([\s\S]*?)\\end\{tabular\}/;
     const match = content.substring(startIndex).match(latexTableRegex);
@@ -2065,13 +2560,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     if (match && match.index !== undefined) {
       const tableContent = match[1];
       const cleanedContent = tableContent.replace(/\\hline/g, '').trim();
-      const lines = cleanedContent.split('\\\\').map(line => line.trim()).filter(line => line.length > 0);
+      // Use smart split to respect nested environments like \begin{pmatrix}...\end{pmatrix}
+      const lines = splitLatexRows(cleanedContent);
       
       if (lines.length >= 1) {
-        const headers = lines[0].split('&').map(h => h.trim()).filter(h => h.length > 0);
-        const rows = lines.slice(1).map(row => 
-          row.split('&').map(cell => cell.trim()).filter(cell => cell.length > 0)
-        );
+        // Use parseLatexTableRow to handle multicolumn properly
+        const headers = parseLatexTableRow(lines[0]);
+        const rows = lines.slice(1).map(row => parseLatexTableRow(row));
         
         return {
           type: ContentType.LATEX_TABLE,
@@ -2086,10 +2581,85 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   };
 
   const detectMarkdownTable = (content: string, startIndex: number = 0): ContentBlock | null => {
-    // Flexible regex that matches markdown tables with or without leading/trailing pipes
-    // Removed ^ anchor to allow tables anywhere in the content, not just at line start
-    const markdownTableRegex = /[^\n]*\|[^\n]+\n[^\n]*[-:]+\|[-:\s|]+[^\n]*\n(?:[^\n]*\|[^\n]+\n?)+/;
-    const searchContent = content.substring(startIndex);
+    // First, preprocess content to handle multi-line LaTeX within table cells
+    // This is needed for tables with LaTeX matrices or multi-line formulas
+    const preprocessTableContent = (text: string): string => {
+      // Look for table-like content and normalize multi-line LaTeX within cells
+      const lines = text.split('\n');
+      const normalizedLines: string[] = [];
+      let i = 0;
+      
+      // Helper to count pattern occurrences
+      const countOccurrences = (str: string, pattern: string) => {
+        let count = 0;
+        let pos = 0;
+        while ((pos = str.indexOf(pattern, pos)) !== -1) {
+          count++;
+          pos += pattern.length;
+        }
+        return count;
+      };
+      
+      while (i < lines.length) {
+        const line = lines[i];
+        
+        // Check if this looks like a table row (starts with |)
+        if (line.trim().startsWith('|')) {
+          let currentRow = line;
+          
+          // Count LaTeX delimiters
+          let openParens = countOccurrences(currentRow, '\\(');
+          let closeParens = countOccurrences(currentRow, '\\)');
+          let openBegins = countOccurrences(currentRow, '\\begin{');
+          let closeEnds = countOccurrences(currentRow, '\\end{');
+          let openDollars = (currentRow.match(/\$/g) || []).length;
+          
+          // Keep joining lines until LaTeX is balanced AND row ends with |
+          while (i + 1 < lines.length) {
+            const nextLine = lines[i + 1];
+            const isLatexUnbalanced = openParens > closeParens || openBegins > closeEnds || (openDollars % 2 !== 0);
+            const rowEndsWithPipe = currentRow.trim().endsWith('|');
+            const nextLineIsTableRow = nextLine.trim().startsWith('|');
+            const nextLineIsSeparator = /^\s*\|[\-–—:\s|]+\|\s*$/.test(nextLine);
+            
+            // Stop joining if:
+            // 1. LaTeX is balanced AND row ends with | AND next line is a new table row
+            // 2. Next line is a separator line
+            if (nextLineIsSeparator) break;
+            if (!isLatexUnbalanced && rowEndsWithPipe && nextLineIsTableRow) break;
+            
+            // If next line doesn't start with | but we're in unbalanced LaTeX, join it
+            if (isLatexUnbalanced || !rowEndsWithPipe) {
+              i++;
+              currentRow += ' ' + nextLine.trim();
+              
+              // Update counts
+              openParens += countOccurrences(nextLine, '\\(');
+              closeParens += countOccurrences(nextLine, '\\)');
+              openBegins += countOccurrences(nextLine, '\\begin{');
+              closeEnds += countOccurrences(nextLine, '\\end{');
+              openDollars += (nextLine.match(/\$/g) || []).length;
+            } else {
+              break;
+            }
+          }
+          
+          normalizedLines.push(currentRow);
+        } else {
+          normalizedLines.push(line);
+        }
+        i++;
+      }
+      
+      return normalizedLines.join('\n');
+    };
+    
+    // Preprocess the content to handle multi-line LaTeX
+    const searchContent = preprocessTableContent(content.substring(startIndex));
+    
+    // Regex that matches markdown tables with both hyphens and em/en dashes in separators
+    // Allow optional leading whitespace to handle indented tables (e.g., inside list items)
+    const markdownTableRegex = /^[ \t]*\|.+\|[ \t]*\n[ \t]*\|[\-–—:\s|]+\|[ \t]*\n(?:[ \t]*\|.+\|[ \t]*\n?)+/m;
     const match = searchContent.match(markdownTableRegex);
     
     if (match && match.index !== undefined) {
@@ -2107,6 +2677,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           let inBackticks = false;
           let inDollarSigns = false;
           let inLatexParens = false; // Track \(...\) delimiters
+          let latexEnvNesting = 0; // Track \begin{...} / \end{...} nesting
           
           // Remove leading/trailing pipes if present
           let processLine = line.trim();
@@ -2117,6 +2688,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             const char = processLine[i];
             const prevChar = i > 0 ? processLine[i - 1] : '';
             const nextChar = i < processLine.length - 1 ? processLine[i + 1] : '';
+            
+            // Track \begin{...} and \end{...} LaTeX environments
+            if (processLine.substring(i, i + 7) === '\\begin{') {
+              latexEnvNesting++;
+              current += char;
+              continue;
+            }
+            if (processLine.substring(i, i + 5) === '\\end{') {
+              latexEnvNesting = Math.max(0, latexEnvNesting - 1);
+              current += char;
+              continue;
+            }
             
             // Track \(...\) LaTeX inline math delimiters
             if (char === '\\' && nextChar === '(' && !inBackticks && !inDollarSigns) {
@@ -2131,18 +2714,18 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             }
             
             // Track backticks
-            if (char === '`' && !inDollarSigns && !inLatexParens) {
+            if (char === '`' && !inDollarSigns && !inLatexParens && latexEnvNesting === 0) {
               inBackticks = !inBackticks;
               current += char;
             }
             // Track dollar signs
-            else if (char === '$' && !inBackticks && !inLatexParens) {
+            else if (char === '$' && !inBackticks && !inLatexParens && latexEnvNesting === 0) {
               inDollarSigns = !inDollarSigns;
               current += char;
             }
-            // Split on pipe only when not inside backticks, dollar signs, or LaTeX parens
+            // Split on pipe only when not inside any special context
             // Also check if pipe is escaped with backslash (\|)
-            else if (char === '|' && !inBackticks && !inDollarSigns && !inLatexParens && prevChar !== '\\') {
+            else if (char === '|' && !inBackticks && !inDollarSigns && !inLatexParens && latexEnvNesting === 0 && prevChar !== '\\') {
               cells.push(current);
               current = '';
             } else {
@@ -2201,12 +2784,22 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       const language = match[1] || '';
       const code = match[2] || '';
       
+      // Skip if no language specified and content looks like natural language (not code)
+      // Check for RTL characters (Persian, Arabic, Hebrew) or if it's mostly prose
+      const hasRTLChars = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF\u0590-\u05FF]/.test(code);
+      const hasProgrammingIndicators = /[{};=><\[\]()\/\\]|function|const |let |var |import |export |class |def |return |if\s*\(|for\s*\(|while\s*\(/.test(code);
+      
+      // If no language specified and has RTL text but no programming indicators, skip
+      if (!language && hasRTLChars && !hasProgrammingIndicators) {
+        return null;
+      }
+      
       return {
         type: ContentType.CODE_BLOCK,
         content: match[0],
         startIndex: startIndex + match.index,
         endIndex: startIndex + match.index + match[0].length,
-        data: { language }
+        data: { language, code } // store raw code directly (match[2]) to avoid fence-stripping issues
       };
     }
     return null;
@@ -2304,46 +2897,277 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     );
   };
 
+  // Reformats code that was sent as a single line (no newlines) by detecting statement boundaries.
+  // Uses paren-depth tracking so content inside function calls is never split.
+  const reformatSingleLineCode = (code: string, language: string): string => {
+    // Already has newlines — nothing to do
+    if (code.includes('\n')) return code;
+
+    const lines: string[] = [];
+    let current = '';
+    let depth = 0; // combined paren / bracket / brace depth
+    const len = code.length;
+
+    for (let i = 0; i < len; i++) {
+      const c = code[i];
+
+      // ── track nesting depth ────────────────────────────────────────────
+      if (c === '(' || c === '[' || c === '{') { depth++; current += c; continue; }
+      if (c === ')' || c === ']' || c === '}') {
+        depth--;
+        current += c;
+
+        // After closing bracket back to depth 0:
+        // skip any trailing spaces and check if the next token starts a new statement
+        if (depth === 0) {
+          let j = i + 1;
+          while (j < len && code[j] === ' ') j++;
+          // If we skipped at least one space and the next char is an identifier / comment / string
+          if (j > i + 1 && j < len && /[A-Za-z_#'"`]/.test(code[j])) {
+            lines.push(current.trim());
+            current = '';
+            i = j - 1; // loop will i++ → j
+            continue;
+          }
+        }
+        continue;
+      }
+
+      // ── spaces at top-level ────────────────────────────────────────────
+      if (c === ' ' && depth === 0) {
+        // Two (or more) consecutive spaces → statement separator + blank line
+        if (i + 1 < len && code[i + 1] === ' ') {
+          if (current.trim()) {
+            lines.push(current.trim());
+            lines.push(''); // blank line
+            current = '';
+          }
+          while (i + 1 < len && code[i + 1] === ' ') i++;
+          continue;
+        }
+
+        // Single space: detect Python / JS / TS statement-starting keywords
+        const ahead = code.substring(i + 1);
+        if (/^(from\s+\w|import\s+\w|def\s+\w|class\s+\w|return\b|if\s+|elif\s|else\s*:|for\s+|while\s+|try\s*:|except\b|finally\s*:|with\s+|pass\b|break\b|continue\b|raise\s|yield\s|async\s|await\s|@\w|#)/.test(ahead)) {
+          if (current.trim()) { lines.push(current.trim()); current = ''; }
+          continue; // drop the space (will be "leading" of next line)
+        }
+      }
+
+      current += c;
+    }
+
+    if (current.trim()) lines.push(current.trim());
+    return lines.join('\n');
+  };
+
+  // Reformats markdown text that was sent as a single line (no newlines) by inserting newlines
+  // before block-level elements: headings, horizontal rules, numbered/bullet list items.
+  const reformatSingleLineMarkdown = (text: string): string => {
+    // Only process when the text has NO newlines at all
+    if (text.includes('\n')) return text;
+
+    let result = text;
+
+    // Step 1: Two or more consecutive spaces → newline
+    //   Represents stripped markdown trailing-space line-breaks (  \n) or blank lines (\n\n)
+    result = result.replace(/  +/g, '\n');
+
+    // Step 2: Horizontal rules — ensure --- sits on its own line with blank lines around it
+    result = result.replace(/([^\n]) (---(?:\s|$))/g, '$1\n\n$2');   // before ---
+    result = result.replace(/(---) ([^\n])/g, '$1\n\n$2');            // after  ---
+
+    // Step 3: Headings — blank line before any heading still on the same line as other content
+    result = result.replace(/([^\n]) (#{1,6} )/g, '$1\n\n$2');
+
+    // Step 4: Numbered list items — newline before each new "N. " entry
+    //   Triggered by sentence-ending chars (. ) ! ? ² ³ letters) followed by "N. "
+    result = result.replace(/([)\.!?²³°a-zA-Z]) (\d+\. )/g, '$1\n$2');
+
+    return result.trim();
+  };
+
   const renderContentBlock = (block: ContentBlock, key: number): React.ReactNode => {
     switch (block.type) {
       case ContentType.HTML_TABLE:
       case ContentType.LATEX_TABLE:
       case ContentType.WIKI_TABLE:
       case ContentType.MARKDOWN_TABLE:
-        return <Box key={key} sx={{ mb: 2 }}>{renderTableBlock(block)}</Box>;
+        return <Box key={key} sx={{ mb: 0 }}>{renderTableBlock(block)}</Box>;
       
-      case ContentType.CODE_BLOCK:
-        // Render code blocks using ReactMarkdown
+      case ContentType.CODE_BLOCK: {
+        // Render code blocks directly with SyntaxHighlighter
+        // Use block.data.code (match[2] from regex) which is the raw code without fence markers
+        const codeLanguage = block.data?.language || '';
+        // 1. Normalize literal \n escape sequences to actual newlines (some LLMs send \n as text)
+        const rawCodeNormalized = (block.data?.code ?? '').replace(/\\n/g, '\n');
+        // 2. If the code arrived as one long line (no real newlines), add them at statement boundaries
+        const rawCode = reformatSingleLineCode(rawCodeNormalized, codeLanguage);
+        const syntaxStyle = isDarkMode ? oneDark : oneLight;
         return (
-          <Box key={key}>
-            <ReactMarkdown 
-              remarkPlugins={[remarkMath]}
-              rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
-              components={markdownComponents}
+          <Box key={key} sx={{ position: 'relative', mb: 2 }}>
+            {codeLanguage && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  backgroundColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                  color: isDarkMode ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)',
+                  px: 1.5,
+                  py: 0.5,
+                  borderRadius: '0 8px 0 8px',
+                  fontSize: '0.75rem',
+                  fontFamily: 'monospace',
+                  textTransform: 'lowercase',
+                  zIndex: 1,
+                }}
+              >
+                {codeLanguage}
+              </Box>
+            )}
+            {/* Force pre-wrap so both real newlines and wrapped long lines display correctly */}
+            <Box sx={{
+              '& pre': { whiteSpace: 'pre-wrap !important', overflowWrap: 'break-word', wordBreak: 'break-word' },
+              '& code': { whiteSpace: 'pre-wrap !important', overflowWrap: 'break-word', wordBreak: 'break-word' },
+            }}>
+            <SyntaxHighlighter
+              language={codeLanguage || 'text'}
+              style={syntaxStyle}
+              customStyle={{
+                margin: 0,
+                borderRadius: '8px',
+                padding: '16px',
+                fontSize: '0.9rem',
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap',
+                overflowWrap: 'break-word',
+                wordBreak: 'break-word',
+              }}
+              showLineNumbers={rawCode.split('\n').length > 3}
+              wrapLines={true}
+              wrapLongLines={true}
             >
-              {block.content}
-            </ReactMarkdown>
+              {rawCode}
+            </SyntaxHighlighter>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 0.5, ml: 1 }}>
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleCopyCode(rawCode);
+                }}
+                sx={{
+                  opacity: 0.75,
+                  backgroundColor: 'rgba(0, 0, 0, 0.03)',
+                  borderRadius: '8px',
+                  padding: '6px',
+                  border: '1px solid rgba(0, 0, 0, 0.08)',
+                  transition: 'all 0.2s ease-in-out',
+                  '&:hover': {
+                    opacity: 1,
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    borderColor: 'secondary.main',
+                    color: 'secondary.main',
+                    transform: 'scale(1.1)',
+                    boxShadow: '0 2px 6px rgba(156, 39, 176, 0.2)',
+                  },
+                  '&:active': {
+                    transform: 'scale(0.95)',
+                  },
+                }}
+                title="Copy code"
+              >
+                <ContentCopyIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Box>
           </Box>
         );
+      }
       
-      case ContentType.PLAIN_TEXT:
-        // Always use ReactMarkdown for plain text (LaTeX delimiters already preprocessed)
-        // ReactMarkdown with remark-math and rehype-katex handles both markdown and LaTeX
+      case ContentType.PLAIN_TEXT: {
+        // Skip empty or whitespace-only blocks (they create empty paragraphs)
+        if (!block.content.trim()) {
+          return null;
+        }
+        // If the block arrived as a single line (no newlines), try to recover markdown structure:
+        // headings, horizontal rules, numbered lists, and bullet sub-items.
+        const plainTextContent = reformatSingleLineMarkdown(block.content);
         return (
           <React.Fragment key={key}>
             <ReactMarkdown 
-              remarkPlugins={[remarkMath]}
+              remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={markdownComponents}
             >
-              {block.content}
+              {plainTextContent}
             </ReactMarkdown>
           </React.Fragment>
         );
+      }
       
       default:
         return null;
     }
+  };
+
+  // Helper function to normalize multi-line LaTeX in markdown tables
+  // This must run BEFORE any table detection to ensure rows are on single lines
+  const normalizeMultiLineLatexInTables = (content: string): string => {
+    const lines = content.split('\n');
+    const result: string[] = [];
+    let i = 0;
+    
+    // Helper to count occurrences
+    const count = (str: string, pattern: string): number => {
+      let c = 0, pos = 0;
+      while ((pos = str.indexOf(pattern, pos)) !== -1) { c++; pos += pattern.length; }
+      return c;
+    };
+    
+    while (i < lines.length) {
+      const line = lines[i];
+      
+      // Check if this looks like a markdown table row
+      if (line.trim().startsWith('|')) {
+        let currentRow = line;
+        let openBegins = count(currentRow, '\\begin{');
+        let closeEnds = count(currentRow, '\\end{');
+        let dollarCount = (currentRow.match(/\$/g) || []).length;
+        
+        // Keep joining lines until balanced and row ends with |
+        while (i + 1 < lines.length) {
+          const nextLine = lines[i + 1];
+          const isUnbalanced = openBegins > closeEnds || (dollarCount % 2 !== 0);
+          const rowEndsWithPipe = currentRow.trim().endsWith('|');
+          const nextIsTableRow = nextLine.trim().startsWith('|');
+          const nextIsSeparator = /^\s*\|[\-–—:\s|]+\|\s*$/.test(nextLine);
+          
+          // Stop if next is separator or if balanced and complete
+          if (nextIsSeparator) break;
+          if (!isUnbalanced && rowEndsWithPipe && nextIsTableRow) break;
+          
+          // Join if unbalanced or incomplete
+          if (isUnbalanced || !rowEndsWithPipe) {
+            i++;
+            currentRow += ' ' + nextLine.trim();
+            openBegins += count(nextLine, '\\begin{');
+            closeEnds += count(nextLine, '\\end{');
+            dollarCount += (nextLine.match(/\$/g) || []).length;
+          } else {
+            break;
+          }
+        }
+        result.push(currentRow);
+      } else {
+        result.push(line);
+      }
+      i++;
+    }
+    
+    return result.join('\n');
   };
 
   // 5. MAIN RENDERING FUNCTION (Structural approach)
@@ -2360,10 +3184,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     //    - Nested tables (via recursive table parsing)
     //    - Inline code and markdown
     
+    // FIRST: Normalize multi-line LaTeX in markdown table cells
+    // This joins lines that are part of the same table cell but span multiple lines
+    const normalizedContent = normalizeMultiLineLatexInTables(content);
+    
     // IMPORTANT: Preprocess LaTeX delimiters BEFORE detecting blocks
     // This converts \[...\] to $$...$$ and \(...\) to $...$
     // so ReactMarkdown can handle them properly
-    const preprocessedContent = preprocessLatexDelimiters(content);
+    const preprocessedContent = preprocessLatexDelimiters(normalizedContent);
     
     // Detect all content blocks (tables and text) from preprocessed content
     const blocks = detectContentBlocks(preprocessedContent);
@@ -2764,7 +3592,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               parts.push(
                 <Box key={`text-${key++}`}>
                   <ReactMarkdown 
-                    remarkPlugins={[remarkMath]}
+                    remarkPlugins={[remarkMath, remarkBreaks]}
                     rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                     components={customMarkdownComponents}
                   >
@@ -2790,7 +3618,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           parts.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -2806,7 +3634,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       // No display math blocks, just render normally
       return (
         <ReactMarkdown 
-          remarkPlugins={[remarkMath]}
+          remarkPlugins={[remarkMath, remarkBreaks]}
           rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
           components={markdownComponents}
         >
@@ -2830,7 +3658,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -2909,7 +3737,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3065,7 +3893,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3162,7 +3990,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3285,7 +4113,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         result.push(
           <Box key={`text-${key++}`}>
             <ReactMarkdown 
-              remarkPlugins={[remarkMath]}
+              remarkPlugins={[remarkMath, remarkBreaks]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -3366,7 +4194,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
             result.push(
               <Box key={`text-${key++}`}>
                 <ReactMarkdown 
-                  remarkPlugins={[remarkMath]}
+                  remarkPlugins={[remarkMath, remarkBreaks]}
                   rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                   components={customMarkdownComponents}
                 >
@@ -3435,7 +4263,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           result.push(
             <Box key={`text-${key++}`}>
               <ReactMarkdown 
-                remarkPlugins={[remarkMath]}
+                remarkPlugins={[remarkMath, remarkBreaks]}
                 rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
                 components={customMarkdownComponents}
               >
@@ -3448,7 +4276,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
         result.push(
           <Box key={`text-${key++}`}>
             <ReactMarkdown 
-              remarkPlugins={[remarkMath]}
+              remarkPlugins={[remarkMath, remarkBreaks]}
               rehypePlugins={[rehypeRaw as any, rehypeKatex as any]}
               components={customMarkdownComponents}
             >
@@ -3573,7 +4401,8 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
 
   // Memoized message component to prevent re-renders during streaming
-  const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean }>(({ message, chatMessages, isStreaming }) => {
+  // Note: isDarkMode is passed to force re-render when theme changes
+  const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean; isDarkMode: boolean }>(({ message, chatMessages, isStreaming, isDarkMode: _ }) => {
     const isUser = message.role === 'user';
     
     // Extract thinking and body from assistant messages
@@ -3613,7 +4442,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               }}
             >
               {isUser ? (
-                displayContent
+                <span style={{ whiteSpace: 'pre-wrap' }}>{displayContent}</span>
               ) : (
                 <>
                   {/* Use structural rendering system */}
@@ -3910,18 +4739,19 @@ const ChatArea: React.FC<ChatAreaProps> = ({
       </Box>
     );
   }, (prevProps, nextProps) => {
-    // Only re-render if the message content changed or streaming status changed
+    // Re-render if message content, streaming status, or theme changed
     return prevProps.message.content === nextProps.message.content && 
-           prevProps.isStreaming === nextProps.isStreaming;
+           prevProps.isStreaming === nextProps.isStreaming &&
+           prevProps.isDarkMode === nextProps.isDarkMode;
   });
 
-  // Create a stable renderMessage that doesn't depend on loading
+  // Create a stable renderMessage that re-renders when theme changes
   const renderMessage = useCallback((message: MessageType, chatMessages?: MessageType[], currentlyLoading?: boolean) => {
     const isLastMessage = !!(chatMessages && message.id === chatMessages[chatMessages.length - 1]?.id);
     const isStreaming = currentlyLoading === true && isLastMessage;
     
-    return <MessageComponent message={message} chatMessages={chatMessages} isStreaming={isStreaming} />;
-  }, []);
+    return <MessageComponent message={message} chatMessages={chatMessages} isStreaming={isStreaming} isDarkMode={isDarkMode} />;
+  }, [isDarkMode]);
 
   // Split messages into completed and streaming for better performance
   const { completedMessages, streamingMessage } = React.useMemo(() => {
@@ -3940,14 +4770,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     }
   }, [chat?.messages, loading]);
   
-  // Memoize completed messages - these NEVER re-render during streaming
+  // Memoize completed messages - re-render when theme changes
   const renderedCompletedMessages = React.useMemo(() =>
     completedMessages.map(msg => (
       <React.Fragment key={msg.id}>
         {renderMessage(msg, completedMessages, false)}
       </React.Fragment>
     )),
-    [completedMessages, renderMessage]
+    [completedMessages, renderMessage, isDarkMode]
   );
 
   return (
@@ -4494,8 +5324,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                 >
                   {/* Main indicator content */}
                   <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
-                    {/* Large animated microphone icon */}
-                    <Box
+                    {/* Large animated microphone icon - clickable for mute/unmute */}
+                    <IconButton
+                      onClick={() => {
+                        if (voskRecognition) {
+                          const newMutedState = voskRecognition.toggleMute();
+                          setIsMicMuted(newMutedState);
+                        }
+                      }}
+                      title={isMicMuted ? 'Click to unmute microphone' : 'Click to mute microphone'}
                       sx={{
                         display: 'flex',
                         alignItems: 'center',
@@ -4503,8 +5340,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         width: '60px',
                         height: '60px',
                         borderRadius: '50%',
-                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                        animation: 'bounce 1.5s infinite',
+                        backgroundColor: isMicMuted ? 'rgba(100, 100, 100, 0.5)' : 'rgba(255, 255, 255, 0.2)',
+                        animation: isMicMuted ? 'none' : 'bounce 1.5s infinite',
+                        transition: 'all 0.3s ease-in-out',
+                        '&:hover': {
+                          backgroundColor: isMicMuted ? 'rgba(130, 130, 130, 0.6)' : 'rgba(255, 255, 255, 0.35)',
+                          transform: 'scale(1.1)',
+                        },
+                        '&:active': {
+                          transform: 'scale(0.95)',
+                        },
                         '@keyframes bounce': {
                           '0%, 20%, 50%, 80%, 100%': {
                             transform: 'translateY(0)',
@@ -4518,8 +5363,12 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         },
                       }}
                     >
-                      <MicIcon sx={{ fontSize: 32, color: 'white' }} />
-                    </Box>
+                      {isMicMuted ? (
+                        <MicOffIcon sx={{ fontSize: 32, color: 'white' }} />
+                      ) : (
+                        <MicIcon sx={{ fontSize: 32, color: 'white' }} />
+                      )}
+                    </IconButton>
                     
                     {/* Title */}
                     <Typography variant="h6" sx={{ fontWeight: 'bold', fontSize: '1.1rem', textAlign: 'center' }}>
@@ -4538,15 +5387,15 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     </Typography>
                     
                     {/* Helpful tip about "stop stop" command */}
-                    <Typography variant="caption" sx={{ 
-                      fontSize: '0.75rem', 
+{/*                     <Typography variant="caption" sx={{ 
+                      fontSize: '0.5rem', 
                       opacity: 0.8, 
                       textAlign: 'center',
                       fontStyle: 'italic',
                       mt: 0.5
                     }}>
-                      💡 Say "stop stop" to stop listening
-                    </Typography>
+                      Say "stop stop" to stop
+                    </Typography> */}
                     
                     {/* Real-time audio waveform visualization */}
                     <WaveformVisualization 
@@ -4791,6 +5640,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               onClearInput={onClearInputAreaRef}
               onGetAttachments={onGetAttachmentsRef}
               isMobile={isMobile}
+              modelName={model?.name}
             />
           </FixedInputOverlay>
         </>
@@ -4853,6 +5703,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               'Dr. Quincy Gu',
               'Dr. Matthew Hanna',
               'Dr. Yanshan Wang',
+              'Dr. Mohammad K. Alexanderani',
               'Parth Sanghani',
               'Mohammadreza Moradi'
             ].map((contributor, index) => (
@@ -4883,7 +5734,20 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                     fontSize: '1.2rem',
                   }}
                 >
-                  {contributor.split(' ').map(name => name.charAt(0)).join('').slice(0, 2)}
+                  {(() => {
+                    // Extract initials from first name and last name only
+                    // Skip titles (Prof., Dr.) and middle names (single letter with .)
+                    const parts = contributor.split(' ').filter(part => 
+                      !part.endsWith('.') && part.length > 1
+                    );
+                    if (parts.length >= 2) {
+                      // First letter of first name + first letter of last name
+                      return parts[0].charAt(0) + parts[parts.length - 1].charAt(0);
+                    } else if (parts.length === 1) {
+                      return parts[0].charAt(0);
+                    }
+                    return contributor.charAt(0);
+                  })()}
                 </Box>
                 <Typography variant="body1" sx={{ fontWeight: 500 }}>
                   {contributor}
@@ -4949,168 +5813,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Access this application from other devices on the same network. Use any of the following addresses in your browser:
           </Typography>
-
-          {/* Localhost address */}
-          <Box sx={{ mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-              <ComputerIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                Local (this computer only):
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5 }}>
-              <Box
-                sx={{ 
-                  backgroundColor: 'action.hover',
-                  px: 1.5,
-                  py: 1,
-                  borderRadius: 1,
-                  flex: 1,
-                }}
-              >
-                <Typography 
-                  component="a"
-                  href={networkAddresses.localhost}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  variant="body2" 
-                  sx={{ 
-                    fontFamily: 'monospace', 
-                    fontSize: '0.95rem',
-                    color: 'primary.main',
-                    textDecoration: 'underline',
-                    cursor: 'pointer',
-                    '&:hover': {
-                      color: 'primary.dark',
-                    }
-                  }}
-                >
-                  {networkAddresses.localhost}
-                </Typography>
-              </Box>
-              <IconButton
-                size="small"
-                onClick={async () => {
-                  try {
-                    if (window.electronAPI?.copyToClipboard) {
-                      await window.electronAPI.copyToClipboard(networkAddresses.localhost);
-                    } else {
-                      await navigator.clipboard.writeText(networkAddresses.localhost);
-                    }
-                    setCopiedAddress(networkAddresses.localhost);
-                    setTimeout(() => setCopiedAddress(null), 2000);
-                  } catch (error) {
-                    console.error('Failed to copy address:', error);
-                  }
-                }}
-                sx={{ 
-                  color: copiedAddress === networkAddresses.localhost ? 'success.main' : 'text.secondary',
-                  '&:hover': {
-                    backgroundColor: 'action.hover',
-                  }
-                }}
-              >
-                <ContentCopyIcon fontSize="small" />
-              </IconButton>
-              <IconButton
-                size="small"
-                onClick={() => {
-                  setQrCodeAddress(networkAddresses.localhost);
-                  setQrCodeDialogOpen(true);
-                }}
-                sx={{ 
-                  color: 'text.secondary',
-                  '&:hover': {
-                    backgroundColor: 'action.hover',
-                    color: 'primary.main',
-                  }
-                }}
-              >
-                <QrCodeIcon fontSize="small" />
-              </IconButton>
-            </Box>
-          </Box>
-
-          {/* Loopback address */}
-          <Box sx={{ mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-              <LoopIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                Loopback (this computer only):
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, pl: 3.5 }}>
-              <Box
-                sx={{ 
-                  backgroundColor: 'action.hover',
-                  px: 1.5,
-                  py: 1,
-                  borderRadius: 1,
-                  flex: 1,
-                }}
-              >
-                <Typography 
-                  component="a"
-                  href={networkAddresses.loopback}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  variant="body2"
-                  sx={{ 
-                    fontFamily: 'monospace', 
-                    fontSize: '0.95rem',
-                    color: 'primary.main',
-                    textDecoration: 'underline',
-                    cursor: 'pointer',
-                    '&:hover': {
-                      color: 'primary.dark',
-                    }
-                  }}
-                >
-                  {networkAddresses.loopback}
-                </Typography>
-              </Box>
-              <IconButton
-                size="small"
-                onClick={async () => {
-                  try {
-                    if (window.electronAPI?.copyToClipboard) {
-                      await window.electronAPI.copyToClipboard(networkAddresses.loopback);
-                    } else {
-                      await navigator.clipboard.writeText(networkAddresses.loopback);
-                    }
-                    setCopiedAddress(networkAddresses.loopback);
-                    setTimeout(() => setCopiedAddress(null), 2000);
-                  } catch (error) {
-                    console.error('Failed to copy address:', error);
-                  }
-                }}
-                sx={{ 
-                  color: copiedAddress === networkAddresses.loopback ? 'success.main' : 'text.secondary',
-                  '&:hover': {
-                    backgroundColor: 'action.hover',
-                  }
-                }}
-              >
-                <ContentCopyIcon fontSize="small" />
-              </IconButton>
-              <IconButton
-                size="small"
-                onClick={() => {
-                  setQrCodeAddress(networkAddresses.loopback);
-                  setQrCodeDialogOpen(true);
-                }}
-                sx={{ 
-                  color: 'text.secondary',
-                  '&:hover': {
-                    backgroundColor: 'action.hover',
-                    color: 'primary.main',
-                  }
-                }}
-              >
-                <QrCodeIcon fontSize="small" />
-              </IconButton>
-            </Box>
-          </Box>
 
           {/* WiFi / Hotspot addresses */}
           {networkAddresses.wifi.length > 0 && (

@@ -18,6 +18,7 @@ export class VoskRecognitionService {
   private processor: AudioWorkletNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private isRecording = false;
+  private isMuted = false; // Mute state for microphone
   private currentModel: string | null = null;
   private availableModels: string[] = [];
   private isSelectingModel = false; // Flag to prevent race conditions
@@ -1310,6 +1311,56 @@ export class VoskRecognitionService {
    */
   public clearAudioLevelCallbacks(): void {
     this.audioLevelCallbacks = [];
+  }
+
+  // ========================================
+  // MICROPHONE MUTE/UNMUTE METHODS
+  // ========================================
+
+  /**
+   * Mute the microphone (disable audio track)
+   * This actually mutes the audio stream, not just filtering
+   */
+  public mute(): void {
+    if (this.mediaStream) {
+      this.mediaStream.getAudioTracks().forEach(track => {
+        track.enabled = false;
+      });
+      this.isMuted = true;
+      console.log('🔇 Microphone muted');
+    }
+  }
+
+  /**
+   * Unmute the microphone (enable audio track)
+   */
+  public unmute(): void {
+    if (this.mediaStream) {
+      this.mediaStream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+      });
+      this.isMuted = false;
+      console.log('🔊 Microphone unmuted');
+    }
+  }
+
+  /**
+   * Toggle mute state
+   */
+  public toggleMute(): boolean {
+    if (this.isMuted) {
+      this.unmute();
+    } else {
+      this.mute();
+    }
+    return this.isMuted;
+  }
+
+  /**
+   * Check if microphone is currently muted
+   */
+  public isMicMuted(): boolean {
+    return this.isMuted;
   }
 }
 

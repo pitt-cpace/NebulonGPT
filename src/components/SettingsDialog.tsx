@@ -20,6 +20,9 @@ import {
   InputAdornment,
   CircularProgress,
   Tooltip,
+  Alert,
+  Link,
+  LinearProgress,
 } from '@mui/material';
 import { 
   Settings as SettingsIcon, 
@@ -37,10 +40,13 @@ import {
   Devices as DevicesIcon,
   ContentCopy as ContentCopyIcon,
   Wifi as WifiIcon,
+  CloudUpload as UploadIcon,
 } from '@mui/icons-material';
 import { ModelType } from '../types';
 import { VoskRecognitionService } from '../services/vosk';
 import { ttsService, TTSStatus } from '../services/ttsService';
+import { checkTtsModels } from '../services/backendApi';
+import { isElectron } from '../services/electronApi';
 import VoskModelSelector from './VoskModelSelector';
 import VoskModelManager from './VoskModelManager';
 import * as styles from '../styles/components/SettingsDialog.styles';
@@ -113,6 +119,17 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     ethernet: []
   });
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  
+  // TTS Models missing warning state
+  const [showTtsModelsWarning, setShowTtsModelsWarning] = useState(false);
+  const [dataDirectoryPath, setDataDirectoryPath] = useState<string>('');
+  
+  // TTS Model upload state
+  const [ttsUploading, setTtsUploading] = useState(false);
+  const [ttsUploadProgress, setTtsUploadProgress] = useState(0);
+  const [ttsCurrentUploadFile, setTtsCurrentUploadFile] = useState<string>('');
+  const [ttsUploadError, setTtsUploadError] = useState<string | null>(null);
+  const [ttsUploadSuccess, setTtsUploadSuccess] = useState<string | null>(null);
 
   // Update local state when props change
   useEffect(() => {
@@ -162,8 +179,53 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     };
   }, []);
 
+  // Check TTS models via Python backend API
+  const checkTtsModelsExist = async (): Promise<{ exists: boolean; dataDirectory: string; platform: string }> => {
+    try {
+      // Call Python backend API using backendApi (handles correct URL)
+      const result = await checkTtsModels();
+      return {
+        exists: result.exists || false,
+        dataDirectory: result.dataDirectory || '',
+        platform: result.platform || ''
+      };
+    } catch (error) {
+      console.error('Error checking TTS models:', error);
+      // Return default values if check fails (assume exists to not block user)
+      return { exists: true, dataDirectory: '', platform: '' };
+    }
+  };
+
   // Handle TTS settings changes (local only, not saved until Save button)
   const handleFullVoiceModeChange = async (checked: boolean) => {
+    // If enabling Full Voice Mode, check if TTS models exist first
+    if (checked) {
+      const result = await checkTtsModelsExist();
+      
+      if (!result.exists) {
+        console.log('⚠️ TTS models not found');
+        
+        // Set the data directory path for display
+        if (result.dataDirectory) {
+          setDataDirectoryPath(result.dataDirectory);
+        } else {
+          // Fallback path based on platform
+          if (result.platform === 'windows') {
+            setDataDirectoryPath('%USERPROFILE%\\.nebulon-gpt');
+          } else {
+            setDataDirectoryPath('~/.nebulon-gpt');
+          }
+        }
+        
+        setShowTtsModelsWarning(true);
+        // Don't enable Full Voice Mode if models are missing
+        return;
+      }
+    }
+    
+    // Hide warning if disabling or models exist
+    setShowTtsModelsWarning(false);
+    
     setFullVoiceMode(checked);
     // Update service temporarily for immediate UI feedback
     ttsService.updateSettings({ fullVoiceMode: checked });
@@ -301,12 +363,21 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     setVoiceGender(originalTtsSettings.voiceGender);
     ttsService.updateSettings(originalTtsSettings);
     
-    // Reset theme mode to original value
+    // Reset theme mode to original value and revert the visual change
     setThemeMode(originalThemeMode);
+    if (themeMode !== originalThemeMode) {
+      // Revert theme change visually since user cancelled
+      const themeEvent = new CustomEvent('themeChange', { detail: originalThemeMode });
+      window.dispatchEvent(themeEvent);
+      console.log(`🎨 Theme reverted to: ${originalThemeMode}`);
+    }
     
     // Reset Ollama API URL and Key to original values
     setOllamaApiUrl(originalOllamaApiUrl);
     setOllamaApiKey(originalOllamaApiKey);
+    
+    // Reset TTS models warning
+    setShowTtsModelsWarning(false);
   };
 
   const handleSave = () => {
@@ -561,6 +632,120 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     }
   };
 
+  // Handle TTS model ZIP file upload
+  const handleTtsFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    // Validate all files are ZIP files
+    const invalidFiles = Array.from(files).filter(file => !file.name.endsWith('.zip'));
+    if (invalidFiles.length > 0) {
+      setTtsUploadError(`Only ZIP files are supported. Invalid files: ${invalidFiles.map(f => f.name).join(', ')}`);
+      return;
+    }
+
+    if (!isElectron() || !window.electronAPI) {
+      setTtsUploadError('TTS model upload is only supported in the desktop application.');
+      return;
+    }
+
+    setTtsUploading(true);
+    setTtsUploadProgress(0);
+    setTtsCurrentUploadFile('');
+    setTtsUploadError(null);
+    setTtsUploadSuccess(null);
+
+    const totalFiles = files.length;
+    let completedFiles = 0;
+    const results: string[] = [];
+    const errors: string[] = [];
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setTtsCurrentUploadFile(file.name);
+
+        try {
+          console.log(`Processing TTS model file ${i + 1}/${totalFiles}: ${file.name}`);
+          
+          // Phase 1: Reading file (20% of total progress for this file)
+          const baseProgress = Math.round((i / totalFiles) * 100);
+          setTtsUploadProgress(baseProgress + Math.round((20 / totalFiles)));
+          
+          // Read file as ArrayBuffer
+          const arrayBuffer = await file.arrayBuffer();
+          const uint8Array = new Uint8Array(arrayBuffer);
+          
+          // Phase 2: Copying file (40% of total progress for this file)
+          setTtsUploadProgress(baseProgress + Math.round((40 / totalFiles)));
+          
+          // Use Electron API to copy file to temp directory
+          const copyResult = await window.electronAPI!.copyFileToTtsModels(file.name, uint8Array);
+          if (!copyResult.success || !copyResult.tempPath) {
+            throw new Error(copyResult.error || 'Failed to copy file');
+          }
+          
+          // Phase 3: Extracting file (60-90% of total progress for this file)
+          setTtsUploadProgress(baseProgress + Math.round((60 / totalFiles)));
+          
+          // Extract the ZIP file to huggingface directory
+          const extractResult = await window.electronAPI!.extractTtsModel(copyResult.tempPath);
+          if (!extractResult.success) {
+            throw new Error(extractResult.error || 'Failed to extract file');
+          }
+          
+          // Phase 4: Updating checksum (95% of total progress for this file)
+          setTtsUploadProgress(baseProgress + Math.round((95 / totalFiles)));
+          
+          // Update TTS models checksum
+          await window.electronAPI!.updateTtsModelsChecksum();
+
+          results.push(`✅ ${file.name}: Extracted successfully`);
+          completedFiles++;
+          
+          // Update progress for completed file
+          setTtsUploadProgress(Math.round((completedFiles / totalFiles) * 100));
+          
+        } catch (fileError: any) {
+          console.error(`Error processing ${file.name}:`, fileError);
+          errors.push(`❌ ${file.name}: ${fileError.message || 'Processing failed'}`);
+          completedFiles++;
+          // Still update progress even on error
+          setTtsUploadProgress(Math.round((completedFiles / totalFiles) * 100));
+        }
+      }
+
+      // Show results
+      if (results.length > 0 && errors.length === 0) {
+        setTtsUploadSuccess(`All ${totalFiles} TTS model files extracted successfully! Please close the app completely and reopen it to load the new TTS models.`);
+        // Hide warning after successful upload
+        setShowTtsModelsWarning(false);
+        // Try to enable Full Voice Mode now that models are installed
+        setTimeout(async () => {
+          const modelsExist = await checkTtsModelsExist();
+          if (modelsExist.exists) {
+            handleFullVoiceModeChange(true);
+          }
+        }, 500);
+      } else if (results.length > 0 && errors.length > 0) {
+        setTtsUploadSuccess(`${results.length}/${totalFiles} files extracted successfully. Please close the app completely and reopen it to load the new TTS models.`);
+        setTtsUploadError(`${errors.length} extraction(s) failed:\n${errors.join('\n')}`);
+      } else {
+        setTtsUploadError(`All extractions failed:\n${errors.join('\n')}`);
+      }
+
+    } catch (error: any) {
+      console.error('Error during TTS model upload:', error);
+      setTtsUploadError(`Upload failed: ${error.message || 'Unknown error'}`);
+    } finally {
+      setTtsUploading(false);
+      setTtsUploadProgress(0);
+      setTtsCurrentUploadFile('');
+      // Reset file input
+      event.target.value = '';
+    }
+  };
+
   return (
     <>
       <Dialog 
@@ -576,7 +761,13 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Tooltip title={themeMode === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
               <IconButton
-                onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+                onClick={() => {
+                  const newTheme = themeMode === 'dark' ? 'light' : 'dark';
+                  setThemeMode(newTheme);
+                  // Apply theme change immediately for real-time preview
+                  const themeEvent = new CustomEvent('themeChange', { detail: newTheme });
+                  window.dispatchEvent(themeEvent);
+                }}
                 color="inherit"
                 size="small"
               >
@@ -640,6 +831,111 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
               }
               sx={{ mb: 2, alignItems: 'flex-start' }}
             />
+
+            {/* TTS Models Missing Warning */}
+            {showTtsModelsWarning && (
+              <Alert 
+                severity="warning" 
+                sx={{ mb: 2 }}
+                onClose={() => setShowTtsModelsWarning(false)}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 1 }}>
+                  TTS Models Not Found
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  To use Full Voice Mode, please download the required TTS models from GitHub and extract them to:
+                </Typography>
+                <Typography 
+                  variant="body2" 
+                  sx={{ 
+                    fontFamily: 'monospace', 
+                    backgroundColor: 'action.hover',
+                    p: 1,
+                    borderRadius: 1,
+                    mb: 1,
+                    wordBreak: 'break-all'
+                  }}
+                >
+                  {dataDirectoryPath || '~/.nebulon-gpt'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                  Download the TTS models ZIP file from the{' '}
+                  <Link 
+                    href="https://github.com/pitt-cpace/NebulonGPT/releases" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    sx={{ cursor: 'pointer' }}
+                  >
+                    GitHub Releases page
+                  </Link>
+                  , then select the ZIP file below to automatically extract it.
+                </Typography>
+                
+                {/* TTS Model Upload Section - Only show in Electron mode */}
+                {isElectron() && (
+                  <Box sx={{ mt: 2 }}>
+                    <FormControl>
+                      <input
+                        type="file"
+                        accept=".zip"
+                        multiple
+                        onChange={handleTtsFileUpload}
+                        disabled={ttsUploading}
+                        style={{ display: 'none' }}
+                        id="tts-model-upload-input"
+                      />
+                      <label htmlFor="tts-model-upload-input">
+                        <Button
+                          variant="contained"
+                          component="span"
+                          startIcon={<UploadIcon />}
+                          disabled={ttsUploading}
+                          size="small"
+                        >
+                          Select ZIP Files
+                        </Button>
+                      </label>
+                    </FormControl>
+                    
+                    {ttsUploading && (
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Processing... {ttsUploadProgress}%
+                        </Typography>
+                        {ttsCurrentUploadFile && (
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontStyle: 'italic' }}>
+                            Current file: {ttsCurrentUploadFile}
+                          </Typography>
+                        )}
+                        <LinearProgress variant="determinate" value={ttsUploadProgress} sx={{ mt: 1 }} />
+                      </Box>
+                    )}
+                  </Box>
+                )}
+              </Alert>
+            )}
+
+            {/* TTS Upload Success Message */}
+            {ttsUploadSuccess && (
+              <Alert 
+                severity="success" 
+                sx={{ mb: 2 }}
+                onClose={() => setTtsUploadSuccess(null)}
+              >
+                {ttsUploadSuccess}
+              </Alert>
+            )}
+
+            {/* TTS Upload Error Message */}
+            {ttsUploadError && (
+              <Alert 
+                severity="error" 
+                sx={{ mb: 2 }}
+                onClose={() => setTtsUploadError(null)}
+              >
+                {ttsUploadError}
+              </Alert>
+            )}
 
             {fullVoiceMode && (
               <FormControl component="fieldset" sx={{ mb: 2 }}>
