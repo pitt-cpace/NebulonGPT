@@ -8,7 +8,7 @@
  * across all Ollama requests (main chat, title generator, and model loading).
  */
 
-import { getOllamaBaseUrl, sendMessage } from './api';
+import { ollamaApi, sendMessage } from './api';
 import { isElectron } from './electronApi';
 import { MessageType } from '../types';
 
@@ -147,14 +147,10 @@ class ModelLoadingService {
    */
   private async getLoadedModels(): Promise<{ models: Array<{ name: string; size: number }> }> {
     try {
-      const baseUrl = getOllamaBaseUrl();
-      const response = await fetch(`${baseUrl}/api/ps`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const response = await ollamaApi.get('/ps');
 
-      if (response.ok) {
-        const data = await response.json();
+      if (response.status === 200) {
+        const { data } = response;
         return {
           models: (data.models || []).map((m: any) => ({
             name: m.name || m.model,
@@ -173,15 +169,10 @@ class ModelLoadingService {
    */
   private async getModelInfo(modelName: string): Promise<{ size: number }> {
     try {
-      const baseUrl = getOllamaBaseUrl();
-      const response = await fetch(`${baseUrl}/api/show`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: modelName }),
-      });
+      const response = await ollamaApi.post('/show', { name: modelName });
 
-      if (response.ok) {
-        const data = await response.json();
+      if (response.status === 200) {
+        const { data } = response;
         // Get total size from model info
         const size = data.size || data.model_info?.parameter_size || 0;
         return { size };
