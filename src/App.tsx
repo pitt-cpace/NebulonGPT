@@ -99,33 +99,41 @@ const App: React.FC = () => {
   // Determined dynamically from Ollama's /api/show "capabilities" array
   const [modelSupportsVision, setModelSupportsVision] = useState<boolean>(false);
 
-  // Helper: detect "vision" capability from an Ollama /api/show response
+  // Helper: detect "vision" capability from an Ollama /api/show response.
+  //
+  // We rely EXCLUSIVELY on the authoritative `capabilities` array that modern
+  // Ollama (>= 0.4) returns for every model. Any fuzzy fallback (matching
+  // model_info keys, modelfile text, `details.families`, etc.) is unsafe
+  // because text-only models like gpt-oss frequently contain unrelated
+  // tokens/fields that incidentally match — producing false positives that
+  // let the user attach images Ollama will then reject.
+  //
+  // Authoritative shapes:
+  //   1. Top-level:  modelDetails.capabilities          = ["completion", "vision", ...]
+  //   2. Nested:     modelDetails.model_info.capabilities = ["completion", "vision", ...]
+  //
+  // If neither array exists OR neither contains "vision", we treat the model
+  // as text-only. This matches what Ollama itself enforces server-side.
   const detectVisionCapability = (modelDetails: any): boolean => {
     if (!modelDetails) return false;
 
-    // Modern Ollama exposes a top-level `capabilities` array, e.g. ["completion","vision"]
-    const caps = modelDetails.capabilities;
-    if (Array.isArray(caps)) {
-      if (caps.some((c: any) => typeof c === 'string' && c.toLowerCase() === 'vision')) {
-        return true;
-      }
-    }
+    const hasVisionIn = (arr: any): boolean =>
+      Array.isArray(arr) &&
+      arr.some((c: any) => typeof c === 'string' && c.toLowerCase() === 'vision');
 
-    // Some responses may nest it under model_info
-    const infoCaps = modelDetails?.model_info?.capabilities;
-    if (Array.isArray(infoCaps)) {
-      if (infoCaps.some((c: any) => typeof c === 'string' && c.toLowerCase() === 'vision')) {
-        return true;
-      }
-    }
+    if (hasVisionIn(modelDetails.capabilities)) return true;
+    if (hasVisionIn(modelDetails?.model_info?.capabilities)) return true;
 
-    // Fallback: check projector/vision related fields some Ollama versions expose
-    if (modelDetails?.projector_info || modelDetails?.details?.families?.includes?.('clip')) {
-      return true;
-    }
-
+    // Helpful one-line diagnostic so we can see exactly what Ollama returned
+    // if a vision model isn't being detected on the user's setup.
+    console.debug('[detectVisionCapability] No "vision" in capabilities arrays:',
+      'top:', modelDetails.capabilities,
+      'nested:', modelDetails?.model_info?.capabilities,
+    );
     return false;
   };
+
+
 
 
   // Lazy loading state
