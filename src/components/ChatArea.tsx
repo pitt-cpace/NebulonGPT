@@ -210,7 +210,14 @@ interface ChatAreaProps {
   onCreateNewChat: () => Promise<void>;
   onOpenSettings: () => void;
   isMobile: boolean;
+  /**
+   * Whether the currently loaded model supports vision/image input.
+   * Determined dynamically via Ollama's /api/show "capabilities" array
+   * (e.g. ["completion","vision"]). When true, image upload UI is enabled.
+   */
+  modelSupportsVision?: boolean;
 }
+
 
 const ChatArea: React.FC<ChatAreaProps> = ({
   chat,
@@ -234,7 +241,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onCreateNewChat,
   onOpenSettings,
   isMobile,
+  modelSupportsVision = false,
 }) => {
+
   // Get theme for syntax highlighting
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === 'dark';
@@ -5641,7 +5650,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               onGetAttachments={onGetAttachmentsRef}
               isMobile={isMobile}
               modelName={model?.name}
+              modelSupportsVision={modelSupportsVision}
             />
+
           </FixedInputOverlay>
         </>
       )}

@@ -154,7 +154,15 @@ interface InputAreaProps {
   onGetAttachments?: React.MutableRefObject<(() => FileAttachment[]) | null>; // Ref callback to get current attachments
   isMobile: boolean;
   modelName?: string; // Current selected model name for vision support warning
+  /**
+   * Whether the currently loaded model dynamically supports vision/image input.
+   * Determined from Ollama's /api/show "capabilities" array (e.g. ["completion","vision"]).
+   * When true, image uploads via file picker, drag-drop, and paste are enabled.
+   * When false/undefined, the static name-based VISION_SUPPORTED_MODELS list is used as fallback.
+   */
+  modelSupportsVision?: boolean;
 }
+
 
 const InputArea: React.FC<InputAreaProps> = ({
   loading,
@@ -173,7 +181,20 @@ const InputArea: React.FC<InputAreaProps> = ({
   onGetAttachments,
   isMobile,
   modelName,
+  modelSupportsVision = false,
 }) => {
+  // Compute final vision support. Important: when the user switches from a vision model
+  // (e.g. llama3.2-vision) to a non-vision model (e.g. gpt-oss:20b) the parent updates
+  // `modelName` synchronously but `modelSupportsVision` only flips after an async
+  // /api/show call. To avoid a stale "true" during that window, we short-circuit to
+  // `false` whenever the static name list definitively marks the model as non-vision.
+  const staticNameCheck = checkVisionSupport(modelName);
+  const visionEnabled =
+    staticNameCheck === 'not-supported'
+      ? false
+      : modelSupportsVision || staticNameCheck === 'supported';
+
+
   const [message, setMessage] = useState(initialMessage || '');
   
   // Update message when voice text comes in (including clearing)
@@ -315,19 +336,35 @@ const InputArea: React.FC<InputAreaProps> = ({
     }
   }, [chat]);
 
-  // Update image warning/blocked state when attachments or model changes
+  // Update image warning/blocked state when attachments OR the model (or its
+  // dynamic vision capability) changes. This is what catches the case where the
+  // user attaches an image under a vision model, then switches to a non-vision
+  // model BEFORE sending — the blocked banner must now appear.
   useEffect(() => {
     const hasImageAttachments = attachments.some(attachment => attachment.type === 'image');
-    
+
     if (hasImageAttachments) {
-      const visionSupport = checkVisionSupport(modelName);
+      // Resolve final vision support. The static name list takes priority when it
+      // definitively says "not-supported" (e.g. gpt-oss:20b), to avoid the brief
+      // window where the parent still holds a stale `modelSupportsVision=true`
+      // from the previous model while /api/show is in flight for the new one.
+      const nameCheck = checkVisionSupport(modelName);
+      let visionSupport: 'supported' | 'not-supported' | 'unknown';
+      if (nameCheck === 'not-supported') {
+        visionSupport = 'not-supported';
+      } else if (modelSupportsVision || nameCheck === 'supported') {
+        visionSupport = 'supported';
+      } else {
+        visionSupport = nameCheck; // 'unknown'
+      }
       const currentModel = modelName || 'your selected model';
-      
+
       if (visionSupport === 'supported') {
         // Model supports vision - no warning needed
         setImageWarning(null);
         setImageBlocked(null);
       } else if (visionSupport === 'not-supported') {
+
         // Model does NOT support vision - show blocking error
         setImageBlocked(
           `Image upload blocked: "${currentModel}" does NOT support vision/image processing. ` +
@@ -351,7 +388,11 @@ const InputArea: React.FC<InputAreaProps> = ({
       setImageWarning(null);
       setImageBlocked(null);
     }
-  }, [attachments, modelName]);
+    // NOTE: depend on `modelSupportsVision` too so the blocked banner re-evaluates
+    // the moment the parent finishes its async /api/show capability check after the
+    // user switches to a non-vision model while images are already attached.
+  }, [attachments, modelName, modelSupportsVision]);
+
 
   // Function to clear input and recalculate
   const clearInput = useCallback(() => {
@@ -478,39 +519,45 @@ const InputArea: React.FC<InputAreaProps> = ({
     const fileArray = Array.from(files);
     
     fileArray.forEach(file => {
-      // IMAGE UPLOAD DISABLED - Only text-based document files are allowed
+      // Images are only allowed when the current model supports vision (per Ollama /api/show capabilities).
+      // Otherwise we block with a clear alert so the user knows to switch models.
       if (file.type.startsWith('image/')) {
-        alert(`Image uploads are not supported. Only text-based document files are allowed (.txt, .doc, .docx).`);
-        return;
-        // const reader = new FileReader();
-        // 
-        // reader.onload = (event) => {
-        //   if (!event.target || typeof event.target.result !== 'string') return;
-        //   
-        //   const dataUrl = event.target.result;
-        //   const newAttachment: FileAttachment = {
-        //     id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        //     name: file.name,
-        //     type: 'image',
-        //     content: dataUrl,
-        //     size: file.size,
-        //     timestamp: new Date().toISOString(),
-        //   };
-        //   
-        //   setAttachments(prevAttachments => {
-        //     const updated = [...prevAttachments, newAttachment];
-        //     // Recalculate tokens with updated attachments
-        //     calculateTokens(message, updated);
-        //     return updated;
-        //   });
-        // };
-        // 
-        // reader.onerror = () => {
-        //   alert(`Error reading image: ${file.name}`);
-        // };
-        // 
-        // reader.readAsDataURL(file);
+        if (!visionEnabled) {
+          const modelLabel = modelName || 'the current model';
+          alert(`Image uploads are not supported by "${modelLabel}". Please switch to a vision-capable model (e.g. llava, qwen2.5-vl, llama3.2-vision, gemma3) to attach images.`);
+          return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = (event) => {
+          if (!event.target || typeof event.target.result !== 'string') return;
+
+          const dataUrl = event.target.result;
+          const newAttachment: FileAttachment = {
+            id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: file.name,
+            type: 'image',
+            content: dataUrl,
+            size: file.size,
+            timestamp: new Date().toISOString(),
+          };
+
+          setAttachments(prevAttachments => {
+            const updated = [...prevAttachments, newAttachment];
+            // Recalculate tokens with updated attachments
+            calculateTokens(message, updated);
+            return updated;
+          });
+        };
+
+        reader.onerror = () => {
+          alert(`Error reading image: ${file.name}`);
+        };
+
+        reader.readAsDataURL(file);
       } else if (file.name.endsWith('.pdf')) {
+
         alert(`PDF files are not supported. Please use text files (.txt) or Word documents (.doc, .docx) instead.`);
       } else if (file.name.endsWith('.txt')) {
         const reader = new FileReader();
@@ -633,12 +680,12 @@ const InputArea: React.FC<InputAreaProps> = ({
       return;
     }
 
-    // IMAGE DRAG & DROP DISABLED - Only text-based document files are allowed
-    // Second, check for image data (dragging images from within the page)
+    // Second, check for image data (dragging images from within the page).
+    // We only accept these when the current model supports vision; otherwise we alert.
     const imageUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/html');
-    
+
     if (imageUrl) {
-      // Check if it's an image and show alert
+      // Extract image URL if wrapped in HTML
       let imgSrc = imageUrl;
       if (imageUrl.includes('<img')) {
         const match = imageUrl.match(/src=["']([^"']+)["']/);
@@ -646,9 +693,65 @@ const InputArea: React.FC<InputAreaProps> = ({
           imgSrc = match[1];
         }
       }
-      if (imgSrc.startsWith('data:image/') || imgSrc.includes('image')) {
-        alert(`Image uploads are not supported. Only text-based document files are allowed (.txt, .doc, .docx).`);
+
+      const looksLikeImage = imgSrc.startsWith('data:image/') || imgSrc.includes('image');
+      if (looksLikeImage) {
+        if (!visionEnabled) {
+          const modelLabel = modelName || 'the current model';
+          alert(`Image uploads are not supported by "${modelLabel}". Please switch to a vision-capable model (e.g. llava, qwen2.5-vl, llama3.2-vision, gemma3) to drop images.`);
+          e.dataTransfer.clearData();
+          return;
+        }
+
+        try {
+          // Data URL: attach directly
+          if (imgSrc.startsWith('data:image/')) {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+            const newAttachment: FileAttachment = {
+              id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: `dragged-image-${timestamp}.png`,
+              type: 'image',
+              content: imgSrc,
+              size: Math.round((imgSrc.length * 3) / 4),
+              timestamp: new Date().toISOString(),
+            };
+            setAttachments(prev => {
+              const updated = [...prev, newAttachment];
+              calculateTokens(message, updated);
+              return updated;
+            });
+          }
+          // Remote URL: fetch + convert to data URL
+          else if (imgSrc.startsWith('http://') || imgSrc.startsWith('https://') || imgSrc.startsWith('/')) {
+            const response = await fetch(imgSrc);
+            const blob = await response.blob();
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              if (!event.target || typeof event.target.result !== 'string') return;
+              const newAttachment: FileAttachment = {
+                id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                name: `dragged-image-${timestamp}.png`,
+                type: 'image',
+                content: event.target.result,
+                size: blob.size,
+                timestamp: new Date().toISOString(),
+              };
+              setAttachments(prev => {
+                const updated = [...prev, newAttachment];
+                calculateTokens(message, updated);
+                return updated;
+              });
+            };
+            reader.readAsDataURL(blob);
+          }
+        } catch (err) {
+          console.error('Error processing dragged image:', err);
+          alert('Failed to process the dragged image. Please try copying and pasting instead.');
+        }
       }
+
       // try {
       //   // Extract image URL if it's wrapped in HTML
       //   let imgSrc = imageUrl;
@@ -725,21 +828,25 @@ const InputArea: React.FC<InputAreaProps> = ({
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       
-      // IMAGE PASTE DISABLED - Only text-based document files are allowed
-      // Handle images - block with alert message
+      // Image paste: allowed only when the current model supports vision.
+      // visionEnabled comes from the dynamic Ollama capabilities flag (with name-based fallback).
       if (item.type.startsWith('image/')) {
-        e.preventDefault(); // Prevent default paste behavior for images
-        alert(`Image uploads are not supported. Only text-based document files are allowed (.txt, .doc, .docx).`);
-        return;
-        // const file = item.getAsFile();
-        // if (file) {
-        //   // Generate a meaningful filename for pasted images
-        //   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        //   const extension = item.type.split('/')[1] || 'png';
-        //   const renamedFile = new File([file], `pasted-image-${timestamp}.${extension}`, { type: file.type });
-        //   files.push(renamedFile);
-        // }
+        e.preventDefault(); // Always prevent default text-of-image paste behavior
+        if (!visionEnabled) {
+          const modelLabel = modelName || 'the current model';
+          alert(`Image uploads are not supported by "${modelLabel}". Please switch to a vision-capable model (e.g. llava, qwen2.5-vl, llama3.2-vision, gemma3) to paste images.`);
+          return;
+        }
+        const file = item.getAsFile();
+        if (file) {
+          // Generate a meaningful filename for pasted images
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+          const extension = item.type.split('/')[1] || 'png';
+          const renamedFile = new File([file], `pasted-image-${timestamp}.${extension}`, { type: file.type });
+          files.push(renamedFile);
+        }
       }
+
       // Handle files (if browser supports it) - only text files allowed
       else if (item.kind === 'file') {
         const file = item.getAsFile();
@@ -800,15 +907,19 @@ const InputArea: React.FC<InputAreaProps> = ({
           )}
         </Box>
 
-        {/* Hidden unified file input - only text-based files */}
+        {/* Hidden unified file input.
+            Accept attribute is dynamic: images are only offered when the current model
+            advertises vision capability (via Ollama /api/show capabilities) or matches the
+            name-based fallback list. */}
         <input
           type="file"
           ref={fileInputRef}
           style={{ display: 'none' }}
-          accept=".txt,.docx,.doc"
+          accept={visionEnabled ? '.txt,.docx,.doc,image/*' : '.txt,.docx,.doc'}
           multiple
           onChange={handleFileSelect}
         />
+
         
         {/* Add attachment button */}
         <Box sx={{ position: 'relative' }}>
