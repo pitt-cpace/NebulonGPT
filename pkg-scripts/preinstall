@@ -28,19 +28,23 @@ TOTAL_RAM_GB=$((TOTAL_RAM_BYTES / 1024 / 1024 / 1024))
 echo "System RAM: ${TOTAL_RAM_GB}GB" >&2
 
 # Determine recommended model based on RAM
-if [ "$TOTAL_RAM_GB" -ge 16 ]; then
+# > 32GB         -> GPT-OSS 20B  (best performance)
+# 16 - 32GB     -> Gemma 4 E4B IT Q8_0 (balanced)
+# < 16GB         -> Granite 3.1 1B (lightweight)
+if [ "$TOTAL_RAM_GB" -gt 32 ]; then
     RECOMMENDED_MODEL="gpt-oss:20b"
-    RECOMMENDED_ITEM="GPT-OSS 20B (Recommended - 16GB+ RAM)"
+    RECOMMENDED_ITEM="GPT-OSS 20B (Recommended - 32GB+ RAM)"
     MODEL_SIZE="~12GB"
-elif [ "$TOTAL_RAM_GB" -ge 12 ]; then
-    RECOMMENDED_MODEL="mistral:7b"
-    RECOMMENDED_ITEM="Mistral 7B (Recommended - 12GB+ RAM)"
+elif [ "$TOTAL_RAM_GB" -ge 16 ]; then
+    RECOMMENDED_MODEL="gemma4:e4b-it-q8_0"
+    RECOMMENDED_ITEM="Gemma 4 E4B IT Q8_0 (Recommended - 16-32GB RAM)"
     MODEL_SIZE="~4GB"
 else
     RECOMMENDED_MODEL="granite3.1-moe:1b"
-    RECOMMENDED_ITEM="Granite 3.1 1B (Recommended - 8GB+ RAM)"
+    RECOMMENDED_ITEM="Granite 3.1 1B (Recommended - <16GB RAM)"
     MODEL_SIZE="~1GB"
 fi
+
 
 # Check if Ollama is already installed
 OLLAMA_INSTALLED="false"
@@ -114,15 +118,16 @@ On the next screen, you'll be able to select which AI model to install. Here are
 
 • GPT-OSS 20B (Best Performance)
   For advanced tasks and complex reasoning
-  Requires: 16GB+ RAM | Download: ~12GB
+  Requires: 32GB+ RAM | Download: ~12GB
 
-• Mistral 7B (Balanced)
-  Good performance for general use
-  Requires: 12GB+ RAM | Download: ~4GB
+• Gemma 4 E4B IT Q8_0 (Balanced)
+  Great performance for general use
+  Requires: 16-32GB RAM | Download: ~4GB
 
 • Granite 3.1 1B (Lightweight)
   Fast responses on limited hardware
-  Requires: 8GB+ RAM | Download: ~1GB"
+  Requires: <16GB RAM | Download: ~1GB"
+
 
 if [ -n "$INSTALLED_MODELS" ]; then
     DIALOG_MSG+="
@@ -148,20 +153,21 @@ RECOMMENDED_MODEL_NAME=$(echo "$RECOMMENDED_ITEM" | cut -d'(' -f1 | sed 's/ *$//
 # Map the recommended model to the new dialog format
 case "$RECOMMENDED_MODEL" in
     "gpt-oss:20b")
-        DEFAULT_ITEM="GPT-OSS 20B (Best - 16GB+ RAM)"
+        DEFAULT_ITEM="GPT-OSS 20B (Best - 32GB+ RAM)"
         ;;
-    "mistral:7b")
-        DEFAULT_ITEM="Mistral 7B (Balanced - 12GB+ RAM)"
+    "gemma4:e4b-it-q8_0")
+        DEFAULT_ITEM="Gemma 4 E4B IT Q8_0 (Balanced - 16-32GB RAM)"
         ;;
     "granite3.1-moe:1b")
-        DEFAULT_ITEM="Granite 3.1 1B (Light - 8GB+ RAM)"
+        DEFAULT_ITEM="Granite 3.1 1B (Light - <16GB RAM)"
         ;;
 esac
 
 # Loop for model selection (allows going back if user clicks Skip)
 while true; do
     SELECTED_MODEL=$(osascript <<EOF
-set modelList to {"GPT-OSS 20B (Best - 16GB+ RAM)", "Mistral 7B (Balanced - 12GB+ RAM)", "Granite 3.1 1B (Light - 8GB+ RAM)"}
+set modelList to {"GPT-OSS 20B (Best - 32GB+ RAM)", "Gemma 4 E4B IT Q8_0 (Balanced - 16-32GB RAM)", "Granite 3.1 1B (Light - <16GB RAM)"}
+
 set defaultItem to "$DEFAULT_ITEM"
 set modelChoice to choose from list modelList with title "NebulonGPT Installer - Model Selection" with prompt "Select an AI model to install:
 
@@ -216,8 +222,8 @@ case "$SELECTED_MODEL" in
         CHOSEN_MODEL="gpt-oss:20b"
         MODEL_SIZE="~12GB"
         ;;
-    *"Mistral 7B"*)
-        CHOSEN_MODEL="mistral:7b"
+    *"Gemma 4 E4B"*)
+        CHOSEN_MODEL="gemma4:e4b-it-q8_0"
         MODEL_SIZE="~4GB"
         ;;
     *"Granite 3.1 1B"*)
@@ -229,6 +235,7 @@ case "$SELECTED_MODEL" in
         MODEL_SIZE=""
         ;;
 esac
+
 
 # Check if chosen model already exists
 NEED_DOWNLOAD_MODEL="true"
