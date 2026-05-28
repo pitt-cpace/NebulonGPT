@@ -190,7 +190,7 @@ export const sendMessage = async (
       if ((attachment.type === 'text' || attachment.type === 'pdf') && attachment.content) {
         enhancedContent += `\n\n--- File: ${attachment.name} ---\n${attachment.content}\n---\n`;
       }
-      
+
       // Collect image attachments for this message
       if (attachment.type === 'image' && attachment.content) {
         // Extract base64 data from data URL (remove the prefix like "data:image/jpeg;base64,")
@@ -199,6 +199,21 @@ export const sendMessage = async (
           messageImages.push(base64Data);
           // Also add to the global array for logging purposes
           imageAttachments.push(base64Data);
+        }
+      }
+
+      // PDF attachments may carry extracted images (embedded raster images and
+      // rendered page previews for charts/diagrams) — forward them to Ollama
+      // as additional `images` so vision models can actually "see" the PDF.
+      if (attachment.type === 'pdf' && attachment.images && attachment.images.length > 0) {
+        for (const b64 of attachment.images) {
+          if (!b64) continue;
+          // Backend already returns raw base64 (no data: prefix), but be defensive.
+          const clean = b64.includes(',') ? b64.split(',')[1] : b64;
+          if (clean) {
+            messageImages.push(clean);
+            imageAttachments.push(clean);
+          }
         }
       }
     });
@@ -271,7 +286,7 @@ export const sendMessage = async (
           if ((attachment.type === 'text' || attachment.type === 'pdf') && attachment.content) {
             enhancedContent += `\n\n--- File: ${attachment.name} ---\n${attachment.content}\n---\n`;
           }
-          
+
           // Collect image attachments for this message
           if (attachment.type === 'image' && attachment.content) {
             // Extract base64 data from data URL (remove the prefix like "data:image/jpeg;base64,")
@@ -280,6 +295,21 @@ export const sendMessage = async (
               messageImages.push(base64Data);
               // Also add to the global array for logging purposes
               imageAttachments.push(base64Data);
+            }
+          }
+
+          // PDF attachments may carry extracted images (embedded raster images
+          // and rendered page previews for charts/diagrams). Forward them to
+          // Ollama as additional `images` so vision models can "see" the PDF.
+          if (attachment.type === 'pdf' && attachment.images && attachment.images.length > 0) {
+            for (const b64 of attachment.images) {
+              if (!b64) continue;
+              // Backend returns raw base64 (no data: prefix), but be defensive.
+              const clean = b64.includes(',') ? b64.split(',')[1] : b64;
+              if (clean) {
+                messageImages.push(clean);
+                imageAttachments.push(clean);
+              }
             }
           }
         });
@@ -319,35 +349,119 @@ const endpoint = '/chat';
     
     // Log the full URL being used
     
+    // Heuristic detector for Ollama errors that mean "this model can't
+    // handle the number of images you sent". We DON'T hardcode model
+    // names — we react to what the server actually says. Examples seen:
+    //   "this model only supports one image while more than one image requested"
+    //   "model only supports a single image"
+    //   "too many images"
+    // If any of these appear in the error body, we transparently retry
+    // with at most one image per message (keeping the first one).
+    const isTooManyImagesError = (body: string): boolean => {
+      if (!body) return false;
+      const b = body.toLowerCase();
+      return (
+        (b.includes('image') && (b.includes('only support') || b.includes('only one') || b.includes('single image') || b.includes('one image'))) ||
+        b.includes('too many images') ||
+        (b.includes('more than one image') && b.includes('image'))
+      );
+    };
+
+    // Build a variant of `finalMessages` with images per message capped.
+    // `cap = 0` removes the `images` field entirely (text-only retry).
+    const capMessageImages = (msgs: any[], cap: number): any[] => {
+      return msgs.map(m => {
+        if (!m || !Array.isArray(m.images) || m.images.length === 0) return m;
+        if (cap <= 0) {
+          const { images, ...rest } = m;
+          return rest;
+        }
+        if (m.images.length <= cap) return m;
+        return { ...m, images: m.images.slice(0, cap) };
+      });
+    };
+
     // If streaming is enabled and callback is provided
     if (onStreamUpdate) {
-      // Prepare the request payload
-      const payload: any = {
+      // Build the request payload. We may retry with fewer images, so
+      // we wrap the fetch in a small loop that reacts to Ollama's actual
+      // error body (no hardcoded model names).
+      const buildPayload = (msgs: any[]): any => ({
         model: modelId,
-        messages: finalMessages,
+        messages: msgs,
         stream: true,
         keep_alive: -1, // Keep model loaded in RAM indefinitely
         options: options || {
           num_ctx: 4096,
           temperature: 0.8,
         },
-      };
-      
-      
-      
-      // Log the complete payload with messages containing images
-      //console.log('Complete Ollama API request payload:', JSON.stringify(payload, null, 2));
-      
-      // Use fetch for streaming
-      const response = await fetch(`${baseURL}${endpoint}`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(payload),
       });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+
+      // We try up to 3 progressions: original images → 1 image per msg → 0 images.
+      // Each step is only taken if the server explicitly complained about
+      // image count. Any other error is re-thrown immediately.
+      const imageCaps: Array<number | null> = [null, 1, 0]; // null = no cap
+      let response: Response | null = null;
+      let attempt = 0;
+      let lastErrorBody = '';
+
+      for (; attempt < imageCaps.length; attempt++) {
+        const cap = imageCaps[attempt];
+        const msgsForAttempt =
+          cap === null ? finalMessages : capMessageImages(finalMessages, cap);
+
+        if (attempt > 0) {
+          console.warn(
+            `↻ Retrying /api/chat with images capped at ${cap === 0 ? 'none' : cap} ` +
+            `per message (server said: ${lastErrorBody.slice(0, 200)})`,
+          );
+        }
+
+        response = await fetch(`${baseURL}${endpoint}`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(buildPayload(msgsForAttempt)),
+        });
+
+        if (response.ok) break;
+
+        // Read the server's error body so we can both log it and decide
+        // whether retrying makes sense.
+        let serverDetail = '';
+        try {
+          serverDetail = await response.text();
+        } catch {
+          /* ignore */
+        }
+        lastErrorBody = serverDetail;
+
+        console.error(
+          `Ollama /api/chat returned ${response.status}.`,
+          serverDetail ? `Server said: ${serverDetail}` : '(no body)',
+        );
+
+        // Only retry on the specific "too many images" family of errors,
+        // and only if we still have a stricter cap to try.
+        const hasMoreRetries = attempt < imageCaps.length - 1;
+        if (!hasMoreRetries || !isTooManyImagesError(serverDetail)) {
+          throw new Error(
+            `HTTP error! status: ${response.status}${
+              serverDetail ? ` — ${serverDetail.slice(0, 500)}` : ''
+            }`,
+          );
+        }
+        // else loop & retry with stricter image cap
       }
+
+      if (!response || !response.ok) {
+        throw new Error(
+          `HTTP error! status: ${response?.status ?? 'unknown'}${
+            lastErrorBody ? ` — ${lastErrorBody.slice(0, 500)}` : ''
+          }`,
+        );
+      }
+
+
       
       if (!response.body) {
         throw new Error('Response body is null');

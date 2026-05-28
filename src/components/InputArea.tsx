@@ -112,8 +112,17 @@ const InputArea: React.FC<InputAreaProps> = ({
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [imageWarning, setImageWarning] = useState<string | null>(null);
   const [imageBlocked, setImageBlocked] = useState<string | null>(null); // Blocked message for non-vision models
+  // Non-blocking advisory shown when a PDF carries visual content (images / charts / tables)
+  // that the current text-only model won't be able to "see". The user can still send, we
+  // just warn that visuals will be ignored / poorly summarized.
+  const [pdfVisualWarning, setPdfVisualWarning] = useState<string | null>(null);
+  // Per-attachment metadata captured at PDF-extraction time so we can decide whether to
+  // show the visual-content warning without depending on the backend response shape
+  // being available later. Keyed by attachment id.
+  const pdfVisualStatsRef = useRef<Record<string, { images: number; charts: number; tables: number }>>({});
   const [contextWarning, setContextWarning] = useState<string | null>(null);
   const [isContextExceeded, setIsContextExceeded] = useState(false);
+
   const [textDirection, setTextDirection] = useState<{
     direction: 'ltr' | 'rtl';
     textAlign: 'left' | 'right';
@@ -246,6 +255,82 @@ const InputArea: React.FC<InputAreaProps> = ({
       setImageWarning(null);
     }
   }, [attachments, modelName, modelSupportsVision]);
+
+  // Non-blocking advisory: when one or more attached PDFs contain visual
+  // content (embedded images, vector chart regions, or tables) AND the
+  // currently loaded model does NOT advertise vision capability via Ollama
+  // /api/show, the user should know that those visuals will NOT be
+  // analyzed — only the extracted plain text will reach the model.
+  //
+  // This is intentionally informational (yellow banner), not blocking,
+  // because the text portion of the PDF is still useful on its own.
+  useEffect(() => {
+    if (modelSupportsVision) {
+      setPdfVisualWarning(null);
+      return;
+    }
+
+    const pdfAttachments = attachments.filter(a => a.type === 'pdf');
+    if (pdfAttachments.length === 0) {
+      setPdfVisualWarning(null);
+      return;
+    }
+
+    // Aggregate visual stats across all PDF attachments using the cached
+    // extraction metadata. We also fall back to attachment.images.length
+    // in case the cache was lost (e.g. attachment loaded from disk).
+    let totalImages = 0;
+    let totalCharts = 0;
+    let totalTables = 0;
+    const pdfNamesWithVisuals: string[] = [];
+
+    for (const att of pdfAttachments) {
+      const stats = pdfVisualStatsRef.current[att.id];
+      const imgsFromStats = stats?.images ?? (att.images?.length ?? 0);
+      const chartsFromStats = stats?.charts ?? 0;
+      const tablesFromStats = stats?.tables ?? 0;
+
+      if (imgsFromStats > 0 || chartsFromStats > 0 || tablesFromStats > 0) {
+        pdfNamesWithVisuals.push(att.name);
+      }
+      totalImages += imgsFromStats;
+      totalCharts += chartsFromStats;
+      totalTables += tablesFromStats;
+    }
+
+    if (totalImages === 0 && totalCharts === 0 && totalTables === 0) {
+      setPdfVisualWarning(null);
+      return;
+    }
+
+    const parts: string[] = [];
+    if (totalImages > 0) parts.push(`${totalImages} image${totalImages !== 1 ? 's' : ''}`);
+    if (totalCharts > 0) parts.push(`${totalCharts} chart/diagram region${totalCharts !== 1 ? 's' : ''}`);
+    if (totalTables > 0) parts.push(`${totalTables} table${totalTables !== 1 ? 's' : ''}`);
+
+    const modelLabel = modelName || 'the current model';
+    const namesPreview =
+      pdfNamesWithVisuals.length === 1
+        ? `"${pdfNamesWithVisuals[0]}"`
+        : `${pdfNamesWithVisuals.length} attached PDFs`;
+
+    setPdfVisualWarning(
+      `Heads up: ${namesPreview} contains ${parts.join(', ')}, but "${modelLabel}" is a text-only model ` +
+      `and cannot analyze visual content. Only the extracted text will be sent. ` +
+      `For accurate answers about charts/figures/images, switch to a vision-capable model ` +
+      `(e.g. llava, qwen2.5-vl, llama3.2-vision, gemma3, minicpm-v).`,
+    );
+  }, [attachments, modelName, modelSupportsVision]);
+
+  // Clean up cached PDF stats for attachments that are no longer present
+  // (e.g. removed by the user) so the ref doesn't grow forever.
+  useEffect(() => {
+    const liveIds = new Set(attachments.map(a => a.id));
+    for (const id of Object.keys(pdfVisualStatsRef.current)) {
+      if (!liveIds.has(id)) delete pdfVisualStatsRef.current[id];
+    }
+  }, [attachments]);
+
 
 
 
@@ -411,10 +496,123 @@ const InputArea: React.FC<InputAreaProps> = ({
         };
 
         reader.readAsDataURL(file);
-      } else if (file.name.endsWith('.pdf')) {
+      } else if (file.name.toLowerCase().endsWith('.pdf')) {
+        // PDFs are processed server-side by the unified Python backend
+        // (PyMuPDF + pdfplumber + Pillow). The backend returns text, tables,
+        // images, charts metadata and metadata in one structured payload.
+        //
+        // If the current model supports vision, we also request rendered page
+        // previews so charts/diagrams (which are often vector-only drawings)
+        // can actually be "seen" by the LLM.
+        (async () => {
+          // Placeholder attachment while extracting (gives the user feedback)
+          const placeholderId = `pdf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const placeholder: FileAttachment = {
+            id: placeholderId,
+            name: `${file.name} (extracting…)`,
+            type: 'pdf',
+            content: '',
+            size: file.size,
+            timestamp: new Date().toISOString(),
+          };
+          setAttachments(prev => {
+            const updated = [...prev, placeholder];
+            calculateTokens(message, updated);
+            return updated;
+          });
 
-        alert(`PDF files are not supported. Please use text files (.txt) or Word documents (.doc, .docx) instead.`);
+          try {
+            const { extractPdf } = await import('../services/backendApi');
+            // IMPORTANT: we ALWAYS request image extraction (include_images=true)
+            // so the backend reports accurate `stats.total_images` even when the
+            // current model is text-only. This is what lets us show the
+            // "PDF contains images that this model can't analyze" warning.
+            // We still only RENDER full page previews for vision-capable models
+            // (those are heavy), and we strip the image payloads from the
+            // FileAttachment below when vision isn't supported so nothing
+            // image-related is ever sent to the LLM.
+            const result = await extractPdf(
+              file,
+              /* includeImages */ true,
+              /* renderPages   */ visionEnabled, // render pages only if vision-capable
+              /* maxImages     */ 30,
+            );
+
+
+            // Build the textual content fed into the LLM message
+            const textContent = result.llm_summary_prompt || result.combined_text || '';
+
+            // Collect base64 images from the backend response. The backend
+            // returns raw base64 (no data: URI prefix). We wrap them as
+            // proper `data:image/<fmt>;base64,...` URIs here so the
+            // <img> thumbnails in ChatArea render correctly. `api.ts`
+            // already strips the prefix when forwarding to Ollama, so
+            // both consumers stay happy. Order: embedded images first,
+            // then rendered pages.
+            const imageList: string[] = [];
+            for (const page of result.pages) {
+              for (const img of page.images || []) {
+                if (img.data) {
+                  // Defensive: if data already has the prefix (unexpected),
+                  // keep it as-is; otherwise add it.
+                  const fmt = (img.format || 'jpeg').toLowerCase();
+                  const mime = fmt === 'png' ? 'image/png' : 'image/jpeg';
+                  const dataUri = img.data.startsWith('data:')
+                    ? img.data
+                    : `data:${mime};base64,${img.data}`;
+                  imageList.push(dataUri);
+                }
+              }
+            }
+
+
+            const finalAttachment: FileAttachment = {
+              id: placeholderId, // keep same id to replace in place
+              name: file.name,
+              type: 'pdf',
+              content: textContent,
+              images: visionEnabled && imageList.length > 0 ? imageList : undefined,
+              size: file.size,
+              timestamp: new Date().toISOString(),
+            };
+
+            // Remember the visual-content stats for this attachment so we
+            // can render a warning if the user's current model is text-only.
+            // We don't depend on `attachment.images` being populated because
+            // that field is intentionally stripped for non-vision models above.
+            pdfVisualStatsRef.current[placeholderId] = {
+              images: result.stats.total_images || 0,
+              charts: result.stats.total_charts_detected || 0,
+              tables: result.stats.total_tables || 0,
+            };
+
+            setAttachments(prev => {
+              const updated = prev.map(a => a.id === placeholderId ? finalAttachment : a);
+              calculateTokens(message, updated);
+              return updated;
+            });
+
+            console.log(
+              `📄 PDF '${file.name}' extracted: ${result.page_count} pages, ` +
+              `${result.stats.total_chars} chars, ${result.stats.total_tables} tables, ` +
+              `${result.stats.total_images} images, ` +
+              `${result.stats.total_charts_detected} chart regions`,
+            );
+
+          } catch (err: any) {
+            console.error('PDF extraction failed:', err);
+            const detail = err?.response?.data?.detail || err?.message || 'unknown error';
+            alert(`Failed to extract PDF "${file.name}": ${detail}`);
+            // Remove placeholder
+            setAttachments(prev => {
+              const updated = prev.filter(a => a.id !== placeholderId);
+              calculateTokens(message, updated);
+              return updated;
+            });
+          }
+        })();
       } else if (file.name.endsWith('.txt')) {
+
         const reader = new FileReader();
         
         reader.onload = (event) => {
@@ -719,7 +917,7 @@ const InputArea: React.FC<InputAreaProps> = ({
           type="file"
           ref={fileInputRef}
           style={{ display: 'none' }}
-          accept={visionEnabled ? '.txt,.docx,.doc,image/*' : '.txt,.docx,.doc'}
+          accept={visionEnabled ? '.txt,.docx,.doc,.pdf,image/*' : '.txt,.docx,.doc,.pdf'}
           multiple
           onChange={handleFileSelect}
         />
@@ -826,6 +1024,37 @@ const InputArea: React.FC<InputAreaProps> = ({
               </Typography>
             </Box>
           )}
+
+          {/* PDF visual-content advisory: shown when an attached PDF contains
+              images / charts / tables but the current model is text-only.
+              Sending is still allowed — this is purely informational. */}
+          {pdfVisualWarning && !imageBlocked && (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 1,
+                p: 1,
+                mb: 1,
+                borderRadius: 1,
+                bgcolor: 'rgba(255, 152, 0, 0.1)',
+                border: '1px solid rgba(255, 152, 0, 0.3)',
+                width: '100%'
+              }}
+            >
+              <WarningIcon sx={{ fontSize: 16, color: 'warning.main', mt: 0.25, flexShrink: 0 }} />
+              <Typography
+                variant="caption"
+                sx={{
+                  color: 'warning.main',
+                  lineHeight: 1.4
+                }}
+              >
+                {pdfVisualWarning}
+              </Typography>
+            </Box>
+          )}
+
 
           {/* File attachment chips */}
           {attachments.length > 0 && (

@@ -160,8 +160,93 @@ export const deleteVoskModel = async (modelName: string) => {
   }
 };
 
+// =============================================================================
+// PDF EXTRACTION
+// =============================================================================
+// Calls the unified Python backend (/api/pdf/extract) which uses PyMuPDF +
+// pdfplumber + Pillow to pull text, images, tables, charts, links, TOC and
+// metadata from a PDF. The returned structure is designed to be dropped into
+// a FileAttachment (type='pdf') and forwarded straight to the LLM.
+
+export interface PdfPageData {
+  page: number;
+  text: string;
+  tables: string[][][];
+  images: Array<{
+    index: number;
+    format: string;       // 'png' | 'jpeg'
+    width: number;
+    height: number;
+    data: string;         // base64 (no data: prefix)
+    rendered_page?: boolean;
+  }>;
+  charts_detected: number;
+  links: string[];
+}
+
+export interface PdfExtractionResult {
+  filename: string;
+  metadata: Record<string, any>;
+  page_count: number;
+  pages: PdfPageData[];
+  toc: Array<{ level: number; title: string; page: number }>;
+  combined_text: string;
+  llm_summary_prompt: string;
+  stats: {
+    total_images: number;
+    total_tables: number;
+    total_chars: number;
+    total_charts_detected: number;
+  };
+}
+
+/**
+ * Extract structured content from a PDF via the backend.
+ *
+ * @param file           The PDF File (from <input type="file"> or drag-drop)
+ * @param includeImages  Return base64 image payloads (default true)
+ * @param renderPages    Also render first N pages as JPEGs (great for charts
+ *                       that exist only as vector drawings - send these to a
+ *                       vision LLM). Default false.
+ * @param maxImages      Hard cap on images returned (default 30)
+ */
+export const extractPdf = async (
+  file: File,
+  includeImages: boolean = true,
+  renderPages: boolean = false,
+  maxImages: number = 30,
+): Promise<PdfExtractionResult> => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const params = new URLSearchParams({
+      include_images: String(includeImages),
+      render_pages: String(renderPages),
+      max_images: String(maxImages),
+    });
+
+    const response = await backendApi.post(
+      `/api/pdf/extract?${params.toString()}`,
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        // Allow large PDFs (text + base64 images can balloon the response)
+        maxContentLength: 200 * 1024 * 1024,
+        maxBodyLength: 200 * 1024 * 1024,
+        timeout: 120000, // 2 minutes for very large PDFs
+      },
+    );
+    return response.data as PdfExtractionResult;
+  } catch (error) {
+    console.error('Error extracting PDF:', error);
+    throw error;
+  }
+};
+
 // Network info endpoint
 export const getNetworkInfo = async () => {
+
   try {
     const response = await backendApi.get('/api/network-info');
     return response.data;

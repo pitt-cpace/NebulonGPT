@@ -26,6 +26,14 @@ spacy>=3.8.0
 # spaCy English language model
 https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
+# PDF Processing
+# PyMuPDF for text + image + metadata extraction (fast, accurate)
+PyMuPDF>=1.24.0
+# pdfplumber for accurate table extraction (built on pdfminer.six)
+pdfplumber>=0.11.0
+# Pillow for image manipulation (used to re-encode extracted PDF images)
+Pillow>=10.0.0
+
 # Utilities
 netifaces>=0.11.0
 python-dotenv>=1.2.0

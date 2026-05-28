@@ -325,6 +325,372 @@ async def delete_model(model_name: str):
         raise HTTPException(status_code=500, detail="Failed to delete model")
 
 # =============================================================================
+# REST API ENDPOINTS - PDF PROCESSING
+# =============================================================================
+#
+# PDF text + image + table + metadata extraction for sending to LLMs.
+# Uses:
+#   - PyMuPDF (fitz)   -> fast text extraction, embedded images, metadata,
+#                          drawings/charts detection, links, TOC
+#   - pdfplumber       -> accurate table extraction (built on pdfminer.six)
+#   - Pillow           -> re-encode extracted images to a safe PNG/JPEG payload
+#
+# The endpoint accepts a PDF upload and returns a structured JSON document
+# that the frontend can drop into a FileAttachment (type='pdf') and forward
+# to the LLM via the existing chat pipeline.
+
+def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
+                         max_images: int = 30,
+                         max_image_dim: int = 1280,
+                         render_pages_as_images: bool = False,
+                         max_rendered_pages: int = 8) -> dict:
+    """
+    Extract structured content from a PDF.
+
+    Returns a dict shaped for LLM consumption:
+        {
+          "filename": str,
+          "metadata": {...},               # title, author, page count, etc.
+          "page_count": int,
+          "pages": [
+            {
+              "page": int,                 # 1-indexed page number
+              "text": str,                 # plain text on this page
+              "tables": [ [[cell, ...], ...], ... ],   # list of 2D arrays
+              "images": [                  # base64 PNG/JPEG previews
+                {"index": int, "format": "png", "width": w, "height": h,
+                 "data": "<base64>"}
+              ],
+              "charts_detected": int,      # heuristic: # of vector drawings
+              "links": [str, ...]
+            }, ...
+          ],
+          "toc": [ {"level": int, "title": str, "page": int}, ... ],
+          "combined_text": str,            # all page text joined (LLM-friendly)
+          "llm_summary_prompt": str,       # ready-to-feed textual digest
+          "stats": { "total_images": int, "total_tables": int,
+                     "total_chars": int, "total_charts_detected": int }
+        }
+    """
+    import fitz  # PyMuPDF
+    import pdfplumber
+    from PIL import Image
+
+    result = {
+        "filename": filename,
+        "metadata": {},
+        "page_count": 0,
+        "pages": [],
+        "toc": [],
+        "combined_text": "",
+        "llm_summary_prompt": "",
+        "stats": {
+            "total_images": 0,
+            "total_tables": 0,
+            "total_chars": 0,
+            "total_charts_detected": 0,
+        },
+    }
+
+    # ---- PyMuPDF: text, images, metadata, links, drawings -------------------
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        meta = doc.metadata or {}
+        result["metadata"] = {
+            "title": meta.get("title") or "",
+            "author": meta.get("author") or "",
+            "subject": meta.get("subject") or "",
+            "keywords": meta.get("keywords") or "",
+            "creator": meta.get("creator") or "",
+            "producer": meta.get("producer") or "",
+            "creation_date": meta.get("creationDate") or "",
+            "modification_date": meta.get("modDate") or "",
+            "encrypted": doc.is_encrypted,
+            "page_count": doc.page_count,
+        }
+        result["page_count"] = doc.page_count
+
+        # Table of contents (outline)
+        try:
+            toc = doc.get_toc(simple=True) or []
+            result["toc"] = [
+                {"level": int(l), "title": str(t), "page": int(p)}
+                for (l, t, p) in toc
+            ]
+        except Exception as e:
+            logger.debug(f"[PDF] TOC extraction failed: {e}")
+
+        images_collected = 0
+
+        for page_index in range(doc.page_count):
+            page = doc.load_page(page_index)
+
+            # ---- Text ---------------------------------------------------------
+            try:
+                page_text = page.get_text("text") or ""
+            except Exception as e:
+                logger.debug(f"[PDF] Text extraction failed page {page_index}: {e}")
+                page_text = ""
+
+            # ---- Links --------------------------------------------------------
+            page_links = []
+            try:
+                for link in page.get_links() or []:
+                    if link.get("uri"):
+                        page_links.append(link["uri"])
+            except Exception:
+                pass
+
+            # ---- Charts/drawings heuristic -----------------------------------
+            # PyMuPDF exposes vector drawings via page.get_drawings(). A non-zero
+            # count strongly suggests vector charts/diagrams (matplotlib output,
+            # CAD-style figures, etc.) that won't appear in get_images().
+            charts_count = 0
+            try:
+                drawings = page.get_drawings() or []
+                # Filter to non-trivial drawings (more than ~5 path items)
+                charts_count = sum(1 for d in drawings if len(d.get("items", [])) >= 5)
+            except Exception:
+                charts_count = 0
+
+            # ---- Embedded raster images --------------------------------------
+            page_images = []
+            try:
+                for img_info in page.get_images(full=True):
+                    if images_collected >= max_images:
+                        break
+                    xref = img_info[0]
+                    try:
+                        pix = fitz.Pixmap(doc, xref)
+                        # Convert CMYK / palette to RGB if needed
+                        if pix.n - pix.alpha >= 4:
+                            pix = fitz.Pixmap(fitz.csRGB, pix)
+
+                        img_bytes = pix.tobytes("png")
+                        # Down-scale large images with Pillow to keep payload small
+                        pil_img = Image.open(io.BytesIO(img_bytes))
+                        w, h = pil_img.size
+                        if max(w, h) > max_image_dim:
+                            scale = max_image_dim / float(max(w, h))
+                            new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+                            pil_img = pil_img.resize(new_size, Image.LANCZOS)
+                            w, h = pil_img.size
+
+                        out_buf = io.BytesIO()
+                        # Save as JPEG when no alpha (smaller), else PNG
+                        if pil_img.mode in ("RGBA", "LA"):
+                            pil_img.save(out_buf, format="PNG", optimize=True)
+                            fmt = "png"
+                        else:
+                            pil_img.convert("RGB").save(
+                                out_buf, format="JPEG", quality=82, optimize=True
+                            )
+                            fmt = "jpeg"
+
+                        page_images.append({
+                            "index": images_collected,
+                            "format": fmt,
+                            "width": w,
+                            "height": h,
+                            "data": base64.b64encode(out_buf.getvalue()).decode("utf-8"),
+                        })
+                        images_collected += 1
+                    except Exception as ie:
+                        logger.debug(f"[PDF] Failed to decode image xref={xref}: {ie}")
+                        continue
+                    finally:
+                        try:
+                            pix = None  # release pixmap
+                        except Exception:
+                            pass
+            except Exception as e:
+                logger.debug(f"[PDF] Image extraction failed page {page_index}: {e}")
+
+            # ---- Optional: render whole page as image (charts often live as
+            # vector drawings without embedded raster images, so for vision LLMs
+            # it's useful to send a rendered preview of the first few pages).
+            if render_pages_as_images and page_index < max_rendered_pages \
+                    and images_collected < max_images:
+                try:
+                    matrix = fitz.Matrix(2, 2)  # ~144 DPI
+                    pm = page.get_pixmap(matrix=matrix, alpha=False)
+                    pil_img = Image.open(io.BytesIO(pm.tobytes("png")))
+                    w, h = pil_img.size
+                    if max(w, h) > max_image_dim:
+                        scale = max_image_dim / float(max(w, h))
+                        pil_img = pil_img.resize(
+                            (max(1, int(w * scale)), max(1, int(h * scale))),
+                            Image.LANCZOS,
+                        )
+                        w, h = pil_img.size
+                    out_buf = io.BytesIO()
+                    pil_img.convert("RGB").save(out_buf, format="JPEG",
+                                                quality=80, optimize=True)
+                    page_images.append({
+                        "index": images_collected,
+                        "format": "jpeg",
+                        "width": w,
+                        "height": h,
+                        "data": base64.b64encode(out_buf.getvalue()).decode("utf-8"),
+                        "rendered_page": True,
+                    })
+                    images_collected += 1
+                except Exception as e:
+                    logger.debug(f"[PDF] Page render failed page {page_index}: {e}")
+
+            result["pages"].append({
+                "page": page_index + 1,
+                "text": page_text,
+                "tables": [],  # filled by pdfplumber pass below
+                "images": page_images,
+                "charts_detected": charts_count,
+                "links": page_links,
+            })
+
+            result["stats"]["total_images"] += len(page_images)
+            result["stats"]["total_chars"] += len(page_text)
+            result["stats"]["total_charts_detected"] += charts_count
+    finally:
+        doc.close()
+
+    # ---- pdfplumber: tables -------------------------------------------------
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pp:
+            for page_index, pp_page in enumerate(pp.pages):
+                if page_index >= len(result["pages"]):
+                    break
+                try:
+                    tables = pp_page.extract_tables() or []
+                except Exception as e:
+                    logger.debug(f"[PDF] Table extract failed page {page_index}: {e}")
+                    tables = []
+
+                clean_tables = []
+                for tbl in tables:
+                    # Normalize None -> "" so JSON is clean
+                    norm = [
+                        [("" if cell is None else str(cell)).strip() for cell in row]
+                        for row in tbl
+                        if any(cell is not None and str(cell).strip() for cell in row)
+                    ]
+                    if norm:
+                        clean_tables.append(norm)
+
+                result["pages"][page_index]["tables"] = clean_tables
+                result["stats"]["total_tables"] += len(clean_tables)
+    except Exception as e:
+        logger.warning(f"[PDF] pdfplumber pass failed: {e}")
+
+    # ---- Build LLM-friendly text digest -------------------------------------
+    combined_chunks = []
+    for p in result["pages"]:
+        combined_chunks.append(f"\n===== Page {p['page']} =====\n")
+        if p["text"].strip():
+            combined_chunks.append(p["text"].strip())
+        if p["tables"]:
+            for ti, tbl in enumerate(p["tables"], start=1):
+                combined_chunks.append(f"\n[Table {ti} on page {p['page']}]")
+                # Render as Markdown-ish pipe table
+                for row in tbl:
+                    combined_chunks.append(" | ".join(row))
+        if p["charts_detected"]:
+            combined_chunks.append(
+                f"\n[Note: {p['charts_detected']} vector chart/drawing region(s) "
+                f"detected on page {p['page']}.]"
+            )
+        if p["images"]:
+            combined_chunks.append(
+                f"\n[Note: {len(p['images'])} embedded image(s) on page {p['page']} "
+                f"were extracted and attached separately.]"
+            )
+        if p["links"]:
+            combined_chunks.append("\nLinks: " + ", ".join(p["links"][:20]))
+
+    combined_text = "\n".join(combined_chunks).strip()
+    result["combined_text"] = combined_text
+
+    meta = result["metadata"]
+    header = (
+        f"PDF document: {filename}\n"
+        f"Title: {meta.get('title') or '(none)'}\n"
+        f"Author: {meta.get('author') or '(none)'}\n"
+        f"Pages: {result['page_count']}\n"
+        f"Embedded images extracted: {result['stats']['total_images']}\n"
+        f"Tables extracted: {result['stats']['total_tables']}\n"
+        f"Vector chart/drawing regions detected: "
+        f"{result['stats']['total_charts_detected']}\n"
+    )
+    result["llm_summary_prompt"] = header + "\n--- BEGIN DOCUMENT CONTENT ---\n" + \
+        combined_text + "\n--- END DOCUMENT CONTENT ---\n"
+
+    return result
+
+
+@app.post("/api/pdf/extract")
+async def extract_pdf(
+    file: UploadFile = File(...),
+    include_images: str = "true",
+    render_pages: str = "false",
+    max_images: int = 30,
+):
+    """
+    Extract text, images, tables, charts and metadata from an uploaded PDF.
+
+    Query/form params:
+      - include_images: "true"/"false" - whether to return base64 image payloads
+      - render_pages:   "true"/"false" - also render first N pages as images
+                        (useful for charts/diagrams when sending to vision LLMs)
+      - max_images:     hard cap on number of returned image payloads
+    """
+    try:
+        if not file.filename or not file.filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Only .pdf files are supported")
+
+        pdf_bytes = await file.read()
+        if not pdf_bytes:
+            raise HTTPException(status_code=400, detail="Empty file")
+
+        size_mb = len(pdf_bytes) / (1024 * 1024)
+        logger.info(f"[PDF] Extracting '{file.filename}' ({size_mb:.2f} MB)")
+
+        wants_images = str(include_images).lower() in ("1", "true", "yes")
+        wants_rendered = str(render_pages).lower() in ("1", "true", "yes")
+
+        loop = asyncio.get_event_loop()
+        payload = await loop.run_in_executor(
+            None,
+            lambda: _extract_pdf_payload(
+                pdf_bytes,
+                file.filename,
+                max_images=max_images if wants_images else 0,
+                render_pages_as_images=wants_rendered,
+            ),
+        )
+
+        # Strip image payloads if caller didn't want them (saves bandwidth)
+        if not wants_images:
+            for p in payload["pages"]:
+                p["images"] = []
+            payload["stats"]["total_images"] = 0
+
+        logger.info(
+            f"[PDF] '{file.filename}' -> {payload['page_count']} pages, "
+            f"{payload['stats']['total_chars']} chars, "
+            f"{payload['stats']['total_tables']} tables, "
+            f"{payload['stats']['total_images']} images, "
+            f"{payload['stats']['total_charts_detected']} charts"
+        )
+
+        return payload
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[PDF] Extraction failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"PDF extraction failed: {e}")
+
+
+# =============================================================================
 # REST API ENDPOINTS - NETWORK INFO
 # =============================================================================
 

@@ -947,12 +947,29 @@ function startFastAPIBackend() {
       PYTHONUTF8: '1'
     };
 
-    // Determine backend script path
+    // Determine backend script path.
+    //
+    // In dev mode (`isDev`) we ALWAYS prefer the dev source (`./backend/main.py`)
+    // over any previously-extracted bundle copy in `~/.nebulon-gpt/python-bundle/`.
+    // Otherwise edits to backend/main.py won't take effect until the user manually
+    // wipes the extracted bundle, which previously caused stale-route 404s
+    // (e.g. /api/pdf/extract returning 404 even though the source defined it).
+    //
+    // In production the dev source isn't available, so we fall back to the
+    // extracted bundle as before.
     const extractedBackendScript = path.join(PATHS.pythonBundleDir, 'backend/main.py');
     const devBackendScript = getResourcePath('backend/main.py');
-    
-    const backendScript = fs.existsSync(extractedBackendScript) ? extractedBackendScript : devBackendScript;
-    
+
+    let backendScript;
+    if (isDev && fs.existsSync(devBackendScript)) {
+      backendScript = devBackendScript;
+      console.log('🐍 Dev mode: using live backend source (ignoring any extracted bundle copy)');
+    } else if (fs.existsSync(extractedBackendScript)) {
+      backendScript = extractedBackendScript;
+    } else {
+      backendScript = devBackendScript;
+    }
+
     console.log(`🐍 Using backend script: ${backendScript}`);
     console.log(`🐍 Backend script exists: ${fs.existsSync(backendScript)}`);
 
@@ -972,16 +989,21 @@ function startFastAPIBackend() {
     logStream.write(`[${timestamp}] Starting FastAPI Backend\n`);
     logStream.write(`${'='.repeat(80)}\n\n`);
 
-    // Determine correct working directory
-    // For bundled: use python-bundle (contains backend/ subdirectory)
-    // For dev: use project root (contains backend/ subdirectory)
+    // Determine correct working directory.
+    //
+    // IMPORTANT: this must match where `backendScript` was resolved from,
+    // otherwise uvicorn's `backend.main:app` import string will load a
+    // *different* main.py than we intended (e.g. stale extracted bundle
+    // vs. live dev source). Previously this only looked at whether the
+    // extracted bundle existed, which caused the dev edits to /api/pdf/extract
+    // to be silently ignored.
     let workingDir;
-    if (fs.existsSync(extractedBackendScript)) {
-      // Bundled mode: backend is in python-bundle/backend/
-      workingDir = PATHS.pythonBundleDir;
+    if (backendScript === devBackendScript) {
+      // Dev (or forced-dev) mode: project root contains the `backend/` package
+      workingDir = path.dirname(path.dirname(backendScript)); // up two levels from main.py
     } else {
-      // Dev mode: backend is in project/backend/
-      workingDir = path.dirname(path.dirname(backendScript)); // Go up two levels from main.py
+      // Bundled mode: backend lives at python-bundle/backend/
+      workingDir = PATHS.pythonBundleDir;
     }
     
     console.log(`🐍 Working directory: ${workingDir}`);

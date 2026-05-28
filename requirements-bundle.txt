@@ -22,6 +22,11 @@ espeakng-loader>=0.2.4
 kokoro>=0.7.16
 misaki[en]>=0.7.16
 
+# PDF processing (unified backend /api/pdf/extract endpoint)
+PyMuPDF>=1.24.0
+pdfplumber>=0.11.0
+Pillow>=10.0.0
+
 # Additional utilities
 colorama>=0.4.6
 tqdm>=4.66.4
