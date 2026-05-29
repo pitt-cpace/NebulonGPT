@@ -168,17 +168,43 @@ export const deleteVoskModel = async (modelName: string) => {
 // metadata from a PDF. The returned structure is designed to be dropped into
 // a FileAttachment (type='pdf') and forwarded straight to the LLM.
 
+/**
+ * Per-page metadata returned by /api/pdf/extract.
+ *
+ * The image / figure / table arrays carry RICH per-element metadata so that
+ * even text-only LLMs can reason about the document's visual structure.
+ * Visuals are never capped in count — every embedded raster image, every
+ * detected vector-figure region (when render_pages=true), and every
+ * pdfplumber-found table is reported.
+ */
 export interface PdfPageData {
   page: number;
   text: string;
   tables: string[][][];
+  tables_meta?: Array<{
+    page?: number;
+    rows: number;
+    cols: number;
+    bbox: [number, number, number, number] | null;
+    caption: string | null;
+  }>;
   images: Array<{
     index: number;
+    /**
+     * "embedded_image" = bitmap embedded in the PDF (photo, scanned figure).
+     * "vector_figure"  = tight crop of a region containing vector drawings
+     *                    (matplotlib output, schematic, etc.) — only present
+     *                    when the request was made with render_pages=true.
+     */
+    kind?: 'embedded_image' | 'vector_figure';
+    page?: number;
+    bbox?: [number, number, number, number] | null;
+    caption?: string | null;
     format: string;       // 'png' | 'jpeg'
     width: number;
     height: number;
-    data: string;         // base64 (no data: prefix)
-    rendered_page?: boolean;
+    data: string;         // base64 (no data: prefix). May be "" when
+                          // include_images=false (metadata-only mode).
   }>;
   charts_detected: number;
   links: string[];
@@ -193,7 +219,8 @@ export interface PdfExtractionResult {
   combined_text: string;
   llm_summary_prompt: string;
   stats: {
-    total_images: number;
+    total_images: number;            // count of embedded raster images
+    total_vector_figures: number;    // count of rendered vector-figure crops
     total_tables: number;
     total_chars: number;
     total_charts_detected: number;
@@ -204,27 +231,33 @@ export interface PdfExtractionResult {
  * Extract structured content from a PDF via the backend.
  *
  * @param file           The PDF File (from <input type="file"> or drag-drop)
- * @param includeImages  Return base64 image payloads (default true)
- * @param renderPages    Also render first N pages as JPEGs (great for charts
- *                       that exist only as vector drawings - send these to a
- *                       vision LLM). Default false.
- * @param maxImages      Hard cap on images returned (default 30)
+ * @param includeImages  When true, return base64 image payloads. When false,
+ *                       still returns full per-image metadata (count, caption,
+ *                       bbox, dimensions) but with empty `data` strings — so
+ *                       the UI can still warn about visual content without
+ *                       paying the bandwidth cost. Default true.
+ * @param renderPages    When true, the backend also renders tight CROPS of
+ *                       detected vector figures/charts (NOT whole pages) so
+ *                       vision LLMs can analyze them. Text-only pages are
+ *                       never rendered. Default false.
  */
 export const extractPdf = async (
   file: File,
   includeImages: boolean = true,
   renderPages: boolean = false,
-  maxImages: number = 30,
 ): Promise<PdfExtractionResult> => {
   try {
     const formData = new FormData();
     formData.append('file', file);
 
+    // NOTE: there is intentionally NO max_images parameter — the backend
+    // returns every visual element present in the document so the LLM has
+    // a complete picture (literally) of what's in the PDF.
     const params = new URLSearchParams({
       include_images: String(includeImages),
       render_pages: String(renderPages),
-      max_images: String(maxImages),
     });
+
 
     const response = await backendApi.post(
       `/api/pdf/extract?${params.toString()}`,

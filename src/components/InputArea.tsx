@@ -413,10 +413,27 @@ const InputArea: React.FC<InputAreaProps> = ({
     };
   }, [calculateTokens]);
 
+  // True while at least one attachment is still being processed in the
+  // background (e.g. PDF extraction in flight). Placeholders are marked
+  // with `(extracting…)` appended to their display name and have an empty
+  // `content`. We must NOT allow sending in that state because the
+  // assistant would receive an empty document and answer "I don't have
+  // enough information about the file you're referring to".
+  const isExtracting = attachments.some(
+    (a) => a.content === '' || /\(extracting…\)$/.test(a.name),
+  );
+
   // Single send function called by both button click and Enter key
   const handleSend = () => {
-    // Block sending if context exceeded OR if image is blocked (non-vision model)
-    if ((message.trim() || attachments.length > 0) && !loading && !isContextExceeded && !imageBlocked) {
+    // Block sending if context exceeded, image is blocked (non-vision model),
+    // OR any attachment is still being processed in the background.
+    if (
+      (message.trim() || attachments.length > 0) &&
+      !loading &&
+      !isContextExceeded &&
+      !imageBlocked &&
+      !isExtracting
+    ) {
       onSendMessage(message.trim(), attachments.length > 0 ? attachments : undefined);
       setMessage('');
       setAttachments([]);
@@ -426,6 +443,7 @@ const InputArea: React.FC<InputAreaProps> = ({
       setImageWarning(null);
     }
   };
+
   
   const handleKeyPress = (e: React.KeyboardEvent) => {
     // On mobile devices, allow Enter to create new line
@@ -531,12 +549,19 @@ const InputArea: React.FC<InputAreaProps> = ({
             // (those are heavy), and we strip the image payloads from the
             // FileAttachment below when vision isn't supported so nothing
             // image-related is ever sent to the LLM.
+            // No image-count cap is passed: the backend returns EVERY visual
+            // element present in the document (embedded images, vector figure
+            // crops when renderPages=true, and tables) along with rich
+            // per-element metadata (page, bbox, caption, dimensions). Even when
+            // the model is text-only, that metadata gets inlined into the
+            // document digest so the LLM still understands where figures /
+            // tables live in the paper.
             const result = await extractPdf(
               file,
               /* includeImages */ true,
-              /* renderPages   */ visionEnabled, // render pages only if vision-capable
-              /* maxImages     */ 30,
+              /* renderPages   */ visionEnabled, // render figure crops only if vision-capable
             );
+
 
 
             // Build the textual content fed into the LLM message
@@ -1025,10 +1050,58 @@ const InputArea: React.FC<InputAreaProps> = ({
             </Box>
           )}
 
+          {/* Extracting banner: shown while a PDF (or any attachment with
+              an asynchronous extraction pipeline) is still being processed.
+              Sending is BLOCKED in this state because otherwise the LLM would
+              receive an empty document and answer with something like
+              "I don't have enough information about the file you're referring to".
+              The user can wait — extraction typically completes in a few
+              seconds — or remove the attachment. */}
+          {isExtracting && (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                p: 1,
+                mb: 1,
+                borderRadius: 1,
+                bgcolor: 'rgba(33, 150, 243, 0.1)',
+                border: '1px solid rgba(33, 150, 243, 0.3)',
+                width: '100%',
+              }}
+            >
+              <Box
+                sx={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  border: '2px solid rgba(33, 150, 243, 0.3)',
+                  borderTopColor: 'info.main',
+                  animation: 'spin 1s linear infinite',
+                  flexShrink: 0,
+                  '@keyframes spin': {
+                    '0%':   { transform: 'rotate(0deg)' },
+                    '100%': { transform: 'rotate(360deg)' },
+                  },
+                }}
+              />
+              <Typography
+                variant="caption"
+                sx={{ color: 'info.main', lineHeight: 1.4 }}
+              >
+                Extracting attachment content… Please wait — sending is disabled
+                until extraction completes (otherwise the model would receive an
+                empty document).
+              </Typography>
+            </Box>
+          )}
+
           {/* PDF visual-content advisory: shown when an attached PDF contains
               images / charts / tables but the current model is text-only.
               Sending is still allowed — this is purely informational. */}
           {pdfVisualWarning && !imageBlocked && (
+
             <Box
               sx={{
                 display: 'flex',
@@ -1251,17 +1324,29 @@ const InputArea: React.FC<InputAreaProps> = ({
           <IconButton
             color={(isContextExceeded || imageBlocked) ? "error" : "primary"}
             onClick={handleSend}
-            disabled={(!message.trim() && attachments.length === 0) || isContextExceeded || !!imageBlocked}
+            // Send is disabled when: nothing to send, context limit exceeded,
+            // an image is blocked by a non-vision model, OR any attachment is
+            // still being asynchronously extracted (otherwise the model would
+            // receive an empty document).
+            disabled={
+              (!message.trim() && attachments.length === 0) ||
+              isContextExceeded ||
+              !!imageBlocked ||
+              isExtracting
+            }
             title={
-              imageBlocked 
-                ? "Cannot send: Model does not support images" 
-                : isContextExceeded 
-                  ? "Cannot send: Context limit exceeded" 
-                  : "Send message"
+              imageBlocked
+                ? "Cannot send: Model does not support images"
+                : isContextExceeded
+                  ? "Cannot send: Context limit exceeded"
+                  : isExtracting
+                    ? "Cannot send: Attachment is still being extracted. Please wait…"
+                    : "Send message"
             }
             sx={{ 
               ml: 1,
               ...((isContextExceeded || imageBlocked) && {
+
                 backgroundColor: 'rgba(244, 67, 54, 0.1)',
                 '&:hover': {
                   backgroundColor: 'rgba(244, 67, 54, 0.2)',

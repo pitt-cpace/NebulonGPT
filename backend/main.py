@@ -340,41 +340,67 @@ async def delete_model(model_name: str):
 # to the LLM via the existing chat pipeline.
 
 def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
-                         max_images: int = 30,
                          max_image_dim: int = 1280,
-                         render_pages_as_images: bool = False,
-                         max_rendered_pages: int = 8) -> dict:
+                         render_vector_figures: bool = False) -> dict:
     """
-    Extract structured content from a PDF.
+    Extract structured content from a PDF (text, embedded images, vector
+    figures/charts, tables, metadata).
 
-    Returns a dict shaped for LLM consumption:
+    Design goals (all driven by user feedback):
+      1. NO CAP on how many visual elements are extracted. Every embedded
+         raster image, every detected vector-figure region, and every
+         pdfplumber-found table is returned.
+      2. NEVER render a whole text-only page as an image. Pages that contain
+         only body text produce zero rendered images. Pages with figures
+         produce tight crops of just the figure region (via bbox clustering
+         of vector drawings), not the whole page.
+      3. Each visual carries rich metadata for the LLM:
+              {
+                "kind":   "embedded_image" | "vector_figure",
+                "page":   int,           # 1-indexed page number
+                "bbox":   [x0,y0,x1,y1], # in PDF points (top-left origin)
+                "caption": str | None,   # nearest "Figure N: …" / "Table N: …"
+                "width":  int (px),
+                "height": int (px),
+                "format": "png" | "jpeg",
+                "data":   "<base64>",
+              }
+         Tables carry parallel metadata via `tables_meta`:
+              {"rows": int, "cols": int, "bbox": [...], "caption": str|None}
+         This way even text-only LLMs receive structured `[Figure N — page P,
+         caption "…"]` markers inline with the document text, so they know
+         where figures/tables belong.
+      4. Per-image dimensions are still bounded by `max_image_dim` on the
+         longest side. This is a per-image quality knob, NOT a per-document
+         count cap.
+
+    Returns:
         {
           "filename": str,
-          "metadata": {...},               # title, author, page count, etc.
+          "metadata": {...},
           "page_count": int,
           "pages": [
             {
-              "page": int,                 # 1-indexed page number
-              "text": str,                 # plain text on this page
-              "tables": [ [[cell, ...], ...], ... ],   # list of 2D arrays
-              "images": [                  # base64 PNG/JPEG previews
-                {"index": int, "format": "png", "width": w, "height": h,
-                 "data": "<base64>"}
-              ],
-              "charts_detected": int,      # heuristic: # of vector drawings
+              "page": int,
+              "text": str,
+              "tables": [ [[cell, ...], ...], ... ],
+              "tables_meta": [{"rows", "cols", "bbox", "caption"}, ...],
+              "images": [{... see schema above ...}, ...],
+              "charts_detected": int,
               "links": [str, ...]
             }, ...
           ],
           "toc": [ {"level": int, "title": str, "page": int}, ... ],
-          "combined_text": str,            # all page text joined (LLM-friendly)
-          "llm_summary_prompt": str,       # ready-to-feed textual digest
-          "stats": { "total_images": int, "total_tables": int,
-                     "total_chars": int, "total_charts_detected": int }
+          "combined_text": str,
+          "llm_summary_prompt": str,
+          "stats": {"total_images", "total_vector_figures", "total_tables",
+                    "total_chars", "total_charts_detected"}
         }
     """
     import fitz  # PyMuPDF
     import pdfplumber
     from PIL import Image
+    import re
 
     result = {
         "filename": filename,
@@ -386,11 +412,106 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
         "llm_summary_prompt": "",
         "stats": {
             "total_images": 0,
+            "total_vector_figures": 0,
             "total_tables": 0,
             "total_chars": 0,
             "total_charts_detected": 0,
         },
     }
+
+    # -------------------------------------------------------------------------
+    # Helpers: caption detection + bbox clustering
+    # -------------------------------------------------------------------------
+    # Match common scientific-figure caption openers, e.g.
+    #   "Fig. 1 | Title …"        "Figure 2: Title …"
+    #   "Figure S3 — Title …"     "Table 1. Title …"
+    #   "Scheme 4 | …"            "Chart 2 – …"
+    CAPTION_RE = re.compile(
+        r"^\s*(Fig(?:ure|\.)?|Table|Chart|Diagram|Scheme|Plate|Panel)"
+        r"\s*(S?\d+[A-Za-z]?)?\s*[\.\:\|\-\u2013\u2014]?\s*(.+)",
+        re.IGNORECASE,
+    )
+
+    def _find_caption(text_blocks, target_bbox, kind_hint="figure"):
+        """Find the nearest 'Figure N: …' / 'Table N: …' caption to a visual.
+
+        `text_blocks` is the list returned by page.get_text("blocks") on the
+        same page. `target_bbox` is (x0,y0,x1,y1) of the visual. `kind_hint`
+        steers caption matching toward 'table' vs 'figure'.
+        """
+        if not text_blocks or not target_bbox:
+            return None
+        tx0, ty0, tx1, ty1 = target_bbox
+        target_cx = (tx0 + tx1) / 2.0
+        best_text = None
+        best_distance = float("inf")
+        for b in text_blocks:
+            try:
+                bx0, by0, bx1, by1, btext = b[0], b[1], b[2], b[3], b[4]
+            except Exception:
+                continue
+            if not isinstance(btext, str):
+                continue
+            first_line = btext.strip().split("\n", 1)[0].strip()
+            m = CAPTION_RE.match(first_line)
+            if not m:
+                continue
+            keyword = m.group(1).lower()
+            is_table = keyword.startswith("table")
+            if kind_hint == "table" and not is_table:
+                continue
+            if kind_hint != "table" and is_table:
+                continue
+            # Vertical distance from caption block to the visual bbox
+            if by0 >= ty1:
+                d = by0 - ty1  # caption appears below
+            elif by1 <= ty0:
+                d = ty0 - by1  # caption appears above
+            else:
+                d = 0  # overlapping/inside
+            # Penalize captions in a different page column horizontally
+            block_cx = (bx0 + bx1) / 2.0
+            if abs(target_cx - block_cx) > 250:
+                d += 200
+            # Only accept captions reasonably close (within ~250 pts vertically)
+            if d < best_distance and d < 250:
+                best_distance = d
+                best_text = btext.strip()
+        if best_text:
+            # Collapse whitespace, cap length
+            return " ".join(best_text.split())[:500]
+        return None
+
+    def _cluster_rects(rects, gap=20.0):
+        """Greedy bbox clustering: merge rects whose bounding boxes overlap or
+        come within `gap` PDF points of each other (both axes). Returns a list
+        of union bboxes [(x0,y0,x1,y1), ...]. Used to fuse the many little
+        path segments that make up a single vector figure into one bbox.
+        """
+        clusters = []
+        for r in rects:
+            try:
+                rx0, ry0, rx1, ry1 = r.x0, r.y0, r.x1, r.y1
+            except AttributeError:
+                try:
+                    rx0, ry0, rx1, ry1 = r[0], r[1], r[2], r[3]
+                except Exception:
+                    continue
+            if rx1 <= rx0 or ry1 <= ry0:
+                continue
+            placed = False
+            for c in clusters:
+                cx0, cy0, cx1, cy1 = c
+                if not (rx0 > cx1 + gap or rx1 < cx0 - gap or
+                        ry0 > cy1 + gap or ry1 < cy0 - gap):
+                    c[0] = min(cx0, rx0); c[1] = min(cy0, ry0)
+                    c[2] = max(cx1, rx1); c[3] = max(cy1, ry1)
+                    placed = True
+                    break
+            if not placed:
+                clusters.append([rx0, ry0, rx1, ry1])
+        return [tuple(c) for c in clusters]
+
 
     # ---- PyMuPDF: text, images, metadata, links, drawings -------------------
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -420,17 +541,28 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
         except Exception as e:
             logger.debug(f"[PDF] TOC extraction failed: {e}")
 
-        images_collected = 0
+        # Global running index assigned to each extracted visual so the LLM
+        # can refer to them as "Figure 1", "Figure 2", etc. across the whole
+        # document. Embedded raster images and rendered vector-figure crops
+        # share the same counter.
+        figure_counter = 0
 
         for page_index in range(doc.page_count):
             page = doc.load_page(page_index)
+            page_num = page_index + 1
+            page_rect = page.rect  # (0,0,width,height) in PDF points
 
-            # ---- Text ---------------------------------------------------------
+            # ---- Text + per-page text blocks (for caption matching) ----------
             try:
                 page_text = page.get_text("text") or ""
             except Exception as e:
                 logger.debug(f"[PDF] Text extraction failed page {page_index}: {e}")
                 page_text = ""
+
+            try:
+                text_blocks = page.get_text("blocks") or []
+            except Exception:
+                text_blocks = []
 
             # ---- Links --------------------------------------------------------
             page_links = []
@@ -441,81 +573,84 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
             except Exception:
                 pass
 
-            # ---- Charts/drawings heuristic -----------------------------------
-            # PyMuPDF exposes vector drawings via page.get_drawings(). A non-zero
-            # count strongly suggests vector charts/diagrams (matplotlib output,
-            # CAD-style figures, etc.) that won't appear in get_images().
+            # ---- Vector drawings (used both for charts_detected heuristic
+            #      AND to compute figure-region bboxes for cropping) -----------
+            drawing_rects = []
             charts_count = 0
             try:
                 drawings = page.get_drawings() or []
-                # Filter to non-trivial drawings (more than ~5 path items)
-                charts_count = sum(1 for d in drawings if len(d.get("items", [])) >= 5)
+                for d in drawings:
+                    items = d.get("items", []) or []
+                    if len(items) < 5:
+                        continue  # ignore trivial drawings (page borders, etc.)
+                    rect = d.get("rect")
+                    if rect is None:
+                        continue
+                    # Skip absurdly small rects (likely glyph artifacts)
+                    if rect.width < 8 or rect.height < 8:
+                        continue
+                    drawing_rects.append(rect)
+                charts_count = len(drawing_rects)
             except Exception:
                 charts_count = 0
 
-            # ---- Embedded raster images --------------------------------------
+            # Cluster the many small path bboxes that make up a single
+            # vector figure into one merged bbox per figure.
+            figure_clusters = _cluster_rects(drawing_rects, gap=20.0)
+            # Drop clusters that are page-sized (would mean the whole page
+            # is one giant "drawing", which usually means our heuristic
+            # picked up the body text via vector outlines — not useful as
+            # an image crop).
+            page_area = max(1.0, page_rect.width * page_rect.height)
+            filtered_clusters = []
+            for c in figure_clusters:
+                cw = c[2] - c[0]
+                ch = c[3] - c[1]
+                area_ratio = (cw * ch) / page_area
+                if cw < 40 or ch < 40:
+                    continue
+                if area_ratio > 0.9:
+                    continue  # likely whole-page text, not a figure
+                filtered_clusters.append(c)
+
             page_images = []
+
+            # ---- Embedded raster images (NO COUNT CAP) -----------------------
+            # Extract every embedded raster image. Each gets bbox (where it
+            # actually sits on the page), nearest figure caption, and a
+            # running figure index for the LLM.
             try:
-                for img_info in page.get_images(full=True):
-                    if images_collected >= max_images:
-                        break
-                    xref = img_info[0]
-                    try:
-                        pix = fitz.Pixmap(doc, xref)
-                        # Convert CMYK / palette to RGB if needed
-                        if pix.n - pix.alpha >= 4:
-                            pix = fitz.Pixmap(fitz.csRGB, pix)
-
-                        img_bytes = pix.tobytes("png")
-                        # Down-scale large images with Pillow to keep payload small
-                        pil_img = Image.open(io.BytesIO(img_bytes))
-                        w, h = pil_img.size
-                        if max(w, h) > max_image_dim:
-                            scale = max_image_dim / float(max(w, h))
-                            new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
-                            pil_img = pil_img.resize(new_size, Image.LANCZOS)
-                            w, h = pil_img.size
-
-                        out_buf = io.BytesIO()
-                        # Save as JPEG when no alpha (smaller), else PNG
-                        if pil_img.mode in ("RGBA", "LA"):
-                            pil_img.save(out_buf, format="PNG", optimize=True)
-                            fmt = "png"
-                        else:
-                            pil_img.convert("RGB").save(
-                                out_buf, format="JPEG", quality=82, optimize=True
-                            )
-                            fmt = "jpeg"
-
-                        page_images.append({
-                            "index": images_collected,
-                            "format": fmt,
-                            "width": w,
-                            "height": h,
-                            "data": base64.b64encode(out_buf.getvalue()).decode("utf-8"),
-                        })
-                        images_collected += 1
-                    except Exception as ie:
-                        logger.debug(f"[PDF] Failed to decode image xref={xref}: {ie}")
-                        continue
-                    finally:
-                        try:
-                            pix = None  # release pixmap
-                        except Exception:
-                            pass
+                raster_infos = page.get_images(full=True) or []
             except Exception as e:
-                logger.debug(f"[PDF] Image extraction failed page {page_index}: {e}")
+                logger.debug(f"[PDF] get_images failed page {page_num}: {e}")
+                raster_infos = []
 
-            # ---- Optional: render whole page as image (charts often live as
-            # vector drawings without embedded raster images, so for vision LLMs
-            # it's useful to send a rendered preview of the first few pages).
-            if render_pages_as_images and page_index < max_rendered_pages \
-                    and images_collected < max_images:
+            for img_info in raster_infos:
+                xref = img_info[0]
                 try:
-                    matrix = fitz.Matrix(2, 2)  # ~144 DPI
-                    pm = page.get_pixmap(matrix=matrix, alpha=False)
-                    pil_img = Image.open(io.BytesIO(pm.tobytes("png")))
+                    # Find where on the page this image is actually placed
+                    bbox = None
+                    try:
+                        rects = page.get_image_rects(xref) or []
+                        if rects:
+                            r = rects[0]
+                            bbox = [float(r.x0), float(r.y0),
+                                    float(r.x1), float(r.y1)]
+                    except Exception:
+                        bbox = None
+
+                    pix = fitz.Pixmap(doc, xref)
+                    if pix.n - pix.alpha >= 4:  # CMYK -> RGB
+                        pix = fitz.Pixmap(fitz.csRGB, pix)
+
+                    img_bytes = pix.tobytes("png")
+                    pil_img = Image.open(io.BytesIO(img_bytes))
                     w, h = pil_img.size
+
+                    # Skip 1-pixel/tiny "decorative" PDF images
+                    if w < 16 or h < 16:
+                        continue
+
                     if max(w, h) > max_image_dim:
                         scale = max_image_dim / float(max(w, h))
                         pil_img = pil_img.resize(
@@ -523,87 +658,259 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
                             Image.LANCZOS,
                         )
                         w, h = pil_img.size
+
                     out_buf = io.BytesIO()
-                    pil_img.convert("RGB").save(out_buf, format="JPEG",
-                                                quality=80, optimize=True)
+                    if pil_img.mode in ("RGBA", "LA"):
+                        pil_img.save(out_buf, format="PNG", optimize=True)
+                        fmt = "png"
+                    else:
+                        pil_img.convert("RGB").save(
+                            out_buf, format="JPEG", quality=82, optimize=True
+                        )
+                        fmt = "jpeg"
+
+                    caption = _find_caption(text_blocks, bbox,
+                                            kind_hint="figure") if bbox else None
+
+                    figure_counter += 1
                     page_images.append({
-                        "index": images_collected,
-                        "format": "jpeg",
+                        "index": figure_counter,
+                        "kind": "embedded_image",
+                        "page": page_num,
+                        "bbox": bbox,
+                        "caption": caption,
+                        "format": fmt,
                         "width": w,
                         "height": h,
                         "data": base64.b64encode(out_buf.getvalue()).decode("utf-8"),
-                        "rendered_page": True,
                     })
-                    images_collected += 1
-                except Exception as e:
-                    logger.debug(f"[PDF] Page render failed page {page_index}: {e}")
+                except Exception as ie:
+                    logger.debug(
+                        f"[PDF] Failed to decode raster xref={xref} on page {page_num}: {ie}"
+                    )
+                    continue
+                finally:
+                    try:
+                        pix = None
+                    except Exception:
+                        pass
+
+            # ---- Vector-figure region crops ----------------------------------
+            # Only crop where vector drawings actually live on the page. Pages
+            # whose `filtered_clusters` is empty produce ZERO rendered images
+            # — we never render full text-only pages.
+            if render_vector_figures and filtered_clusters:
+                for clust in filtered_clusters:
+                    try:
+                        # Expand the crop a little so axis labels / legends
+                        # near the figure also make it into the image.
+                        pad = 8.0
+                        crop = fitz.Rect(
+                            max(page_rect.x0, clust[0] - pad),
+                            max(page_rect.y0, clust[1] - pad),
+                            min(page_rect.x1, clust[2] + pad),
+                            min(page_rect.y1, clust[3] + pad),
+                        )
+                        if crop.width < 20 or crop.height < 20:
+                            continue
+
+                        matrix = fitz.Matrix(2, 2)  # ~144 DPI
+                        pm = page.get_pixmap(matrix=matrix, alpha=False,
+                                             clip=crop)
+                        pil_img = Image.open(io.BytesIO(pm.tobytes("png")))
+                        w, h = pil_img.size
+                        if max(w, h) > max_image_dim:
+                            scale = max_image_dim / float(max(w, h))
+                            pil_img = pil_img.resize(
+                                (max(1, int(w * scale)), max(1, int(h * scale))),
+                                Image.LANCZOS,
+                            )
+                            w, h = pil_img.size
+
+                        out_buf = io.BytesIO()
+                        pil_img.convert("RGB").save(
+                            out_buf, format="JPEG", quality=82, optimize=True
+                        )
+
+                        bbox = [float(crop.x0), float(crop.y0),
+                                float(crop.x1), float(crop.y1)]
+                        caption = _find_caption(text_blocks, bbox,
+                                                kind_hint="figure")
+
+                        figure_counter += 1
+                        page_images.append({
+                            "index": figure_counter,
+                            "kind": "vector_figure",
+                            "page": page_num,
+                            "bbox": bbox,
+                            "caption": caption,
+                            "format": "jpeg",
+                            "width": w,
+                            "height": h,
+                            "data": base64.b64encode(out_buf.getvalue()).decode("utf-8"),
+                        })
+                        result["stats"]["total_vector_figures"] += 1
+                    except Exception as e:
+                        logger.debug(
+                            f"[PDF] Vector-figure crop failed on page {page_num}: {e}"
+                        )
 
             result["pages"].append({
-                "page": page_index + 1,
+                "page": page_num,
                 "text": page_text,
-                "tables": [],  # filled by pdfplumber pass below
+                "tables": [],         # filled by pdfplumber pass below
+                "tables_meta": [],    # filled by pdfplumber pass below
                 "images": page_images,
                 "charts_detected": charts_count,
                 "links": page_links,
+                # Internal: kept for caption matching during pdfplumber pass
+                "_text_blocks": text_blocks,
             })
 
-            result["stats"]["total_images"] += len(page_images)
+            result["stats"]["total_images"] += sum(
+                1 for im in page_images if im.get("kind") == "embedded_image"
+            )
             result["stats"]["total_chars"] += len(page_text)
             result["stats"]["total_charts_detected"] += charts_count
     finally:
         doc.close()
 
-    # ---- pdfplumber: tables -------------------------------------------------
+
+    # ---- pdfplumber: tables (with bbox + nearest caption metadata) ----------
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pp:
             for page_index, pp_page in enumerate(pp.pages):
                 if page_index >= len(result["pages"]):
                     break
+
+                # Use find_tables() so we also get a bbox for each table; this
+                # lets us locate the matching "Table N: …" caption on the page.
+                table_objs = []
                 try:
-                    tables = pp_page.extract_tables() or []
+                    table_objs = pp_page.find_tables() or []
                 except Exception as e:
-                    logger.debug(f"[PDF] Table extract failed page {page_index}: {e}")
-                    tables = []
+                    logger.debug(
+                        f"[PDF] find_tables failed page {page_index}: {e}"
+                    )
+
+                # Fall back to extract_tables if find_tables didn't yield results
+                if not table_objs:
+                    try:
+                        raw = pp_page.extract_tables() or []
+                    except Exception as e:
+                        logger.debug(
+                            f"[PDF] extract_tables failed page {page_index}: {e}"
+                        )
+                        raw = []
+                    table_objs = [(None, t) for t in raw]
+                else:
+                    table_objs = [(t.bbox, t.extract()) for t in table_objs]
+
+                page_text_blocks = result["pages"][page_index].get(
+                    "_text_blocks", []
+                )
 
                 clean_tables = []
-                for tbl in tables:
-                    # Normalize None -> "" so JSON is clean
+                clean_tables_meta = []
+                for bbox, tbl in table_objs:
+                    if not tbl:
+                        continue
                     norm = [
-                        [("" if cell is None else str(cell)).strip() for cell in row]
+                        [("" if cell is None else str(cell)).strip()
+                         for cell in row]
                         for row in tbl
-                        if any(cell is not None and str(cell).strip() for cell in row)
+                        if any(cell is not None and str(cell).strip()
+                               for cell in row)
                     ]
-                    if norm:
-                        clean_tables.append(norm)
+                    if not norm:
+                        continue
+
+                    rows = len(norm)
+                    cols = max((len(r) for r in norm), default=0)
+                    bbox_list = list(bbox) if bbox is not None else None
+                    caption = (
+                        _find_caption(page_text_blocks, bbox_list,
+                                      kind_hint="table")
+                        if bbox_list else None
+                    )
+
+                    clean_tables.append(norm)
+                    clean_tables_meta.append({
+                        "page": result["pages"][page_index]["page"],
+                        "rows": rows,
+                        "cols": cols,
+                        "bbox": bbox_list,
+                        "caption": caption,
+                    })
 
                 result["pages"][page_index]["tables"] = clean_tables
+                result["pages"][page_index]["tables_meta"] = clean_tables_meta
                 result["stats"]["total_tables"] += len(clean_tables)
     except Exception as e:
         logger.warning(f"[PDF] pdfplumber pass failed: {e}")
 
+    # Drop the internal `_text_blocks` field — it was only needed during the
+    # pdfplumber pass and would balloon the JSON response otherwise.
+    for p in result["pages"]:
+        p.pop("_text_blocks", None)
+
     # ---- Build LLM-friendly text digest -------------------------------------
+    # The digest is what gets fed to text-only LLMs. For visual elements we
+    # inline rich metadata markers so the LLM knows EXACTLY which figure /
+    # table is being referenced even when it cannot see images.
     combined_chunks = []
     for p in result["pages"]:
         combined_chunks.append(f"\n===== Page {p['page']} =====\n")
         if p["text"].strip():
             combined_chunks.append(p["text"].strip())
-        if p["tables"]:
-            for ti, tbl in enumerate(p["tables"], start=1):
-                combined_chunks.append(f"\n[Table {ti} on page {p['page']}]")
-                # Render as Markdown-ish pipe table
-                for row in tbl:
-                    combined_chunks.append(" | ".join(row))
-        if p["charts_detected"]:
+
+        # Tables with caption + dimensions
+        for ti, (tbl, tmeta) in enumerate(
+            zip(p.get("tables", []), p.get("tables_meta", [])), start=1
+        ):
+            cap = (tmeta or {}).get("caption")
+            rows = (tmeta or {}).get("rows", len(tbl))
+            cols = (tmeta or {}).get("cols",
+                                     max((len(r) for r in tbl), default=0))
+            header_line = (
+                f"\n[Table {ti} — page {p['page']}, {rows}x{cols}"
+                + (f", caption: \"{cap}\"" if cap else "")
+                + "]"
+            )
+            combined_chunks.append(header_line)
+            for row in tbl:
+                combined_chunks.append(" | ".join(row))
+
+        # Images / figures with kind + caption + bbox + dimensions
+        for im in p.get("images", []):
+            kind = im.get("kind", "image")
+            cap = im.get("caption")
+            w = im.get("width")
+            h = im.get("height")
+            idx = im.get("index")
+            kind_label = (
+                "Figure" if kind == "vector_figure" else
+                "Image"  if kind == "embedded_image" else
+                "Visual"
+            )
+            marker = (
+                f"\n[{kind_label} {idx} — page {p['page']}, {w}x{h}px"
+                + (f", caption: \"{cap}\"" if cap else "")
+                + ", attached as image payload]"
+            )
+            combined_chunks.append(marker)
+
+        if p.get("charts_detected") and not any(
+            im.get("kind") == "vector_figure" for im in p.get("images", [])
+        ):
+            # We detected vector drawings but rendering wasn't requested (or
+            # produced no crop). Still tell the LLM they exist on this page.
             combined_chunks.append(
                 f"\n[Note: {p['charts_detected']} vector chart/drawing region(s) "
-                f"detected on page {p['page']}.]"
+                f"detected on page {p['page']} but not attached as image.]"
             )
-        if p["images"]:
-            combined_chunks.append(
-                f"\n[Note: {len(p['images'])} embedded image(s) on page {p['page']} "
-                f"were extracted and attached separately.]"
-            )
-        if p["links"]:
+
+        if p.get("links"):
             combined_chunks.append("\nLinks: " + ", ".join(p["links"][:20]))
 
     combined_text = "\n".join(combined_chunks).strip()
@@ -616,12 +923,17 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
         f"Author: {meta.get('author') or '(none)'}\n"
         f"Pages: {result['page_count']}\n"
         f"Embedded images extracted: {result['stats']['total_images']}\n"
+        f"Vector figures rendered: {result['stats']['total_vector_figures']}\n"
         f"Tables extracted: {result['stats']['total_tables']}\n"
         f"Vector chart/drawing regions detected: "
         f"{result['stats']['total_charts_detected']}\n"
     )
-    result["llm_summary_prompt"] = header + "\n--- BEGIN DOCUMENT CONTENT ---\n" + \
-        combined_text + "\n--- END DOCUMENT CONTENT ---\n"
+    result["llm_summary_prompt"] = (
+        header
+        + "\n--- BEGIN DOCUMENT CONTENT ---\n"
+        + combined_text
+        + "\n--- END DOCUMENT CONTENT ---\n"
+    )
 
     return result
 
@@ -631,20 +943,29 @@ async def extract_pdf(
     file: UploadFile = File(...),
     include_images: str = "true",
     render_pages: str = "false",
-    max_images: int = 30,
 ):
     """
     Extract text, images, tables, charts and metadata from an uploaded PDF.
 
     Query/form params:
-      - include_images: "true"/"false" - whether to return base64 image payloads
-      - render_pages:   "true"/"false" - also render first N pages as images
-                        (useful for charts/diagrams when sending to vision LLMs)
-      - max_images:     hard cap on number of returned image payloads
+      - include_images: "true"/"false" — whether to return base64 image
+                        payloads. Stats (counts, captions, bboxes) are
+                        always returned regardless of this flag.
+      - render_pages:   "true"/"false" — when true, also render bounding-box
+                        crops of detected vector figures/charts so vision LLMs
+                        can analyze them. Whole text-only pages are NEVER
+                        rendered; only regions containing actual visuals.
+
+    There is NO cap on how many images / figures / tables are extracted —
+    every visual element present in the document is returned, with rich
+    per-element metadata (page, bbox, caption, dimensions) so even text-only
+    LLMs understand the document's structure.
     """
     try:
         if not file.filename or not file.filename.lower().endswith(".pdf"):
-            raise HTTPException(status_code=400, detail="Only .pdf files are supported")
+            raise HTTPException(
+                status_code=400, detail="Only .pdf files are supported"
+            )
 
         pdf_bytes = await file.read()
         if not pdf_bytes:
@@ -662,23 +983,25 @@ async def extract_pdf(
             lambda: _extract_pdf_payload(
                 pdf_bytes,
                 file.filename,
-                max_images=max_images if wants_images else 0,
-                render_pages_as_images=wants_rendered,
+                render_vector_figures=wants_rendered,
             ),
         )
 
-        # Strip image payloads if caller didn't want them (saves bandwidth)
+        # If the caller doesn't want image bytes back, strip the base64 data
+        # but KEEP all metadata (counts, captions, bboxes) so the frontend
+        # can still warn the user about visual content present in the PDF.
         if not wants_images:
             for p in payload["pages"]:
-                p["images"] = []
-            payload["stats"]["total_images"] = 0
+                for im in p.get("images", []):
+                    im["data"] = ""
 
         logger.info(
             f"[PDF] '{file.filename}' -> {payload['page_count']} pages, "
             f"{payload['stats']['total_chars']} chars, "
             f"{payload['stats']['total_tables']} tables, "
-            f"{payload['stats']['total_images']} images, "
-            f"{payload['stats']['total_charts_detected']} charts"
+            f"{payload['stats']['total_images']} embedded images, "
+            f"{payload['stats']['total_vector_figures']} vector figures, "
+            f"{payload['stats']['total_charts_detected']} chart regions"
         )
 
         return payload
@@ -687,7 +1010,10 @@ async def extract_pdf(
         raise
     except Exception as e:
         logger.error(f"[PDF] Extraction failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"PDF extraction failed: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"PDF extraction failed: {e}"
+        )
+
 
 
 # =============================================================================
