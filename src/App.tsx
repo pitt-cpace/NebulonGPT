@@ -125,6 +125,7 @@ const App: React.FC = () => {
     if (hasVisionIn(modelDetails?.model_info?.capabilities)) return true;
 
     // Helpful one-line diagnostic so we can see exactly what Ollama returned
+
     // if a vision model isn't being detected on the user's setup.
     console.debug('[detectVisionCapability] No "vision" in capabilities arrays:',
       'top:', modelDetails.capabilities,
@@ -133,7 +134,72 @@ const App: React.FC = () => {
     return false;
   };
 
+  // Helper: extract the model's native context length (= the "context length"
+  // field shown by `ollama show <model>`) from a /api/show response.
+  //
+  // Ollama exposes this under `model_info` using an ARCHITECTURE-SPECIFIC key:
+  //   • llama        models → "llama.context_length"
+  //   • mllama       (e.g. llama3.2-vision) → "mllama.context_length"
+  //   • qwen2 / qwen → "qwen2.context_length", "qwen.context_length"
+  //   • gemma3       → "gemma3.context_length"
+  //   • mistral      → "mistral.context_length"
+  //   • phi3         → "phi3.context_length"
+  //   • granite      → "granite.context_length"
+  //   • …and so on for every architecture Ollama ships.
+  //
+  // The previous code hard-coded "llama.context_length", so the moment the
+  // user loaded a non-llama architecture (notably llama3.2-vision, whose
+  // architecture is "mllama") we silently fell back to the default 32768 and
+  // capped the Settings dialog at the wrong value. Instead, we now:
+  //   1. Prefer `details.architecture` (or `model_info["general.architecture"]`)
+  //      and read the matching `<arch>.context_length` key directly.
+  //   2. Fall back to scanning ANY `*.context_length` key in `model_info`
+  //      (defensive — covers future architectures we haven't seen yet).
+  //   3. As a last resort, honor a top-level `context_length` field if Ollama
+  //      ever surfaces one.
+  //
+  // Returns null when no context length could be determined; callers should
+  // keep whatever default they already have in that case.
+  const detectContextLength = (modelDetails: any): number | null => {
+    if (!modelDetails) return null;
 
+    const parsePositiveInt = (v: any): number | null => {
+      const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+
+    const modelInfo = modelDetails.model_info || {};
+    const architecture: string | undefined =
+      modelDetails?.details?.architecture ||
+      modelInfo['general.architecture'];
+
+    // 1) Architecture-specific key (most reliable when present)
+    if (architecture) {
+      const key = `${architecture}.context_length`;
+      const v = parsePositiveInt(modelInfo[key]);
+      if (v) return v;
+    }
+
+    // 2) Any *.context_length key found in model_info
+    for (const k of Object.keys(modelInfo)) {
+      if (k.endsWith('.context_length')) {
+        const v = parsePositiveInt(modelInfo[k]);
+        if (v) return v;
+      }
+    }
+
+    // 3) Last resort: top-level field
+    const topLevel = parsePositiveInt(modelDetails.context_length);
+    if (topLevel) return topLevel;
+
+    console.debug(
+      '[detectContextLength] Could not find context length. architecture=',
+      architecture,
+      ' model_info keys=',
+      Object.keys(modelInfo),
+    );
+    return null;
+  };
 
 
   // Lazy loading state
@@ -357,14 +423,19 @@ const App: React.FC = () => {
           if (defaultModel) {
             setSelectedModel(defaultModel);
             
-            // Fetch context length & capabilities for the default model
+            // Fetch context length & capabilities for the default model.
+            // detectContextLength() is architecture-agnostic (handles llama,
+            // mllama / llama3.2-vision, qwen2, gemma3, mistral, phi3, etc.).
             try {
               const modelDetails = await fetchModelDetails(defaultModel.id);
-              if (modelDetails && modelDetails.model_info && modelDetails.model_info['llama.context_length']) {
-                const contextLength = parseInt(modelDetails.model_info['llama.context_length'], 10);
-                setMaxContextLength(contextLength);
-                console.log(`Default model ${defaultModel.id} has context length: ${contextLength}`);
+              const detectedCtx = detectContextLength(modelDetails);
+              if (detectedCtx) {
+                setMaxContextLength(detectedCtx);
+                console.log(
+                  `Default model ${defaultModel.id} has context length: ${detectedCtx}`,
+                );
               }
+
 
               // Detect vision capability from Ollama's /api/show response
               const supportsVision = detectVisionCapability(modelDetails);
@@ -1134,15 +1205,37 @@ const App: React.FC = () => {
       setChats(updatedChats);
     }
     
-    // Fetch model details to get context length & vision capability
+    // Fetch model details to get context length & vision capability.
+    // detectContextLength() reads the architecture-specific key
+    // (e.g. "mllama.context_length" for llama3.2-vision), so context-length
+    // detection now works correctly for every Ollama architecture, not just
+    // pure llama models.
     try {
       const modelDetails = await fetchModelDetails(model.id);
-      if (modelDetails && modelDetails.model_info && modelDetails.model_info['llama.context_length']) {
+      const detectedCtx = detectContextLength(modelDetails);
+      if (detectedCtx) {
         // Update max context length based on model capabilities
-        const contextLength = parseInt(modelDetails.model_info['llama.context_length'], 10);
-        setMaxContextLength(contextLength);
-        console.log(`Model ${model.id} has context length: ${contextLength}`);
+        setMaxContextLength(detectedCtx);
+        console.log(`Model ${model.id} has context length: ${detectedCtx}`);
+
+        // If the user's currently-configured contextLength exceeds the new
+        // model's native maximum, clamp it down and persist the new value.
+        // Otherwise sending a message would request a context window the
+        // model cannot accommodate (Ollama would reject or silently truncate).
+        if (contextLength > detectedCtx) {
+          console.log(
+            `⚠️ Configured contextLength (${contextLength}) exceeds new model max (${detectedCtx}). Clamping.`,
+          );
+          setContextLength(detectedCtx);
+          try {
+            localStorage.setItem('contextLength', detectedCtx.toString());
+            window.dispatchEvent(new Event('contextLengthChanged'));
+          } catch (err) {
+            console.error('Failed to persist clamped contextLength:', err);
+          }
+        }
       }
+
 
       // Detect vision capability from Ollama's /api/show response
       const supportsVision = detectVisionCapability(modelDetails);
