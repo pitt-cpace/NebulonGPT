@@ -556,11 +556,20 @@ const InputArea: React.FC<InputAreaProps> = ({
             // the model is text-only, that metadata gets inlined into the
             // document digest so the LLM still understands where figures /
             // tables live in the paper.
+            // Always request render_pages=true. The new caption-anchored
+            // extractor produces ONE clean composite image per figure (not
+            // 40+ tiny sprite thumbnails like the old extractor), so even
+            // for non-vision models we want the backend to compute proper
+            // figure regions with labels/captions. Image payloads are still
+            // stripped below for non-vision models — only the rich text
+            // markers ("[Figure 1 — page 2, caption: …]") are forwarded to
+            // the LLM in that case.
             const result = await extractPdf(
               file,
               /* includeImages */ true,
-              /* renderPages   */ visionEnabled, // render figure crops only if vision-capable
+              /* renderPages   */ true,
             );
+
 
 
 

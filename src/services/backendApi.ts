@@ -191,21 +191,28 @@ export interface PdfPageData {
   images: Array<{
     index: number;
     /**
-     * "embedded_image" = bitmap embedded in the PDF (photo, scanned figure).
-     * "vector_figure"  = tight crop of a region containing vector drawings
-     *                    (matplotlib output, schematic, etc.) — only present
-     *                    when the request was made with render_pages=true.
+     * "figure_region"   = composite image of a caption-anchored figure
+     *                     region (the primary output of the new extractor).
+     *                     One per "Fig. N" / "Figure N" caption on the page.
+     * "embedded_image"  = legacy: single embedded raster (older payloads).
+     * "vector_figure"   = legacy: vector-drawing crop (older payloads).
      */
-    kind?: 'embedded_image' | 'vector_figure';
+    kind?: 'figure_region' | 'embedded_image' | 'vector_figure';
     page?: number;
     bbox?: [number, number, number, number] | null;
     caption?: string | null;
+    /**
+     * Human-readable label parsed from the caption (e.g. "Figure 1",
+     * "Figure 2", "Scheme 3"). Present on figure_region images.
+     */
+    label?: string | null;
     format: string;       // 'png' | 'jpeg'
     width: number;
     height: number;
     data: string;         // base64 (no data: prefix). May be "" when
                           // include_images=false (metadata-only mode).
   }>;
+
   charts_detected: number;
   links: string[];
 }

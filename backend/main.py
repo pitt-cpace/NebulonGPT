@@ -340,39 +340,33 @@ async def delete_model(model_name: str):
 # to the LLM via the existing chat pipeline.
 
 def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
-                         max_image_dim: int = 1280,
-                         render_vector_figures: bool = False) -> dict:
+                         max_image_dim: int = 1600,
+                         render_vector_figures: bool = True) -> dict:
     """
-    Extract structured content from a PDF (text, embedded images, vector
-    figures/charts, tables, metadata).
+    Extract structured content from a PDF (text, FIGURE REGIONS as composite
+    images, tables, metadata).
 
-    Design goals (all driven by user feedback):
-      1. NO CAP on how many visual elements are extracted. Every embedded
-         raster image, every detected vector-figure region, and every
-         pdfplumber-found table is returned.
-      2. NEVER render a whole text-only page as an image. Pages that contain
-         only body text produce zero rendered images. Pages with figures
-         produce tight crops of just the figure region (via bbox clustering
-         of vector drawings), not the whole page.
-      3. Each visual carries rich metadata for the LLM:
-              {
-                "kind":   "embedded_image" | "vector_figure",
-                "page":   int,           # 1-indexed page number
-                "bbox":   [x0,y0,x1,y1], # in PDF points (top-left origin)
-                "caption": str | None,   # nearest "Figure N: …" / "Table N: …"
-                "width":  int (px),
-                "height": int (px),
-                "format": "png" | "jpeg",
-                "data":   "<base64>",
-              }
-         Tables carry parallel metadata via `tables_meta`:
-              {"rows": int, "cols": int, "bbox": [...], "caption": str|None}
-         This way even text-only LLMs receive structured `[Figure N — page P,
-         caption "…"]` markers inline with the document text, so they know
-         where figures/tables belong.
-      4. Per-image dimensions are still bounded by `max_image_dim` on the
-         longest side. This is a per-image quality knob, NOT a per-document
-         count cap.
+    Key design (rewritten 2025-11):
+      Scientific PDFs build a single visual "Fig. 1" out of dozens of tiny
+      embedded raster sprites (protein blobs, dots, arrows) combined with
+      vector paths. Extracting each embedded raster individually produces 40+
+      garbage thumbnails per figure. Instead we detect FIGURE REGIONS using
+      caption anchoring + visual-ink clustering, then RENDER each region as
+      one high-DPI composite from the page itself.
+
+      1. Caption-anchored detection (primary): every "Fig./Figure/Table/Scheme/
+         Chart N …" label on the page anchors a figure/table region. The
+         figure occupies the area ABOVE/AROUND its caption, bounded by the
+         column it lives in and by the previous caption/figure.
+      2. Visual-ink clustering (fallback): on pages with no captions but clear
+         drawing/raster content, cluster all visual bboxes with a generous
+         gap to merge multi-panel figures.
+      3. Tables come from pdfplumber (find_tables) and are EXCLUDED from
+         figure regions (so a figure region never overlaps a table bbox).
+      4. Each figure is rendered ONCE at ~200 DPI, bounded by `max_image_dim`
+         on the longest side, and tagged with kind/page/bbox/caption/index.
+      5. Text-only pages produce zero figure images. We never render a whole
+         text page as an image.
 
     Returns:
         {
@@ -385,7 +379,7 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
               "text": str,
               "tables": [ [[cell, ...], ...], ... ],
               "tables_meta": [{"rows", "cols", "bbox", "caption"}, ...],
-              "images": [{... see schema above ...}, ...],
+              "images": [{... see schema below ...}, ...],
               "charts_detected": int,
               "links": [str, ...]
             }, ...
@@ -396,7 +390,21 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
           "stats": {"total_images", "total_vector_figures", "total_tables",
                     "total_chars", "total_charts_detected"}
         }
+
+    Each image dict:
+        {
+          "index":   int,         # 1-based, document-wide
+          "kind":    "figure_region",  # composite figure crop
+          "page":    int,
+          "bbox":    [x0,y0,x1,y1],
+          "caption": str | None,
+          "width":   int (px),
+          "height":  int (px),
+          "format":  "jpeg" | "png",
+          "data":    "<base64>",
+        }
     """
+
     import fitz  # PyMuPDF
     import pdfplumber
     from PIL import Image
@@ -512,6 +520,224 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
                 clusters.append([rx0, ry0, rx1, ry1])
         return [tuple(c) for c in clusters]
 
+    def _rects_overlap(a, b):
+        ax0, ay0, ax1, ay1 = a
+        bx0, by0, bx1, by1 = b
+        return not (ax0 >= bx1 or ax1 <= bx0 or ay0 >= by1 or ay1 <= by0)
+
+    def _rect_area(r):
+        return max(0.0, (r[2] - r[0])) * max(0.0, (r[3] - r[1]))
+
+    def _detect_columns(text_blocks, page_rect):
+        """Heuristically detect column x-boundaries on a page by histogramming
+        text-block left edges. Returns a sorted list of (col_x0, col_x1) tuples.
+        Falls back to one full-page column if detection is unclear.
+        """
+        pw = page_rect.width
+        if pw <= 0:
+            return [(page_rect.x0, page_rect.x1)]
+
+        # Collect left/right edges of substantial text blocks
+        lefts = []
+        rights = []
+        for b in text_blocks:
+            try:
+                bx0, by0, bx1, by1, btext = b[0], b[1], b[2], b[3], b[4]
+            except Exception:
+                continue
+            if not isinstance(btext, str) or not btext.strip():
+                continue
+            if (bx1 - bx0) < pw * 0.08:
+                continue  # too narrow to be body text
+            lefts.append(bx0)
+            rights.append(bx1)
+
+        if len(lefts) < 6:
+            return [(page_rect.x0, page_rect.x1)]
+
+        # Quantize lefts into 20pt buckets and find dominant ones
+        from collections import Counter
+        bucket = lambda v: int(round(v / 20.0)) * 20
+        left_counts = Counter(bucket(v) for v in lefts)
+        # Pick all buckets with at least 3 blocks
+        candidates = sorted(
+            [(bx, cnt) for bx, cnt in left_counts.items() if cnt >= 3]
+        )
+        if len(candidates) < 2:
+            return [(page_rect.x0, page_rect.x1)]
+
+        # Take the two strongest column starts (most common)
+        top = sorted(candidates, key=lambda x: -x[1])[:3]
+        top = sorted(top, key=lambda x: x[0])
+        # Need at least two well-separated columns (> 80pt apart)
+        if len(top) < 2 or (top[1][0] - top[0][0]) < 80:
+            return [(page_rect.x0, page_rect.x1)]
+
+        col_starts = [top[0][0], top[1][0]]
+        # Right edges: midpoint between adjacent column starts; last column ends at page right
+        cols = []
+        for i, cs in enumerate(col_starts):
+            if i + 1 < len(col_starts):
+                ce = (cs + col_starts[i + 1]) / 2.0
+            else:
+                ce = page_rect.x1
+            cols.append((cs - 5.0, ce))  # tiny left pad
+        # First column may extend slightly to the left of its detected start
+        cols[0] = (page_rect.x0, cols[0][1])
+        return cols
+
+    def _column_for_bbox(bbox, columns):
+        """Return the (cx0, cx1) column that best contains `bbox`."""
+        if not columns:
+            return None
+        bx0, by0, bx1, by1 = bbox
+        bcx = (bx0 + bx1) / 2.0
+        best = None
+        best_d = float("inf")
+        for (cx0, cx1) in columns:
+            if cx0 <= bcx <= cx1:
+                return (cx0, cx1)
+            # distance from center to nearest column edge
+            d = min(abs(bcx - cx0), abs(bcx - cx1))
+            if d < best_d:
+                best_d = d
+                best = (cx0, cx1)
+        return best
+
+    def _find_caption_blocks(text_blocks, kind=None):
+        """Return all caption text blocks on a page matching CAPTION_RE.
+
+        Each entry: {"bbox": (x0,y0,x1,y1), "text": str, "kind": "figure"|"table",
+                     "label": "Figure 1"|"Table 2"|...}
+        `kind`: if "figure", drop table captions; if "table", drop figure
+                captions; if None, return all.
+        """
+        out = []
+        for b in text_blocks:
+            try:
+                bx0, by0, bx1, by1, btext = b[0], b[1], b[2], b[3], b[4]
+            except Exception:
+                continue
+            if not isinstance(btext, str):
+                continue
+            first_line = btext.strip().split("\n", 1)[0].strip()
+            m = CAPTION_RE.match(first_line)
+            if not m:
+                continue
+            keyword = m.group(1).lower()
+            is_table = keyword.startswith("table")
+            cap_kind = "table" if is_table else "figure"
+            if kind == "figure" and is_table:
+                continue
+            if kind == "table" and not is_table:
+                continue
+            num = (m.group(2) or "").strip()
+            label_word = (
+                "Table" if is_table
+                else ("Scheme" if keyword.startswith("scheme")
+                      else ("Chart" if keyword.startswith("chart")
+                            else "Figure"))
+            )
+            label = f"{label_word} {num}".strip() if num else label_word
+            out.append({
+                "bbox": (float(bx0), float(by0), float(bx1), float(by1)),
+                "text": " ".join(btext.split())[:500],
+                "kind": cap_kind,
+                "label": label,
+            })
+        return out
+
+    def _compute_figure_region(caption_block, columns, all_visual_rects,
+                               page_rect, other_caption_blocks,
+                               table_bboxes):
+        """Given a figure-caption block, compute the bbox of the figure it
+        describes. The figure typically lives DIRECTLY ABOVE the caption,
+        bounded horizontally by the column the caption sits in (or the whole
+        column-span the caption covers) and bounded vertically by:
+          - the previous figure/caption block above in the same column, OR
+          - the top of the page.
+        We then SHRINK-WRAP that vertical band to only the rectangle
+        actually covered by visual ink (embedded raster bboxes + vector
+        drawing rects) so we don't crop the surrounding white space and
+        text on the same page.
+        """
+        cap_bbox = caption_block["bbox"]
+        cx0, cy0, cx1, cy1 = cap_bbox
+
+        # Horizontal span: union of all columns the caption overlaps. This
+        # handles single-column captions ("Fig. 1 | …" on left column) and
+        # full-width captions that span both columns.
+        cap_left = cx0
+        cap_right = cx1
+        overlapping_cols = []
+        for (col_x0, col_x1) in columns:
+            if not (cap_right < col_x0 or cap_left > col_x1):
+                overlapping_cols.append((col_x0, col_x1))
+        if overlapping_cols:
+            h_x0 = min(c[0] for c in overlapping_cols)
+            h_x1 = max(c[1] for c in overlapping_cols)
+        else:
+            h_x0, h_x1 = page_rect.x0, page_rect.x1
+
+        # Vertical band: from page top down to the caption top, bounded
+        # below by the next caption-above (so two stacked figures don't
+        # merge), and bounded above by any previous caption/table below
+        # the page top.
+        v_y1 = cy0  # bottom of band = top of caption
+        v_y0 = page_rect.y0
+        for other in other_caption_blocks:
+            if other is caption_block:
+                continue
+            ox0, oy0, ox1, oy1 = other["bbox"]
+            # Same horizontal band?
+            if ox1 < h_x0 or ox0 > h_x1:
+                continue
+            # If other caption ends above this caption, it bounds us from above
+            if oy1 < v_y1 - 5:
+                if oy1 > v_y0:
+                    v_y0 = oy1
+        # Tables also bound us from above (so a figure region doesn't swallow
+        # a table sitting above it).
+        for tb in table_bboxes:
+            tx0, ty0, tx1, ty1 = tb
+            if tx1 < h_x0 or tx0 > h_x1:
+                continue
+            if ty1 < v_y1 - 5 and ty1 > v_y0:
+                v_y0 = ty1
+
+        band = (h_x0, v_y0, h_x1, v_y1)
+        if band[2] - band[0] < 30 or band[3] - band[1] < 30:
+            return None
+
+        # Shrink-wrap: keep only the union of visual-ink rects that fall
+        # inside `band`. This is what makes the crop tight on the figure
+        # itself rather than including surrounding body text/white space.
+        union = None
+        for r in all_visual_rects:
+            if not _rects_overlap(r, band):
+                continue
+            rx0 = max(r[0], band[0]); ry0 = max(r[1], band[1])
+            rx1 = min(r[2], band[2]); ry1 = min(r[3], band[3])
+            if rx1 - rx0 < 4 or ry1 - ry0 < 4:
+                continue
+            if union is None:
+                union = [rx0, ry0, rx1, ry1]
+            else:
+                union[0] = min(union[0], rx0); union[1] = min(union[1], ry0)
+                union[2] = max(union[2], rx1); union[3] = max(union[3], ry1)
+
+        if union is None:
+            # No visual ink found in the band — fall back to the band itself
+            # only if the band is sensibly figure-shaped (not the whole page).
+            page_area = max(1.0, page_rect.width * page_rect.height)
+            band_area = (band[2] - band[0]) * (band[3] - band[1])
+            if band_area / page_area > 0.6:
+                return None
+            return tuple(band)
+
+        return tuple(union)
+
+
 
     # ---- PyMuPDF: text, images, metadata, links, drawings -------------------
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -543,28 +769,34 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
 
         # Global running index assigned to each extracted visual so the LLM
         # can refer to them as "Figure 1", "Figure 2", etc. across the whole
-        # document. Embedded raster images and rendered vector-figure crops
-        # share the same counter.
+        # document.
         figure_counter = 0
 
+        # -------------------------------------------------------------------
+        # PASS 1 (PyMuPDF): collect per-page text, text_blocks, vector
+        # drawing rects, embedded raster bboxes (as visual-ink hints), links.
+        # We DO NOT render any images here — figure-region rendering happens
+        # after pdfplumber tells us where the tables are so figure regions
+        # never overlap a table.
+        # -------------------------------------------------------------------
+        per_page_ctx = []
         for page_index in range(doc.page_count):
             page = doc.load_page(page_index)
             page_num = page_index + 1
-            page_rect = page.rect  # (0,0,width,height) in PDF points
+            page_rect = page.rect
 
-            # ---- Text + per-page text blocks (for caption matching) ----------
+            # Text
             try:
                 page_text = page.get_text("text") or ""
             except Exception as e:
                 logger.debug(f"[PDF] Text extraction failed page {page_index}: {e}")
                 page_text = ""
-
             try:
                 text_blocks = page.get_text("blocks") or []
             except Exception:
                 text_blocks = []
 
-            # ---- Links --------------------------------------------------------
+            # Links
             page_links = []
             try:
                 for link in page.get_links() or []:
@@ -573,84 +805,413 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
             except Exception:
                 pass
 
-            # ---- Vector drawings (used both for charts_detected heuristic
-            #      AND to compute figure-region bboxes for cropping) -----------
+            # Vector drawings
             drawing_rects = []
             charts_count = 0
             try:
                 drawings = page.get_drawings() or []
                 for d in drawings:
                     items = d.get("items", []) or []
-                    if len(items) < 5:
-                        continue  # ignore trivial drawings (page borders, etc.)
+                    if len(items) < 3:
+                        continue
                     rect = d.get("rect")
                     if rect is None:
                         continue
-                    # Skip absurdly small rects (likely glyph artifacts)
-                    if rect.width < 8 or rect.height < 8:
+                    if rect.width < 6 or rect.height < 6:
                         continue
-                    drawing_rects.append(rect)
+                    drawing_rects.append((float(rect.x0), float(rect.y0),
+                                          float(rect.x1), float(rect.y1)))
                 charts_count = len(drawing_rects)
             except Exception:
                 charts_count = 0
 
-            # Cluster the many small path bboxes that make up a single
-            # vector figure into one merged bbox per figure.
-            figure_clusters = _cluster_rects(drawing_rects, gap=20.0)
-            # Drop clusters that are page-sized (would mean the whole page
-            # is one giant "drawing", which usually means our heuristic
-            # picked up the body text via vector outlines — not useful as
-            # an image crop).
-            page_area = max(1.0, page_rect.width * page_rect.height)
-            filtered_clusters = []
-            for c in figure_clusters:
-                cw = c[2] - c[0]
-                ch = c[3] - c[1]
-                area_ratio = (cw * ch) / page_area
-                if cw < 40 or ch < 40:
-                    continue
-                if area_ratio > 0.9:
-                    continue  # likely whole-page text, not a figure
-                filtered_clusters.append(c)
-
-            page_images = []
-
-            # ---- Embedded raster images (NO COUNT CAP) -----------------------
-            # Extract every embedded raster image. Each gets bbox (where it
-            # actually sits on the page), nearest figure caption, and a
-            # running figure index for the LLM.
+            # Embedded raster bboxes (visual-ink hints; we do NOT extract
+            # individual rasters anymore — each one is a tiny sprite that
+            # belongs to a larger figure).
+            raster_bboxes = []
             try:
                 raster_infos = page.get_images(full=True) or []
-            except Exception as e:
-                logger.debug(f"[PDF] get_images failed page {page_num}: {e}")
-                raster_infos = []
-
-            for img_info in raster_infos:
-                xref = img_info[0]
-                try:
-                    # Find where on the page this image is actually placed
-                    bbox = None
+                for img_info in raster_infos:
+                    xref = img_info[0]
                     try:
                         rects = page.get_image_rects(xref) or []
-                        if rects:
-                            r = rects[0]
-                            bbox = [float(r.x0), float(r.y0),
-                                    float(r.x1), float(r.y1)]
                     except Exception:
-                        bbox = None
+                        rects = []
+                    for r in rects:
+                        if r.width < 8 or r.height < 8:
+                            continue
+                        raster_bboxes.append(
+                            (float(r.x0), float(r.y0),
+                             float(r.x1), float(r.y1))
+                        )
+            except Exception as e:
+                logger.debug(f"[PDF] get_images failed page {page_num}: {e}")
 
-                    pix = fitz.Pixmap(doc, xref)
-                    if pix.n - pix.alpha >= 4:  # CMYK -> RGB
-                        pix = fitz.Pixmap(fitz.csRGB, pix)
+            per_page_ctx.append({
+                "page_num": page_num,
+                "page_rect": page_rect,
+                "page_text": page_text,
+                "text_blocks": text_blocks,
+                "page_links": page_links,
+                "drawing_rects": drawing_rects,
+                "raster_bboxes": raster_bboxes,
+                "charts_count": charts_count,
+            })
 
-                    img_bytes = pix.tobytes("png")
-                    pil_img = Image.open(io.BytesIO(img_bytes))
-                    w, h = pil_img.size
+            # Pre-seed the page entry in result["pages"]; images filled in pass 3
+            result["pages"].append({
+                "page": page_num,
+                "text": page_text,
+                "tables": [],
+                "tables_meta": [],
+                "images": [],
+                "charts_detected": charts_count,
+                "links": page_links,
+                "_text_blocks": text_blocks,
+            })
+            result["stats"]["total_chars"] += len(page_text)
+            result["stats"]["total_charts_detected"] += charts_count
 
-                    # Skip 1-pixel/tiny "decorative" PDF images
-                    if w < 16 or h < 16:
+
+        # -------------------------------------------------------------------
+        # PASS 2 (pdfplumber): tables with bbox + caption. Done before the
+        # figure pass so figure regions can exclude table bboxes (otherwise
+        # a wide figure region above a caption would swallow a table sitting
+        # between them).
+        # -------------------------------------------------------------------
+        per_page_table_bboxes = [[] for _ in range(len(result["pages"]))]
+        try:
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pp:
+                for page_index, pp_page in enumerate(pp.pages):
+                    if page_index >= len(result["pages"]):
+                        break
+
+                    table_objs = []
+                    try:
+                        table_objs = pp_page.find_tables() or []
+                    except Exception as e:
+                        logger.debug(
+                            f"[PDF] find_tables failed page {page_index}: {e}"
+                        )
+
+                    if not table_objs:
+                        try:
+                            raw = pp_page.extract_tables() or []
+                        except Exception as e:
+                            logger.debug(
+                                f"[PDF] extract_tables failed page {page_index}: {e}"
+                            )
+                            raw = []
+                        table_objs = [(None, t) for t in raw]
+                    else:
+                        table_objs = [(t.bbox, t.extract()) for t in table_objs]
+
+                    page_text_blocks = result["pages"][page_index].get(
+                        "_text_blocks", []
+                    )
+
+                    clean_tables = []
+                    clean_tables_meta = []
+                    for bbox, tbl in table_objs:
+                        if not tbl:
+                            continue
+                        norm = [
+                            [("" if cell is None else str(cell)).strip()
+                             for cell in row]
+                            for row in tbl
+                            if any(cell is not None and str(cell).strip()
+                                   for cell in row)
+                        ]
+                        if not norm:
+                            continue
+                        # Reject "tables" that are really 1-row/1-col text
+                        # blocks (pdfplumber over-detects on dense text).
+                        if len(norm) < 2 or max((len(r) for r in norm), default=0) < 2:
+                            continue
+
+                        rows = len(norm)
+                        cols = max((len(r) for r in norm), default=0)
+                        bbox_list = list(bbox) if bbox is not None else None
+                        caption = (
+                            _find_caption(page_text_blocks, bbox_list,
+                                          kind_hint="table")
+                            if bbox_list else None
+                        )
+
+                        clean_tables.append(norm)
+                        clean_tables_meta.append({
+                            "page": result["pages"][page_index]["page"],
+                            "rows": rows,
+                            "cols": cols,
+                            "bbox": bbox_list,
+                            "caption": caption,
+                        })
+                        if bbox_list:
+                            per_page_table_bboxes[page_index].append(
+                                tuple(bbox_list)
+                            )
+
+                    result["pages"][page_index]["tables"] = clean_tables
+                    result["pages"][page_index]["tables_meta"] = clean_tables_meta
+                    result["stats"]["total_tables"] += len(clean_tables)
+        except Exception as e:
+            logger.warning(f"[PDF] pdfplumber pass failed: {e}")
+
+
+        # -------------------------------------------------------------------
+        # PASS 3 (PyMuPDF rendering): figure regions per page using the
+        # ITERATIVE EXPAND-AND-MERGE algorithm.
+        #
+        # Idea (user-suggested, much simpler & more robust):
+        #   1. Start with EVERY visual seed bbox on the page:
+        #        - embedded raster sprite bboxes
+        #        - vector drawing rects
+        #        - figure caption text bboxes (so captions get pulled INTO
+        #          their parent figure region, instead of being cropped off)
+        #        - table bboxes are kept SEPARATE and never merged into a
+        #          figure region — but they DO participate as "anchors" so a
+        #          figure region next to a table won't swallow the table.
+        #   2. Pad every seed by 30% on each side (the user's "30% all around"
+        #      rule). This is what merges sprites that belong to the same
+        #      logical figure: their padded boxes overlap, so they fuse.
+        #   3. Find any two padded boxes that overlap → merge them into one
+        #      union box (using the UN-padded contents for the next round).
+        #   4. Re-pad the merged box by 30% and repeat until no more merges
+        #      happen. That converges to one box per logical figure cluster.
+        #   5. For each final cluster, take the union of contained ORIGINAL
+        #      seeds, pad by 30% one last time, clip to page bounds, render
+        #      as ONE composite JPEG at ~216 DPI.
+        #   6. Try to attach a caption: nearest caption block whose bbox is
+        #      either inside, just below, or just above the final region.
+        #
+        # Why this beats the previous approach:
+        #   - No reliance on "column detection" heuristics (which fail on
+        #     full-width figures or single-column layouts).
+        #   - No reliance on captions being present (works on cover figures,
+        #     supplementary pages, posters, anything).
+        #   - Naturally merges multi-panel figures (panels a/b/c/d) into one
+        #     image, because their padded bboxes overlap each other.
+        # -------------------------------------------------------------------
+        # 50% padding on every side. The expansion is ALWAYS clipped to the
+        # current page rect (see _expand below), so growth is per-page and
+        # can never bleed into the previous or next page. Each page is
+        # processed independently inside the per_page_ctx loop.
+        EXPAND_RATIO = 0.50  # 50% on each side of the original bbox
+
+
+        def _expand(rect, ratio, page_rect):
+            x0, y0, x1, y1 = rect
+            dx = (x1 - x0) * ratio
+            dy = (y1 - y0) * ratio
+            return (
+                max(page_rect.x0, x0 - dx),
+                max(page_rect.y0, y0 - dy),
+                min(page_rect.x1, x1 + dx),
+                min(page_rect.y1, y1 + dy),
+            )
+
+        def _union(a, b):
+            return (
+                min(a[0], b[0]), min(a[1], b[1]),
+                max(a[2], b[2]), max(a[3], b[3]),
+            )
+
+        def _iterative_merge(seeds, page_rect, ratio, table_bboxes):
+            """Iteratively merge seed bboxes: expand each by `ratio`, merge
+            any pair whose expanded forms overlap, and repeat until stable.
+
+            Tables block merging: two seeds on opposite sides of a table
+            don't merge through it (we test the merged candidate against
+            every table bbox and reject the merge if the merged box's CENTER
+            line crosses a table).
+            """
+            # Start with the original (un-expanded) seeds. We always re-expand
+            # from these originals so repeated padding doesn't compound.
+            regions = [tuple(s) for s in seeds]
+
+            def _merge_would_cross_table(merged, a, b):
+                """Reject the merge if a table bbox sits BETWEEN a and b and
+                the merge would swallow it. Specifically: if any table is
+                fully contained in `merged` but does NOT overlap either `a`
+                or `b`, the merge clearly jumped over the table → reject.
+                """
+                for tb in table_bboxes:
+                    if (tb[0] >= merged[0] and tb[1] >= merged[1] and
+                            tb[2] <= merged[2] and tb[3] <= merged[3]):
+                        if (not _rects_overlap(tb, a)
+                                and not _rects_overlap(tb, b)):
+                            return True
+                return False
+
+            changed = True
+            max_iters = 50  # safety bound
+            iters = 0
+            while changed and iters < max_iters:
+                changed = False
+                iters += 1
+                new_regions = []
+                consumed = [False] * len(regions)
+                expanded = [_expand(r, ratio, page_rect) for r in regions]
+
+                for i in range(len(regions)):
+                    if consumed[i]:
+                        continue
+                    cur = regions[i]
+                    cur_exp = expanded[i]
+                    for j in range(i + 1, len(regions)):
+                        if consumed[j]:
+                            continue
+                        if _rects_overlap(cur_exp, expanded[j]):
+                            candidate = _union(cur, regions[j])
+                            if _merge_would_cross_table(
+                                candidate, cur, regions[j]
+                            ):
+                                continue
+                            cur = candidate
+                            cur_exp = _expand(cur, ratio, page_rect)
+                            consumed[j] = True
+                            changed = True
+                    new_regions.append(cur)
+                regions = new_regions
+            return regions
+
+        for page_index, ctx in enumerate(per_page_ctx):
+            page_num = ctx["page_num"]
+            page_rect = ctx["page_rect"]
+            text_blocks = ctx["text_blocks"]
+            drawing_rects = ctx["drawing_rects"]
+            raster_bboxes = ctx["raster_bboxes"]
+            table_bboxes = per_page_table_bboxes[page_index]
+            page = doc.load_page(page_index)
+
+            # ----------------- Build seed bboxes -----------------------------
+            # (1) Embedded raster sprite bboxes
+            # (2) Vector drawing rects (filtered: drop page-borders / tiny noise)
+            # (3) Caption text bboxes so each figure region pulls in its own
+            #     caption text. We tag captions so we can re-attribute label/
+            #     text after merging.
+            #
+            # Excluded:
+            #   - Body-text blocks (would merge everything into the page)
+            #   - Anything inside a table bbox (tables are emitted separately)
+            page_area = max(1.0, page_rect.width * page_rect.height)
+
+            seed_bboxes = []
+            # Rasters
+            for r in raster_bboxes:
+                seed_bboxes.append(r)
+            # Vector drawings — drop ones that span basically the whole page
+            for r in drawing_rects:
+                w = r[2] - r[0]; h = r[3] - r[1]
+                if w * h / page_area > 0.85:
+                    continue  # page-wide overlay/border
+                seed_bboxes.append(r)
+
+            # Drop seeds that sit entirely inside a table bbox
+            filtered_seeds = []
+            for r in seed_bboxes:
+                inside_table = False
+                for tb in table_bboxes:
+                    if (r[0] >= tb[0] - 2 and r[1] >= tb[1] - 2 and
+                            r[2] <= tb[2] + 2 and r[3] <= tb[3] + 2):
+                        inside_table = True
+                        break
+                if not inside_table:
+                    filtered_seeds.append(r)
+
+            # Caption seeds (figure captions only — table captions go with
+            # their tables in the pdfplumber pass)
+            caption_blocks = _find_caption_blocks(text_blocks, kind="figure")
+            caption_seed_indices = []
+            for cap in caption_blocks:
+                caption_seed_indices.append(len(filtered_seeds))
+                filtered_seeds.append(cap["bbox"])
+
+            if not filtered_seeds:
+                result["pages"][page_index]["images"] = []
+                continue
+
+            # ----------------- Iterative expand+merge -----------------------
+            regions = _iterative_merge(
+                filtered_seeds, page_rect, EXPAND_RATIO, table_bboxes,
+            )
+
+            # Re-attach captions: for each final region, find the caption
+            # block whose bbox falls inside (or closest below/above) it.
+            def _caption_for_region(region):
+                rx0, ry0, rx1, ry1 = region
+                best = None
+                best_d = float("inf")
+                for cap in caption_blocks:
+                    cx0, cy0, cx1, cy1 = cap["bbox"]
+                    # Strongly prefer captions whose bbox lies INSIDE the region
+                    if (cx0 >= rx0 - 2 and cx1 <= rx1 + 2 and
+                            cy0 >= ry0 - 2 and cy1 <= ry1 + 2):
+                        return cap
+                    # Otherwise nearest caption directly below the region
+                    # in the same horizontal span
+                    if cy0 >= ry1 - 5 and cx0 < rx1 and cx1 > rx0:
+                        d = cy0 - ry1
+                        if d < best_d and d < 80:
+                            best_d = d
+                            best = cap
+                return best
+
+            # Filter out final regions that ended up trivially small or
+            # page-sized.
+            merged_regions = []
+            for r in regions:
+                rw = r[2] - r[0]; rh = r[3] - r[1]
+                if rw < 30 or rh < 30:
+                    continue
+                if rw * rh / page_area > 0.95:
+                    continue
+                cap = _caption_for_region(r)
+                cap_text = cap["text"] if cap else None
+                label = cap["label"] if cap else None
+                merged_regions.append((r, cap_text, label))
+
+            # Sort top-to-bottom, left-to-right
+            merged_regions.sort(key=lambda x: (round(x[0][1] / 20), x[0][0]))
+
+
+            page_images = []
+            for (bbox, cap_text, label) in merged_regions:
+                if not render_vector_figures:
+                    # Still record metadata so text-only LLMs know there's
+                    # a figure here, even if we don't render the bytes.
+                    figure_counter += 1
+                    page_images.append({
+                        "index": figure_counter,
+                        "kind": "figure_region",
+                        "page": page_num,
+                        "bbox": [float(b) for b in bbox],
+                        "caption": cap_text,
+                        "label": label,
+                        "format": "jpeg",
+                        "width": 0,
+                        "height": 0,
+                        "data": "",
+                    })
+                    result["stats"]["total_vector_figures"] += 1
+                    continue
+
+                try:
+                    pad = 6.0
+                    crop = fitz.Rect(
+                        max(page_rect.x0, bbox[0] - pad),
+                        max(page_rect.y0, bbox[1] - pad),
+                        min(page_rect.x1, bbox[2] + pad),
+                        min(page_rect.y1, bbox[3] + pad),
+                    )
+                    if crop.width < 30 or crop.height < 30:
                         continue
 
+                    # Render at ~216 DPI (3x zoom) for crisp figure detail
+                    matrix = fitz.Matrix(3, 3)
+                    pm = page.get_pixmap(matrix=matrix, alpha=False, clip=crop)
+                    pil_img = Image.open(io.BytesIO(pm.tobytes("png")))
+                    w, h = pil_img.size
                     if max(w, h) > max_image_dim:
                         scale = max_image_dim / float(max(w, h))
                         pil_img = pil_img.resize(
@@ -660,199 +1221,43 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
                         w, h = pil_img.size
 
                     out_buf = io.BytesIO()
-                    if pil_img.mode in ("RGBA", "LA"):
-                        pil_img.save(out_buf, format="PNG", optimize=True)
-                        fmt = "png"
-                    else:
-                        pil_img.convert("RGB").save(
-                            out_buf, format="JPEG", quality=82, optimize=True
-                        )
-                        fmt = "jpeg"
-
-                    caption = _find_caption(text_blocks, bbox,
-                                            kind_hint="figure") if bbox else None
+                    pil_img.convert("RGB").save(
+                        out_buf, format="JPEG", quality=88, optimize=True
+                    )
 
                     figure_counter += 1
                     page_images.append({
                         "index": figure_counter,
-                        "kind": "embedded_image",
+                        "kind": "figure_region",
                         "page": page_num,
-                        "bbox": bbox,
-                        "caption": caption,
-                        "format": fmt,
+                        "bbox": [float(crop.x0), float(crop.y0),
+                                 float(crop.x1), float(crop.y1)],
+                        "caption": cap_text,
+                        "label": label,
+                        "format": "jpeg",
                         "width": w,
                         "height": h,
                         "data": base64.b64encode(out_buf.getvalue()).decode("utf-8"),
                     })
-                except Exception as ie:
+                    result["stats"]["total_vector_figures"] += 1
+                except Exception as e:
                     logger.debug(
-                        f"[PDF] Failed to decode raster xref={xref} on page {page_num}: {ie}"
+                        f"[PDF] Figure-region render failed on page {page_num}: {e}"
                     )
-                    continue
-                finally:
-                    try:
-                        pix = None
-                    except Exception:
-                        pass
 
-            # ---- Vector-figure region crops ----------------------------------
-            # Only crop where vector drawings actually live on the page. Pages
-            # whose `filtered_clusters` is empty produce ZERO rendered images
-            # — we never render full text-only pages.
-            if render_vector_figures and filtered_clusters:
-                for clust in filtered_clusters:
-                    try:
-                        # Expand the crop a little so axis labels / legends
-                        # near the figure also make it into the image.
-                        pad = 8.0
-                        crop = fitz.Rect(
-                            max(page_rect.x0, clust[0] - pad),
-                            max(page_rect.y0, clust[1] - pad),
-                            min(page_rect.x1, clust[2] + pad),
-                            min(page_rect.y1, clust[3] + pad),
-                        )
-                        if crop.width < 20 or crop.height < 20:
-                            continue
-
-                        matrix = fitz.Matrix(2, 2)  # ~144 DPI
-                        pm = page.get_pixmap(matrix=matrix, alpha=False,
-                                             clip=crop)
-                        pil_img = Image.open(io.BytesIO(pm.tobytes("png")))
-                        w, h = pil_img.size
-                        if max(w, h) > max_image_dim:
-                            scale = max_image_dim / float(max(w, h))
-                            pil_img = pil_img.resize(
-                                (max(1, int(w * scale)), max(1, int(h * scale))),
-                                Image.LANCZOS,
-                            )
-                            w, h = pil_img.size
-
-                        out_buf = io.BytesIO()
-                        pil_img.convert("RGB").save(
-                            out_buf, format="JPEG", quality=82, optimize=True
-                        )
-
-                        bbox = [float(crop.x0), float(crop.y0),
-                                float(crop.x1), float(crop.y1)]
-                        caption = _find_caption(text_blocks, bbox,
-                                                kind_hint="figure")
-
-                        figure_counter += 1
-                        page_images.append({
-                            "index": figure_counter,
-                            "kind": "vector_figure",
-                            "page": page_num,
-                            "bbox": bbox,
-                            "caption": caption,
-                            "format": "jpeg",
-                            "width": w,
-                            "height": h,
-                            "data": base64.b64encode(out_buf.getvalue()).decode("utf-8"),
-                        })
-                        result["stats"]["total_vector_figures"] += 1
-                    except Exception as e:
-                        logger.debug(
-                            f"[PDF] Vector-figure crop failed on page {page_num}: {e}"
-                        )
-
-            result["pages"].append({
-                "page": page_num,
-                "text": page_text,
-                "tables": [],         # filled by pdfplumber pass below
-                "tables_meta": [],    # filled by pdfplumber pass below
-                "images": page_images,
-                "charts_detected": charts_count,
-                "links": page_links,
-                # Internal: kept for caption matching during pdfplumber pass
-                "_text_blocks": text_blocks,
-            })
-
-            result["stats"]["total_images"] += sum(
-                1 for im in page_images if im.get("kind") == "embedded_image"
-            )
-            result["stats"]["total_chars"] += len(page_text)
-            result["stats"]["total_charts_detected"] += charts_count
+            result["pages"][page_index]["images"] = page_images
+            # total_images now reports composite figure regions (the only
+            # kind of image we emit). Keep the field name for backward
+            # compatibility with the frontend.
+            result["stats"]["total_images"] += len(page_images)
     finally:
         doc.close()
 
-
-    # ---- pdfplumber: tables (with bbox + nearest caption metadata) ----------
-    try:
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pp:
-            for page_index, pp_page in enumerate(pp.pages):
-                if page_index >= len(result["pages"]):
-                    break
-
-                # Use find_tables() so we also get a bbox for each table; this
-                # lets us locate the matching "Table N: …" caption on the page.
-                table_objs = []
-                try:
-                    table_objs = pp_page.find_tables() or []
-                except Exception as e:
-                    logger.debug(
-                        f"[PDF] find_tables failed page {page_index}: {e}"
-                    )
-
-                # Fall back to extract_tables if find_tables didn't yield results
-                if not table_objs:
-                    try:
-                        raw = pp_page.extract_tables() or []
-                    except Exception as e:
-                        logger.debug(
-                            f"[PDF] extract_tables failed page {page_index}: {e}"
-                        )
-                        raw = []
-                    table_objs = [(None, t) for t in raw]
-                else:
-                    table_objs = [(t.bbox, t.extract()) for t in table_objs]
-
-                page_text_blocks = result["pages"][page_index].get(
-                    "_text_blocks", []
-                )
-
-                clean_tables = []
-                clean_tables_meta = []
-                for bbox, tbl in table_objs:
-                    if not tbl:
-                        continue
-                    norm = [
-                        [("" if cell is None else str(cell)).strip()
-                         for cell in row]
-                        for row in tbl
-                        if any(cell is not None and str(cell).strip()
-                               for cell in row)
-                    ]
-                    if not norm:
-                        continue
-
-                    rows = len(norm)
-                    cols = max((len(r) for r in norm), default=0)
-                    bbox_list = list(bbox) if bbox is not None else None
-                    caption = (
-                        _find_caption(page_text_blocks, bbox_list,
-                                      kind_hint="table")
-                        if bbox_list else None
-                    )
-
-                    clean_tables.append(norm)
-                    clean_tables_meta.append({
-                        "page": result["pages"][page_index]["page"],
-                        "rows": rows,
-                        "cols": cols,
-                        "bbox": bbox_list,
-                        "caption": caption,
-                    })
-
-                result["pages"][page_index]["tables"] = clean_tables
-                result["pages"][page_index]["tables_meta"] = clean_tables_meta
-                result["stats"]["total_tables"] += len(clean_tables)
-    except Exception as e:
-        logger.warning(f"[PDF] pdfplumber pass failed: {e}")
-
     # Drop the internal `_text_blocks` field — it was only needed during the
-    # pdfplumber pass and would balloon the JSON response otherwise.
+    # pdfplumber + figure-region passes and would balloon the JSON response.
     for p in result["pages"]:
         p.pop("_text_blocks", None)
+
 
     # ---- Build LLM-friendly text digest -------------------------------------
     # The digest is what gets fed to text-only LLMs. For visual elements we
@@ -885,23 +1290,31 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
         for im in p.get("images", []):
             kind = im.get("kind", "image")
             cap = im.get("caption")
+            label = im.get("label")
             w = im.get("width")
             h = im.get("height")
             idx = im.get("index")
+            # All emitted images are now composite figure regions, but we
+            # keep the older labels around so legacy stored payloads still
+            # render sensibly.
             kind_label = (
-                "Figure" if kind == "vector_figure" else
+                "Figure" if kind in ("figure_region", "vector_figure") else
                 "Image"  if kind == "embedded_image" else
                 "Visual"
             )
+            head = label if label else f"{kind_label} {idx}"
+            size_part = f"{w}x{h}px" if (w and h) else "metadata-only"
             marker = (
-                f"\n[{kind_label} {idx} — page {p['page']}, {w}x{h}px"
+                f"\n[{head} — page {p['page']}, {size_part}"
                 + (f", caption: \"{cap}\"" if cap else "")
-                + ", attached as image payload]"
+                + (", attached as image payload" if (w and h) else "")
+                + "]"
             )
             combined_chunks.append(marker)
 
         if p.get("charts_detected") and not any(
-            im.get("kind") == "vector_figure" for im in p.get("images", [])
+            im.get("kind") in ("figure_region", "vector_figure")
+            for im in p.get("images", [])
         ):
             # We detected vector drawings but rendering wasn't requested (or
             # produced no crop). Still tell the LLM they exist on this page.
@@ -909,6 +1322,7 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
                 f"\n[Note: {p['charts_detected']} vector chart/drawing region(s) "
                 f"detected on page {p['page']} but not attached as image.]"
             )
+
 
         if p.get("links"):
             combined_chunks.append("\nLinks: " + ", ".join(p["links"][:20]))
