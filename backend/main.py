@@ -1197,15 +1197,50 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
                     continue
 
                 try:
-                    pad = 6.0
-                    crop = fitz.Rect(
-                        max(page_rect.x0, bbox[0] - pad),
-                        max(page_rect.y0, bbox[1] - pad),
-                        min(page_rect.x1, bbox[2] + pad),
-                        min(page_rect.y1, bbox[3] + pad),
-                    )
+                    # FINAL padding pass: after the iterative merge has
+                    # converged on the largest stable region per figure
+                    # cluster, apply ONE MORE 50% expansion (clipped to the
+                    # current page) before cropping. This guarantees we
+                    # don't shear off:
+                    #   - panel sub-labels ("a", "b", "c") that sit just
+                    #     ABOVE the figure ink,
+                    #   - figure legends / class-key icons that sit slightly
+                    #     to the RIGHT of the main figure body,
+                    #   - axis tick labels at the edges.
+                    # Stays per-page because we clip to page_rect on all
+                    # four sides — it cannot bleed onto the previous/next page.
+                    final_crop_bbox = _expand(bbox, EXPAND_RATIO, page_rect)
+
+                    # Tables sitting on the same page must NOT be swallowed
+                    # by the final padding. If the padded box now overlaps a
+                    # table bbox that the un-padded region didn't, clip the
+                    # padding back to the table edge on the appropriate side.
+                    fcx0, fcy0, fcx1, fcy1 = final_crop_bbox
+                    bx0, by0, bx1, by1 = bbox
+                    for tb in table_bboxes:
+                        tx0, ty0, tx1, ty1 = tb
+                        # Already overlapping pre-pad? leave it (caller already
+                        # decided that overlap is acceptable for this region).
+                        if _rects_overlap((bx0, by0, bx1, by1), tb):
+                            continue
+                        if not _rects_overlap(
+                            (fcx0, fcy0, fcx1, fcy1), tb
+                        ):
+                            continue
+                        # Pull whichever padded side first enters the table
+                        # back to the table edge.
+                        if tx0 >= bx1 and fcx1 > tx0:   # table to the right
+                            fcx1 = tx0
+                        if tx1 <= bx0 and fcx0 < tx1:   # table to the left
+                            fcx0 = tx1
+                        if ty0 >= by1 and fcy1 > ty0:   # table below
+                            fcy1 = ty0
+                        if ty1 <= by0 and fcy0 < ty1:   # table above
+                            fcy0 = ty1
+                    crop = fitz.Rect(fcx0, fcy0, fcx1, fcy1)
                     if crop.width < 30 or crop.height < 30:
                         continue
+
 
                     # Render at ~216 DPI (3x zoom) for crisp figure detail
                     matrix = fitz.Matrix(3, 3)
