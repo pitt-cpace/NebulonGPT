@@ -18,9 +18,11 @@ import {
   Block as BlockIcon,
 } from '@mui/icons-material';
 
-import { FileAttachment } from '../types';
+import { FileAttachment, PdfImageMeta } from '../types';
 import { getTextDirectionStyles } from '../services/rtlDetection';
+import { describePdfImage } from '../services/api';
 import * as styles from '../styles/components/ChatArea.styles';
+
 
 // Vision/image support is determined dynamically from Ollama's /api/show
 // `capabilities` array (e.g. ["completion","vision"]). The boolean is fetched
@@ -413,15 +415,61 @@ const InputArea: React.FC<InputAreaProps> = ({
     };
   }, [calculateTokens]);
 
-  // True while at least one attachment is still being processed in the
-  // background (e.g. PDF extraction in flight). Placeholders are marked
-  // with `(extracting…)` appended to their display name and have an empty
-  // `content`. We must NOT allow sending in that state because the
-  // assistant would receive an empty document and answer "I don't have
-  // enough information about the file you're referring to".
+  // True while at least one attachment is still in the HARD-BLOCKING phase
+  // of background processing: initial PDF extraction. In this state the
+  // attachment's `content` is still empty and sending would feed the LLM
+  // a blank document — there is no useful prompt the user could write that
+  // we could honor. So Send is disabled and the blue "extracting…" banner
+  // is shown.
   const isExtracting = attachments.some(
-    (a) => a.content === '' || /\(extracting…\)$/.test(a.name),
+    (a) =>
+      a.content === '' ||
+      /\(extracting…\)$/.test(a.name),
   );
+
+  // SOFT-blocking phase: per-figure visual description is still in progress
+  // but the document text + raw image payloads are already on the
+  // attachment, so a prompt sent right now WILL reach the model in a usable
+  // form (it will see the PDF text and, if vision-capable, the raw figure
+  // images). The only thing missing is the AI-generated `description`
+  // strings on `imageMeta[i]`, which are an OPTIONAL enrichment for future
+  // turns / model switches.
+  //
+  // We therefore allow sending in this state but show an advisory banner
+  // explaining the tradeoff so the user makes an informed choice.
+  const isDescribingFigures = attachments.some((a) =>
+    /\(describing figures \d+\/\d+…\)$/.test(a.name),
+  );
+
+  // Aggregate progress counter for the advisory banner. Each PDF attachment
+  // currently being described carries a "(describing figures N/M…)" suffix
+  // on its name; we sum the N's and M's across all such attachments so the
+  // banner can show "3 / 9 figures described" in real time.
+  //
+  // We intentionally read this from the attachment NAME (rather than from
+  // imageMeta[i].description counts) because the name is updated
+  // synchronously inside the describe loop on every iteration — so the
+  // counter advances visibly even on slow machines where the actual
+  // setAttachments for imageMeta is still in flight.
+  const describeProgress = (() => {
+    let done = 0;
+    let total = 0;
+    for (const a of attachments) {
+      const m = a.name.match(/\(describing figures (\d+)\/(\d+)…\)$/);
+      if (m) {
+        // The N in "N/M" reflects "currently working on figure N" — i.e.
+        // figures 1..N-1 are already finished. We report N-1 as "done" so
+        // the counter doesn't pre-emptively claim the in-flight figure
+        // is complete.
+        done  += Math.max(0, parseInt(m[1], 10) - 1);
+        total += parseInt(m[2], 10);
+      }
+    }
+    return { done, total };
+  })();
+
+
+
 
   // Single send function called by both button click and Enter key
   const handleSend = () => {
@@ -576,39 +624,78 @@ const InputArea: React.FC<InputAreaProps> = ({
             // Build the textual content fed into the LLM message
             const textContent = result.llm_summary_prompt || result.combined_text || '';
 
-            // Collect base64 images from the backend response. The backend
-            // returns raw base64 (no data: URI prefix). We wrap them as
-            // proper `data:image/<fmt>;base64,...` URIs here so the
-            // <img> thumbnails in ChatArea render correctly. `api.ts`
-            // already strips the prefix when forwarding to Ollama, so
-            // both consumers stay happy. Order: embedded images first,
-            // then rendered pages.
+            // Walk each page's images and build BOTH:
+            //   • `imageList`  — base64 data URIs forwarded to the LLM as
+            //                    image payloads (only used when the current
+            //                    model is vision-capable; stripped otherwise).
+            //   • `imageMeta`  — language-agnostic per-figure metadata
+            //                    (page, bbox, caption, label, dimensions).
+            //                    This is ALWAYS persisted on the attachment,
+            //                    even for text-only models, because we'll
+            //                    soon enrich each entry with an AI-generated
+            //                    `description` of the figure so future turns
+            //                    have rich textual context for every visual.
+            //
+            // The two arrays are kept aligned by index so a downstream
+            // consumer can pair `imageList[i]` with `imageMeta[i]`.
             const imageList: string[] = [];
+            const imageMeta: PdfImageMeta[] = [];
             for (const page of result.pages) {
               for (const img of page.images || []) {
-                if (img.data) {
-                  // Defensive: if data already has the prefix (unexpected),
-                  // keep it as-is; otherwise add it.
-                  const fmt = (img.format || 'jpeg').toLowerCase();
-                  const mime = fmt === 'png' ? 'image/png' : 'image/jpeg';
-                  const dataUri = img.data.startsWith('data:')
-                    ? img.data
-                    : `data:${mime};base64,${img.data}`;
-                  imageList.push(dataUri);
-                }
+                if (!img.data) continue;
+                // Defensive: if data already has the prefix (unexpected),
+                // keep it as-is; otherwise add it.
+                const fmt = (img.format || 'jpeg').toLowerCase();
+                const mime = fmt === 'png' ? 'image/png' : 'image/jpeg';
+                const dataUri = img.data.startsWith('data:')
+                  ? img.data
+                  : `data:${mime};base64,${img.data}`;
+                imageList.push(dataUri);
+                imageMeta.push({
+                  index: (img as any).index ?? imageMeta.length + 1,
+                  page: (img as any).page ?? page.page,
+                  label: (img as any).label ?? null,
+                  caption: (img as any).caption ?? null,
+                  bbox: (img as any).bbox ?? null,
+                  width: (img as any).width,
+                  height: (img as any).height,
+                  format: fmt,
+                });
               }
             }
 
+            // ---- Commit the attachment. If we have figures AND a vision
+            // model, we ALSO synchronously stamp the name with the
+            // "(describing figures 0/N…)" suffix so the Send button is
+            // immediately disabled (via the isExtracting flag that watches
+            // this regex). This closes the race window where the async
+            // describe loop hadn't yet executed its first iteration: in that
+            // window the placeholder name would briefly be just `file.name`
+            // and the user could (and DID, per the bug report) click Send,
+            // persisting the attachment with empty descriptions.
+            //
+            // The describe loop below will overwrite this name as it
+            // progresses (0/N → 1/N → … → N/N → restored to file.name).
+            const willDescribe =
+              visionEnabled &&
+              !!modelName &&
+              imageMeta.length > 0 &&
+              imageList.length === imageMeta.length;
+            const initialName = willDescribe
+              ? `${file.name} (describing figures 0/${imageMeta.length}…)`
+              : file.name;
 
             const finalAttachment: FileAttachment = {
-              id: placeholderId, // keep same id to replace in place
-              name: file.name,
+              id: placeholderId,
+              name: initialName,
               type: 'pdf',
               content: textContent,
               images: visionEnabled && imageList.length > 0 ? imageList : undefined,
+              imageMeta: imageMeta.length > 0 ? imageMeta : undefined,
               size: file.size,
               timestamp: new Date().toISOString(),
             };
+
 
             // Remember the visual-content stats for this attachment so we
             // can render a warning if the user's current model is text-only.
@@ -632,6 +719,155 @@ const InputArea: React.FC<InputAreaProps> = ({
               `${result.stats.total_images} images, ` +
               `${result.stats.total_charts_detected} chart regions`,
             );
+
+            // ---- BACKGROUND: generate per-figure descriptions ---------------
+            // We send each extracted figure to the user's CURRENT vision-
+            // capable model and ask it for a short factual description, then
+            // patch that description onto the corresponding `imageMeta[i]`
+            // entry of the attachment in state. Future turns (handled in
+            // src/services/api.ts → formatPdfImageMetaForLlm) will then
+            // inline those descriptions into the LLM's view of the PDF — so
+            // even after the user switches to a text-only model, the model
+            // still "knows" what every figure shows.
+            //
+            // Concurrency is intentionally SERIAL (one at a time). Most
+            // Ollama setups run a single GPU context per model, so parallel
+            // requests just serialize at the engine level while filling the
+            // queue with timeouts. Serial keeps the UI honest: we update the
+            // placeholder name "(describing figures 3/8…)" as we go.
+            //
+            // If the user removes the attachment, switches the chat, or the
+            // request stalls, the AbortController halts the whole batch.
+            // Loud diagnostic log so it's obvious in DevTools whether the
+            // describer loop is even entered. If the user reports "no GPU
+            // activity", we want to be able to tell at a glance whether:
+            //   (a) we never entered the loop (vision flag / no figures), OR
+            //   (b) we entered but the network calls themselves never produced
+            //       any compute (see [describePdfImage] → / ← logs).
+            console.info(
+              `[PDF describe] visionEnabled=${visionEnabled} ` +
+              `modelName=${modelName || '(none)'} ` +
+              `figures=${imageMeta.length} ` +
+              `imagesPayload=${imageList.length}`,
+            );
+
+            if (
+              visionEnabled &&
+              modelName &&
+              imageMeta.length > 0 &&
+              imageList.length === imageMeta.length
+            ) {
+              const total = imageMeta.length;
+              const abortController = new AbortController();
+              console.info(
+                `[PDF describe] starting loop for ${total} figure(s) using model "${modelName}"`,
+              );
+
+
+              // Tag describer model and timestamp on every entry up front so
+              // the digest header makes sense even before the first reply
+              // arrives.
+              const describer = modelName;
+              const describedAt = new Date().toISOString();
+
+              (async () => {
+                for (let i = 0; i < total; i++) {
+                  // Detect removal/replacement: if the attachment no longer
+                  // exists with our placeholderId, abort.
+                  //
+                  // IMPORTANT — do NOT use the
+                  // `setAttachments(prev => { stillThere = ...; return prev; })`
+                  // trick here. React 18 batches functional updaters, so the
+                  // closure runs AFTER the synchronous `if (!stillThere)`
+                  // check on the very next line, which means `stillThere`
+                  // is always read as its initial `false` value and the loop
+                  // aborts on iteration 0 — that was the original bug where
+                  // the console showed "starting loop" but no
+                  // `[describePdfImage] → POST /generate` ever followed and
+                  // neither GPU nor CPU lit up.
+                  //
+                  // `attachmentsRef.current` is kept in sync by a top-level
+                  // useEffect on [message, attachments], so reading it here
+                  // is both synchronous and safe.
+                  const stillThere = attachmentsRef.current.some(
+                    a => a.id === placeholderId,
+                  );
+                  if (!stillThere) {
+                    console.info(
+                      `[PDF describe] attachment ${placeholderId} no longer present at iteration ${i}/${total} — aborting describe loop.`,
+                    );
+                    abortController.abort();
+                    return;
+                  }
+
+
+                  // Surface progress in the attachment name. We keep the
+                  // file name as a prefix so the chip still reads naturally.
+                  setAttachments(prev => prev.map(a =>
+                    a.id === placeholderId
+                      ? { ...a, name: `${file.name} (describing figures ${i + 1}/${total}…)` }
+                      : a
+                  ));
+
+                  const meta = imageMeta[i];
+                  const dataUri = imageList[i];
+                  const desc = await describePdfImage(describer, dataUri, {
+                    page: meta.page,
+                    label: meta.label || undefined,
+                    caption: meta.caption || undefined,
+                    signal: abortController.signal,
+                  });
+
+                  if (abortController.signal.aborted) return;
+
+                  // Patch the description back onto the imageMeta of the
+                  // attachment in state. Use the functional updater so we
+                  // never race with another setAttachments call elsewhere.
+                  setAttachments(prev => prev.map(a => {
+                    if (a.id !== placeholderId) return a;
+                    const nextMeta = (a.imageMeta || []).map((m, idx) =>
+                      idx === i
+                        ? {
+                            ...m,
+                            description: desc || undefined,
+                            describedBy: desc ? describer : undefined,
+                            describedAt: desc ? describedAt : undefined,
+                          }
+                        : m
+                    );
+                    return { ...a, imageMeta: nextMeta };
+                  }));
+                }
+
+                // All done — restore the clean file name and recalculate tokens
+                // (descriptions add a few hundred tokens we should account for).
+                setAttachments(prev => {
+                  const updated = prev.map(a =>
+                    a.id === placeholderId ? { ...a, name: file.name } : a,
+                  );
+                  calculateTokens(messageRef.current, updated);
+                  return updated;
+                });
+              })().catch(err => {
+                console.warn('PDF figure description loop failed:', err);
+                // Restore name even on failure so the user isn't stuck with
+                // a "(describing figures …)" suffix forever.
+                setAttachments(prev => prev.map(a =>
+                  a.id === placeholderId ? { ...a, name: file.name } : a,
+                ));
+              });
+            } else if (!visionEnabled && imageMeta.length > 0) {
+              // Text-only current model: we cannot auto-describe figures.
+              // The figures' captions & labels are still on imageMeta and
+              // will be inlined into the LLM digest by formatPdfImageMetaForLlm
+              // (just without the rich AI-generated `description`).
+              console.info(
+                `[PDF] Current model "${modelName || 'unknown'}" is text-only — ` +
+                `skipping per-figure visual descriptions. ` +
+                `Figure captions/labels will still be sent to the LLM.`,
+              );
+            }
+
 
           } catch (err: any) {
             console.error('PDF extraction failed:', err);
@@ -1059,13 +1295,10 @@ const InputArea: React.FC<InputAreaProps> = ({
             </Box>
           )}
 
-          {/* Extracting banner: shown while a PDF (or any attachment with
-              an asynchronous extraction pipeline) is still being processed.
-              Sending is BLOCKED in this state because otherwise the LLM would
-              receive an empty document and answer with something like
-              "I don't have enough information about the file you're referring to".
-              The user can wait — extraction typically completes in a few
-              seconds — or remove the attachment. */}
+          {/* Hard-blocking extraction banner: shown while a PDF is still
+              being parsed by the backend. In this state the attachment's
+              `content` is empty, so sending now would feed the LLM a blank
+              document. Send is disabled. */}
           {isExtracting && (
             <Box
               sx={{
@@ -1105,6 +1338,126 @@ const InputArea: React.FC<InputAreaProps> = ({
               </Typography>
             </Box>
           )}
+
+          {/* Soft-advisory "describing figures" banner: extraction has
+              finished and the PDF text + raw figure images are already on
+              the attachment, but we're still asking the vision model to
+              generate a short textual description of each figure (so those
+              descriptions can be saved with the chat and reused later, even
+              if the user switches to a text-only model).
+
+              Sending IS allowed in this state — the model will still see
+              every page and every figure image. The only thing being filled
+              in by the background work is the OPTIONAL `description`
+              strings on `imageMeta[*]`, which improve later turns / model
+              switches but are not required for the current turn to work.
+              We just inform the user so they can make an informed choice. */}
+          {isDescribingFigures && !isExtracting && (
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 0.75,
+                p: 1,
+                mb: 1,
+                borderRadius: 1,
+                // Warning (amber) palette — this is an advisory, not a
+                // hard block. Sending now is allowed but discouraged
+                // because the in-flight figure descriptions wouldn't be
+                // saved with the chat.
+                bgcolor: 'rgba(255, 152, 0, 0.10)',
+                border: '1px solid rgba(255, 152, 0, 0.35)',
+                width: '100%',
+              }}
+            >
+              {/* Top row: spinner + counter pill + advisory text */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    border: '2px solid rgba(255, 152, 0, 0.35)',
+                    borderTopColor: 'warning.main',
+                    animation: 'spin 1s linear infinite',
+                    flexShrink: 0,
+                    '@keyframes spin': {
+                      '0%':   { transform: 'rotate(0deg)' },
+                      '100%': { transform: 'rotate(360deg)' },
+                    },
+                  }}
+                />
+
+                {/* Counter "pill" — sourced from the synchronously-updated
+                    attachment name suffix, so it advances visibly with every
+                    figure even on slow machines. Shows N/total where N is
+                    the number of figures FULLY described so far. */}
+                {describeProgress.total > 0 && (
+                  <Box
+                    sx={{
+                      px: 0.75,
+                      py: 0.125,
+                      borderRadius: 0.75,
+                      bgcolor: 'rgba(255, 152, 0, 0.20)',
+                      border: '1px solid rgba(255, 152, 0, 0.45)',
+                      color: 'warning.main',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      lineHeight: 1.4,
+                      flexShrink: 0,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    {`${describeProgress.done} / ${describeProgress.total} figures described`}
+                  </Box>
+                )}
+
+                <Typography
+                  variant="caption"
+                  sx={{ color: 'warning.main', lineHeight: 1.4 }}
+                >
+                  {`${modelName || 'The model'} is still writing a short description for each PDF figure in the background. You can send your prompt now — the PDF text and all figure images are already attached — but waiting a few more seconds means those AI-generated descriptions will be saved with the document and remain available later, even if you switch to a text-only model.`}
+                </Typography>
+              </Box>
+
+              {/* Bottom row: thin determinate progress bar so the user
+                  gets a continuous visual sense of how close we are to
+                  completion (the pill is discrete; the bar is continuous). */}
+              {describeProgress.total > 0 && (
+                <Box
+                  sx={{
+                    position: 'relative',
+                    height: 4,
+                    borderRadius: 2,
+                    bgcolor: 'rgba(255, 152, 0, 0.15)',
+                    overflow: 'hidden',
+                    ml: 2.5, // align under the text (past the spinner)
+                  }}
+                >
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      bottom: 0,
+                      width: `${Math.min(
+                        100,
+                        Math.max(
+                          0,
+                          (describeProgress.done / describeProgress.total) * 100,
+                        ),
+                      )}%`,
+                      bgcolor: 'warning.main',
+                      transition: 'width 200ms ease-out',
+                    }}
+                  />
+                </Box>
+              )}
+            </Box>
+          )}
+
+
+
 
           {/* PDF visual-content advisory: shown when an attached PDF contains
               images / charts / tables but the current model is text-only.
@@ -1350,8 +1703,12 @@ const InputArea: React.FC<InputAreaProps> = ({
                   ? "Cannot send: Context limit exceeded"
                   : isExtracting
                     ? "Cannot send: Attachment is still being extracted. Please wait…"
-                    : "Send message"
+                    : isDescribingFigures
+                      ? "You can send now — but waiting for figure descriptions to finish will save richer context with the chat."
+                      : "Send message"
             }
+
+
             sx={{ 
               ml: 1,
               ...((isContextExceeded || imageBlocked) && {
