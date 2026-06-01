@@ -431,14 +431,25 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
     # Helpers: caption detection + bbox clustering
     # -------------------------------------------------------------------------
     # Match common scientific-figure caption openers, e.g.
-    #   "Fig. 1 | Title …"        "Figure 2: Title …"
-    #   "Figure S3 — Title …"     "Table 1. Title …"
-    #   "Scheme 4 | …"            "Chart 2 – …"
+    #   "Fig. 1 | Title …"                 "Figure 2: Title …"
+    #   "Figure S3 — Title …"              "Table 1. Title …"
+    #   "Scheme 4 | …"                     "Chart 2 – …"
+    #   "Extended Data Fig. 1 | Title …"   "Extended Data Table 2: …"
+    #   "Supplementary Fig. 3 …"           "Supplementary Table 4 …"
+    #   "Supplementary Figure S5 …"        "Supp. Fig. 6 …"
+    # The optional prefix group captures "Extended Data ", "Supplementary ",
+    # "Supp. ", etc., and is preserved so we can build a sensible label
+    # ("Extended Data Figure 1" instead of just "Figure 1") downstream.
     CAPTION_RE = re.compile(
-        r"^\s*(Fig(?:ure|\.)?|Table|Chart|Diagram|Scheme|Plate|Panel)"
-        r"\s*(S?\d+[A-Za-z]?)?\s*[\.\:\|\-\u2013\u2014]?\s*(.+)",
+        r"^\s*"
+        r"(?P<prefix>(?:Extended\s+Data|Supplementary|Supplemental|Supp\.?|"
+        r"Online\s+(?:Methods\s+)?)?\s*)"
+        r"(?P<keyword>Fig(?:ure|\.)?|Table|Chart|Diagram|Scheme|Plate|Panel|Box)"
+        r"\s*(?P<num>S?\d+[A-Za-z]?)?"
+        r"\s*[\.\:\|\-\u2013\u2014]?\s*(?P<rest>.+)",
         re.IGNORECASE,
     )
+
 
     def _find_caption(text_blocks, target_bbox, kind_hint="figure"):
         """Find the nearest 'Figure N: …' / 'Table N: …' caption to a visual.
@@ -464,13 +475,14 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
             m = CAPTION_RE.match(first_line)
             if not m:
                 continue
-            keyword = m.group(1).lower()
+            keyword = (m.group("keyword") or "").lower()
             is_table = keyword.startswith("table")
             if kind_hint == "table" and not is_table:
                 continue
             if kind_hint != "table" and is_table:
                 continue
             # Vertical distance from caption block to the visual bbox
+
             if by0 >= ty1:
                 d = by0 - ty1  # caption appears below
             elif by1 <= ty0:
@@ -624,21 +636,36 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
             m = CAPTION_RE.match(first_line)
             if not m:
                 continue
-            keyword = m.group(1).lower()
+            keyword = (m.group("keyword") or "").lower()
             is_table = keyword.startswith("table")
             cap_kind = "table" if is_table else "figure"
             if kind == "figure" and is_table:
                 continue
             if kind == "table" and not is_table:
                 continue
-            num = (m.group(2) or "").strip()
+            num = (m.group("num") or "").strip()
+            # Preserve the optional prefix ("Extended Data", "Supplementary",
+            # "Supp.", …) so the label downstream matches what the reader
+            # sees in the PDF (e.g. "Extended Data Figure 1" vs just "Figure 1").
+            prefix_raw = (m.group("prefix") or "").strip()
+            prefix_norm = " ".join(prefix_raw.split())
+            # Normalize a couple of common short forms for prettier labels.
+            if prefix_norm.lower() in ("supp", "supp."):
+                prefix_norm = "Supplementary"
+            elif prefix_norm.lower() == "supplemental":
+                prefix_norm = "Supplementary"
+            elif prefix_norm.lower().startswith("extended data"):
+                prefix_norm = "Extended Data"
             label_word = (
                 "Table" if is_table
                 else ("Scheme" if keyword.startswith("scheme")
                       else ("Chart" if keyword.startswith("chart")
-                            else "Figure"))
+                            else ("Box" if keyword.startswith("box")
+                                  else "Figure")))
             )
-            label = f"{label_word} {num}".strip() if num else label_word
+            base_label = f"{label_word} {num}".strip() if num else label_word
+            label = f"{prefix_norm} {base_label}".strip() if prefix_norm else base_label
+
             out.append({
                 "bbox": (float(bx0), float(by0), float(bx1), float(by1)),
                 "text": " ".join(btext.split())[:500],
@@ -1085,27 +1112,72 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
             page = doc.load_page(page_index)
 
             # ----------------- Build seed bboxes -----------------------------
-            # (1) Embedded raster sprite bboxes
-            # (2) Vector drawing rects (filtered: drop page-borders / tiny noise)
-            # (3) Caption text bboxes so each figure region pulls in its own
-            #     caption text. We tag captions so we can re-attribute label/
-            #     text after merging.
+            # Detection is purely GEOMETRIC / language-agnostic. We do NOT
+            # rely on caption-keyword matching ("Figure", "Table", "Fig.")
+            # to seed regions — that would only work for English / Latin
+            # papers and would silently fail on Persian (شکل / جدول /
+            # تصویر), Arabic, Chinese, Japanese, etc.
             #
-            # Excluded:
-            #   - Body-text blocks (would merge everything into the page)
-            #   - Anything inside a table bbox (tables are emitted separately)
+            # Seed sources:
+            #   (1) Embedded raster sprite bboxes (any language, any layout)
+            #   (2) Vector drawing rects (any language, any layout) — we
+            #       drop ones that span basically the whole page (borders).
+            #   (3) "Figure-associated" text blocks, selected purely by
+            #       geometry, not content:
+            #         - narrow (width < 40% of page width)  AND
+            #         - short content (< 200 visible chars), AND
+            #         - not inside a table.
+            #       This captures axis labels, panel sub-labels ("a", "b",
+            #       "c"), legend entries, tick labels, and short captions in
+            #       ANY language — while excluding full body-text paragraphs
+            #       which would otherwise pull the entire page into one
+            #       giant "figure".
+            #
+            # Tables are kept separate and never become figure seeds (they
+            # are emitted as structured rows by the pdfplumber pass).
             page_area = max(1.0, page_rect.width * page_rect.height)
+            page_width = page_rect.width
 
             seed_bboxes = []
-            # Rasters
+            # (1) Rasters
             for r in raster_bboxes:
                 seed_bboxes.append(r)
-            # Vector drawings — drop ones that span basically the whole page
+            # (2) Vector drawings — drop page-wide overlays/borders
             for r in drawing_rects:
                 w = r[2] - r[0]; h = r[3] - r[1]
                 if w * h / page_area > 0.85:
-                    continue  # page-wide overlay/border
+                    continue
                 seed_bboxes.append(r)
+
+            # (3) Language-agnostic figure-associated text seeds
+            for b in text_blocks:
+                try:
+                    bx0, by0, bx1, by1, btext = b[0], b[1], b[2], b[3], b[4]
+                except Exception:
+                    continue
+                if not isinstance(btext, str):
+                    continue
+                stripped = btext.strip()
+                if not stripped:
+                    continue
+                bw = bx1 - bx0
+                bh = by1 - by0
+                if bw <= 0 or bh <= 0:
+                    continue
+                # Body text is wide; figure-internal text is narrow.
+                if bw >= page_width * 0.40:
+                    continue
+                # Long text blocks are paragraphs, not labels/legends.
+                visible_chars = len(stripped.replace("\n", " "))
+                if visible_chars >= 200:
+                    continue
+                # Many lines = paragraph fragment, even if narrow.
+                line_count = stripped.count("\n") + 1
+                if line_count >= 8:
+                    continue
+                seed_bboxes.append(
+                    (float(bx0), float(by0), float(bx1), float(by1))
+                )
 
             # Drop seeds that sit entirely inside a table bbox
             filtered_seeds = []
@@ -1119,17 +1191,18 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
                 if not inside_table:
                     filtered_seeds.append(r)
 
-            # Caption seeds (figure captions only — table captions go with
-            # their tables in the pdfplumber pass)
+            # Caption labeling is BEST-EFFORT and English/Latin-only — we
+            # only use it to give the detected region a friendly name like
+            # "Figure 3" or "Extended Data Figure 1". If no recognizable
+            # caption is found (e.g. the paper is in Persian), the figure
+            # is STILL emitted, just without a `label` field. Detection
+            # never depends on this.
             caption_blocks = _find_caption_blocks(text_blocks, kind="figure")
-            caption_seed_indices = []
-            for cap in caption_blocks:
-                caption_seed_indices.append(len(filtered_seeds))
-                filtered_seeds.append(cap["bbox"])
 
             if not filtered_seeds:
                 result["pages"][page_index]["images"] = []
                 continue
+
 
             # ----------------- Iterative expand+merge -----------------------
             regions = _iterative_merge(
