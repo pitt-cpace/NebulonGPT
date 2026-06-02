@@ -1218,21 +1218,43 @@ function startHTTPSServer() {
           console.log(`🔐 HTTPS dev proxy: ${req.method} ${req.url} -> port ${targetPort}`);
         }
         
-        // Collect request body for non-GET/HEAD requests
-        let body = '';
+        // Collect request body for non-GET/HEAD requests.
+        //
+        // CRITICAL: chunks MUST be kept as raw Buffers and concatenated with
+        // Buffer.concat() — NEVER chunk.toString(). The previous string-based
+        // implementation silently corrupted every byte > 0x7F (it forced a
+        // UTF-8 decode, replacing invalid byte sequences with U+FFFD), which
+        // mangled the binary contents of every multipart/form-data upload.
+        // That broke PDF uploads end-to-end when accessing the app via HTTPS
+        // on a LAN IP (e.g. https://10.110.187.156:3443/api/pdf/extract → 400
+        // Bad Request from FastAPI because the boundary delimiter no longer
+        // matched the now-replaced bytes of the file content).
+        //
+        // Tracking Content-Length separately also lets us send an explicit
+        // Content-Length header to the backend, which is required by some
+        // strict HTTP parsers and avoids confusion with chunked transfer.
+        const bodyChunks = [];
+        let bodyLength = 0;
         req.on('data', chunk => {
-          body += chunk.toString();
+          // Defensive: if somehow we receive a string chunk (shouldn't happen
+          // on a raw http(s).Server request stream), coerce back to Buffer
+          // using latin-1 which is the only single-byte-identity encoding.
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'binary');
+          bodyChunks.push(buf);
+          bodyLength += buf.length;
         });
-        
+
         req.on('end', () => {
+          const body = bodyChunks.length > 0 ? Buffer.concat(bodyChunks, bodyLength) : null;
+
           // Build headers for the proxy request
           const proxyHeaders = { ...req.headers };
-          
+
           // Remove/modify headers that shouldn't be forwarded or cause issues
           delete proxyHeaders['host'];
           delete proxyHeaders['origin'];
           delete proxyHeaders['referer'];
-          
+
           // Set appropriate host header based on target
           if (isOllamaRequest) {
             proxyHeaders['host'] = 'localhost:11434';
@@ -1241,25 +1263,36 @@ function startHTTPSServer() {
           } else {
             proxyHeaders['host'] = `localhost:${targetPort}`;
           }
-          
+
           const config = {
             method: req.method,
             url: targetUrl,
             headers: proxyHeaders,
             responseType: 'stream',
-            timeout: 60000, // 60 second timeout
+            // Raise the per-request timeout from 60s → 5min so large PDF
+            // extractions (the FastAPI side can take 30-60s on big papers)
+            // don't get cut off by the proxy before the backend responds.
+            timeout: 300000,
             validateStatus: () => true, // Accept all status codes
-            maxRedirects: 0
+            maxRedirects: 0,
+            // Multipart uploads from /api/pdf/extract can easily exceed
+            // axios' default 10 MB request body cap (the new figure-rendering
+            // pipeline returns big base64 blobs too). Lift the cap.
+            maxContentLength: 200 * 1024 * 1024,
+            maxBodyLength: 200 * 1024 * 1024,
           };
-          
-          // Add body for POST/PUT/PATCH requests
+
+          // Add body for POST/PUT/PATCH requests. We pass it through as a
+          // raw Buffer (no parsing!) so multipart boundaries, binary file
+          // contents, embedded JSON, etc. all reach the backend byte-for-byte.
           if (body && req.method !== 'GET' && req.method !== 'HEAD') {
-            try {
-              config.data = body;
-            } catch (e) {
-              console.error('Error parsing request body:', e);
-            }
+            config.data = body;
+            // Re-stamp Content-Length from the actual buffered size so the
+            // backend doesn't fall back to chunked transfer (FastAPI/Starlette
+            // accepts both but some intermediate parsers don't).
+            config.headers['content-length'] = String(bodyLength);
           }
+
           
           axios(config).then(response => {
             console.log(`✅ HTTPS proxy response: ${response.status} for ${req.url}`);
