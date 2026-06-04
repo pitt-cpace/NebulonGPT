@@ -281,68 +281,9 @@ Write-Info "Bootstrapping pip into bundled Python..."
 & $bundledPython -m ensurepip --upgrade
 & $bundledPython -m pip install --upgrade pip @pipFlags
 
-# Install backend requirements
-# Note: spacy requires LLVM/clang to compile on Windows, which is typically not available
-# We install packages in groups to handle dependencies properly
+# Install backend requirements from requirements.txt (same as Mac build)
 Write-Info "Installing backend requirements for $Architecture..."
-
-# Group 1: Core packages that install cleanly
-Write-Info "Installing core packages (FastAPI, uvicorn, websockets, etc.)..."
-& $bundledPython -m pip install --upgrade @pipFlags `
-    "fastapi>=0.104.1" `
-    "uvicorn[standard]>=0.24.0" `
-    "python-multipart>=0.0.6" `
-    "aiofiles>=23.2.1" `
-    "websockets>=15.0" `
-    "netifaces>=0.11.0" `
-    "python-dotenv>=1.2.0"
-
-# Group 2: Vosk (speech recognition)
-Write-Info "Installing Vosk ASR..."
-& $bundledPython -m pip install --upgrade @pipFlags "vosk>=0.3.44"
-
-# Group 3: ML/AI packages (torch is large, ~240MB)
-Write-Info "Installing ML/AI packages (torch, transformers, huggingface_hub)..."
-& $bundledPython -m pip install --upgrade @pipFlags `
-    "torch>=2.1.0" `
-    "huggingface_hub>=0.24.6" `
-    "soundfile>=0.12.1" `
-    "transformers>=4.0.0"
-
-# Group 4: Kokoro TTS and dependencies
-# Note: kokoro depends on misaki[en] which depends on spacy
-# spacy cannot be compiled on Windows without LLVM, so we skip it
-# Instead, we install kokoro's core dependencies manually
-Write-Info "Installing Kokoro TTS dependencies (skipping spacy - requires LLVM)..."
-& $bundledPython -m pip install --upgrade @pipFlags `
-    "numpy>=1.26.0" `
-    "scipy>=1.13.0" `
-    "loguru>=0.7.0" `
-    "regex>=2024.0.0" `
-    "addict>=2.4.0" `
-    "num2words>=0.5.13"
-
-# Install misaki without extras (avoids spacy dependency)
-Write-Info "Installing misaki (base only, without spacy dependency)..."
-& $bundledPython -m pip install --upgrade --no-deps @pipFlags "misaki>=0.9.4"
-
-# Install kokoro without dependency resolution (we've manually installed deps)
-Write-Info "Installing kokoro TTS..."
-& $bundledPython -m pip install --upgrade --no-deps @pipFlags "kokoro>=0.7.16"
-
-# Install phonemizer and espeak for TTS (optional, kokoro can work without)
-# Use try/catch to handle any errors gracefully for these optional components
-Write-Info "Installing optional TTS components..."
-try {
-    & $bundledPython -m pip install --upgrade @pipFlags "phonemizer-fork>=3.3.0" "espeakng-loader>=0.2.4" 2>&1 | Out-Null
-    Write-Success "Optional TTS components installed"
-} catch {
-    Write-Warning "Optional TTS components could not be installed (this is okay)"
-}
-
-# Install spacy 3.7.2 (has pre-built wheels for Windows - no compilation needed)
-Write-Info "Installing spacy 3.7.2 for TTS text processing..."
-& $bundledPython -m pip install --upgrade @pipFlags "spacy==3.7.2"
+& $bundledPython -m pip install --upgrade @pipFlags -r "backend\requirements.txt"
 
 # Copy FastAPI backend
 Write-Info "Copying FastAPI backend..."
