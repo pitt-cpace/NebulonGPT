@@ -269,10 +269,16 @@ if (-not (Test-Path $bundledPython)) {
 
 Write-Info "Using bundled Python: $bundledPython"
 
+# Prevent bundled Python from using the system's user site-packages
+# This ensures only the bundled Python's own site-packages are used
+$env:PYTHONNOUSERSITE = "1"
+
 # Common pip flags to suppress warnings about scripts not on PATH
 $pipFlags = @("--no-warn-script-location", "--disable-pip-version-check")
 
-# Install packages using bundled pip
+# Bootstrap pip into the bundled Python (avoids using broken system pip)
+Write-Info "Bootstrapping pip into bundled Python..."
+& $bundledPython -m ensurepip --upgrade
 & $bundledPython -m pip install --upgrade pip @pipFlags
 
 # Install backend requirements
