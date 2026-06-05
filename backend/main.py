@@ -328,16 +328,25 @@ async def delete_model(model_name: str):
 # REST API ENDPOINTS - PDF PROCESSING
 # =============================================================================
 #
-# PDF text + image + table + metadata extraction for sending to LLMs.
-# Uses:
-#   - PyMuPDF (fitz)   -> fast text extraction, embedded images, metadata,
-#                          drawings/charts detection, links, TOC
-#   - pdfplumber       -> accurate table extraction (built on pdfminer.six)
-#   - Pillow           -> re-encode extracted images to a safe PNG/JPEG payload
+# PDF extraction for sending to LLMs.
 #
-# The endpoint accepts a PDF upload and returns a structured JSON document
-# that the frontend can drop into a FileAttachment (type='pdf') and forward
-# to the LLM via the existing chat pipeline.
+# NOTE (2025): This endpoint has been REDUCED to TEXT-ONLY extraction.
+# Extraction of tables, figures, images, and vector charts has been
+# intentionally DISABLED (the code is preserved below, wrapped in
+# `if False:` blocks, so it can be re-enabled later if needed).
+#
+# Rationale: visual-element extraction was unreliable across diverse PDF
+# layouts and occasionally introduced incorrect or noisy data into the
+# LLM context. The frontend warns the user on upload that PDF support is
+# text-only and that some information may be lost or imperfect.
+#
+# What is still extracted:
+#   - PyMuPDF (fitz)   -> page text, metadata, TOC, links
+#
+# What is disabled (commented via `if False:`):
+#   - pdfplumber       -> table extraction
+#   - PyMuPDF drawings -> vector chart / figure-region detection & rendering
+#   - PyMuPDF rasters  -> embedded image extraction
 
 def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
                          max_image_dim: int = 1600,
@@ -406,9 +415,21 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
     """
 
     import fitz  # PyMuPDF
-    import pdfplumber
-    from PIL import Image
+    # NOTE: pdfplumber + Pillow are no longer needed for the active code path
+    # (tables / figures / images extraction is disabled below). They're left
+    # imported lazily inside the disabled blocks if those are ever re-enabled.
     import re
+
+    # ------------------------------------------------------------------------
+    # TEXT-ONLY MODE FLAG
+    # ------------------------------------------------------------------------
+    # When True, the function ONLY extracts text + metadata + TOC + links.
+    # Tables, figures, embedded images, and vector-chart detection/rendering
+    # are skipped entirely. This was disabled because visual-element extraction
+    # was unreliable on diverse PDF layouts and sometimes injected noisy or
+    # incorrect data into the LLM context. Set to False to restore the full
+    # pipeline (see commented `if not TEXT_ONLY_MODE:` blocks below).
+    TEXT_ONLY_MODE = True
 
     result = {
         "filename": filename,
@@ -835,44 +856,57 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
             # Vector drawings
             drawing_rects = []
             charts_count = 0
-            try:
-                drawings = page.get_drawings() or []
-                for d in drawings:
-                    items = d.get("items", []) or []
-                    if len(items) < 3:
-                        continue
-                    rect = d.get("rect")
-                    if rect is None:
-                        continue
-                    if rect.width < 6 or rect.height < 6:
-                        continue
-                    drawing_rects.append((float(rect.x0), float(rect.y0),
-                                          float(rect.x1), float(rect.y1)))
-                charts_count = len(drawing_rects)
-            except Exception:
-                charts_count = 0
+            # ------------------------------------------------------------
+            # DISABLED in TEXT_ONLY_MODE: vector-drawing detection is only
+            # used downstream to seed figure-region rendering (PASS 3) and
+            # to populate `charts_detected` in the digest. Skipping it
+            # here avoids paying the cost when figures aren't rendered.
+            # ------------------------------------------------------------
+            if not TEXT_ONLY_MODE:
+                try:
+                    drawings = page.get_drawings() or []
+                    for d in drawings:
+                        items = d.get("items", []) or []
+                        if len(items) < 3:
+                            continue
+                        rect = d.get("rect")
+                        if rect is None:
+                            continue
+                        if rect.width < 6 or rect.height < 6:
+                            continue
+                        drawing_rects.append((float(rect.x0), float(rect.y0),
+                                              float(rect.x1), float(rect.y1)))
+                    charts_count = len(drawing_rects)
+                except Exception:
+                    charts_count = 0
 
             # Embedded raster bboxes (visual-ink hints; we do NOT extract
             # individual rasters anymore — each one is a tiny sprite that
             # belongs to a larger figure).
             raster_bboxes = []
-            try:
-                raster_infos = page.get_images(full=True) or []
-                for img_info in raster_infos:
-                    xref = img_info[0]
-                    try:
-                        rects = page.get_image_rects(xref) or []
-                    except Exception:
-                        rects = []
-                    for r in rects:
-                        if r.width < 8 or r.height < 8:
-                            continue
-                        raster_bboxes.append(
-                            (float(r.x0), float(r.y0),
-                             float(r.x1), float(r.y1))
-                        )
-            except Exception as e:
-                logger.debug(f"[PDF] get_images failed page {page_num}: {e}")
+            # ------------------------------------------------------------
+            # DISABLED in TEXT_ONLY_MODE: raster bboxes are only consumed
+            # by the figure-region renderer (PASS 3). With that disabled,
+            # gathering them does nothing useful.
+            # ------------------------------------------------------------
+            if not TEXT_ONLY_MODE:
+                try:
+                    raster_infos = page.get_images(full=True) or []
+                    for img_info in raster_infos:
+                        xref = img_info[0]
+                        try:
+                            rects = page.get_image_rects(xref) or []
+                        except Exception:
+                            rects = []
+                        for r in rects:
+                            if r.width < 8 or r.height < 8:
+                                continue
+                            raster_bboxes.append(
+                                (float(r.x0), float(r.y0),
+                                 float(r.x1), float(r.y1))
+                            )
+                except Exception as e:
+                    logger.debug(f"[PDF] get_images failed page {page_num}: {e}")
 
             per_page_ctx.append({
                 "page_num": page_num,
@@ -905,9 +939,19 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
         # figure pass so figure regions can exclude table bboxes (otherwise
         # a wide figure region above a caption would swallow a table sitting
         # between them).
+        #
+        # DISABLED in TEXT_ONLY_MODE: table extraction is intentionally
+        # skipped — table cell text is already part of the per-page
+        # `page.get_text("text")` output captured in PASS 1, so the LLM
+        # still sees the table content as plain text, just without the
+        # structured row/column layout. Wrapping the whole block in
+        # `if not TEXT_ONLY_MODE` preserves the original logic so it can
+        # be re-enabled by flipping the flag.
         # -------------------------------------------------------------------
         per_page_table_bboxes = [[] for _ in range(len(result["pages"]))]
-        try:
+        if not TEXT_ONLY_MODE:
+          try:
+            import pdfplumber  # lazy import (only used in full-extraction mode)
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as pp:
                 for page_index, pp_page in enumerate(pp.pages):
                     if page_index >= len(result["pages"]):
@@ -981,8 +1025,8 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
                     result["pages"][page_index]["tables"] = clean_tables
                     result["pages"][page_index]["tables_meta"] = clean_tables_meta
                     result["stats"]["total_tables"] += len(clean_tables)
-        except Exception as e:
-            logger.warning(f"[PDF] pdfplumber pass failed: {e}")
+          except Exception as e:
+              logger.warning(f"[PDF] pdfplumber pass failed: {e}")
 
 
         # -------------------------------------------------------------------
@@ -1102,6 +1146,15 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
                 regions = new_regions
             return regions
 
+        # ---------------------------------------------------------------
+        # DISABLED in TEXT_ONLY_MODE: skip the entire figure-region
+        # rendering pass. With drawings + rasters not collected and
+        # tables not extracted, there are no seeds to render anyway,
+        # but skipping the loop explicitly avoids paying the cost of
+        # iterating through page contexts.
+        # ---------------------------------------------------------------
+        if TEXT_ONLY_MODE:
+            per_page_ctx = []  # empty out so the loop below is a no-op
         for page_index, ctx in enumerate(per_page_ctx):
             page_num = ctx["page_num"]
             page_rect = ctx["page_rect"]

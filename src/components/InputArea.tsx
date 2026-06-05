@@ -563,13 +563,34 @@ const InputArea: React.FC<InputAreaProps> = ({
 
         reader.readAsDataURL(file);
       } else if (file.name.toLowerCase().endsWith('.pdf')) {
-        // PDFs are processed server-side by the unified Python backend
-        // (PyMuPDF + pdfplumber + Pillow). The backend returns text, tables,
-        // images, charts metadata and metadata in one structured payload.
+        // PDFs are processed server-side by the unified Python backend.
         //
-        // If the current model supports vision, we also request rendered page
-        // previews so charts/diagrams (which are often vector-only drawings)
-        // can actually be "seen" by the LLM.
+        // NOTE (2025): PDF support has been REDUCED to TEXT-ONLY extraction.
+        // The backend no longer extracts tables, figures, embedded images, or
+        // vector charts — only the plain text content of each page (plus
+        // metadata, TOC and links) is forwarded to the LLM. This was done
+        // because visual-element extraction was unreliable on diverse PDF
+        // layouts and occasionally introduced noisy / incorrect data.
+        //
+        // We show the user an advisory EVERY time a PDF is uploaded so they
+        // understand the limitations on every upload: PDFs do work, but the
+        // result may not be 100% accurate and some information (figures,
+        // tables, charts, complex layout) may be lost. The notice is shown
+        // unconditionally — no sessionStorage gate — per the product
+        // requirement that the user be reminded on each PDF upload.
+        // eslint-disable-next-line no-alert
+        alert(
+          `Heads up about PDF uploads:\n\n` +
+          `PDF files are supported, but only their TEXT is extracted and ` +
+          `sent to the model. Tables, figures, charts, images and complex ` +
+          `page layouts are NOT extracted, so the result may not be 100% ` +
+          `accurate and some information from the document may be lost.`,
+        );
+
+        // PDFs are processed server-side by the unified Python backend
+        // (PyMuPDF). The backend returns extracted text, metadata, TOC and
+        // links in one structured payload. Table/figure/image extraction is
+        // currently disabled server-side (see backend/main.py TEXT_ONLY_MODE).
         (async () => {
           // Placeholder attachment while extracting (gives the user feedback)
           const placeholderId = `pdf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
