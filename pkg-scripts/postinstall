@@ -224,6 +224,9 @@ fi
 CHOSEN_MODEL=""
 NEED_DOWNLOAD_MODEL="false"
 MODEL_SIZE="varies"
+OPTIONAL_MODEL=""
+OPTIONAL_NEED_DOWNLOAD="false"
+OPTIONAL_MODEL_SIZE="varies"
 
 if [ -f "/var/tmp/nebulon-chosen-model.txt" ]; then
     CHOSEN_MODEL=$(cat /var/tmp/nebulon-chosen-model.txt 2>/dev/null)
@@ -231,13 +234,20 @@ if [ -f "/var/tmp/nebulon-chosen-model.txt" ]; then
 fi
 
 if [ -f "/var/tmp/nebulon-installer-session.txt" ]; then
-    NEED_DOWNLOAD_MODEL=$(grep "NEED_DOWNLOAD_MODEL=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
-    MODEL_SIZE=$(grep "MODEL_SIZE=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
+    NEED_DOWNLOAD_MODEL=$(grep "^NEED_DOWNLOAD_MODEL=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
+    MODEL_SIZE=$(grep "^MODEL_SIZE=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
     if [ -z "$CHOSEN_MODEL" ]; then
-        CHOSEN_MODEL=$(grep "CHOSEN_MODEL=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
+        CHOSEN_MODEL=$(grep "^CHOSEN_MODEL=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
     fi
+    OPTIONAL_MODEL=$(grep "^OPTIONAL_MODEL=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
+    OPTIONAL_NEED_DOWNLOAD=$(grep "^OPTIONAL_NEED_DOWNLOAD=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
+    OPTIONAL_MODEL_SIZE=$(grep "^OPTIONAL_MODEL_SIZE=" /var/tmp/nebulon-installer-session.txt 2>/dev/null | cut -d'=' -f2)
     echo "Need download model: $NEED_DOWNLOAD_MODEL" >&2
+    if [ -n "$OPTIONAL_MODEL" ]; then
+        echo "Optional model: $OPTIONAL_MODEL (download: $OPTIONAL_NEED_DOWNLOAD)" >&2
+    fi
 fi
+
 
 # Check if Ollama is installed and running
 if [ -d "/Applications/Ollama.app" ]; then
@@ -515,6 +525,145 @@ EOF
     fi
     
     # ============================================
+    # DOWNLOAD OPTIONAL COMPANION MODEL (if user opted in)
+    # ============================================
+    
+    if [ "$OPTIONAL_NEED_DOWNLOAD" = "true" ] && [ -n "$OPTIONAL_MODEL" ] && [ "$OLLAMA_STATUS" = "running" ]; then
+        echo "Downloading optional companion model '$OPTIONAL_MODEL'..." >&2
+        
+        OPT_MODEL_SCRIPT="/tmp/nebulon-download-optional-model.sh"
+        OPT_DONE_FLAG="/tmp/nebulon-optional-model-done.txt"
+        OPT_ERROR_FLAG="/tmp/nebulon-optional-model-error.txt"
+        
+        MAX_OPT_RETRIES=3
+        OPT_ATTEMPT=0
+        OPT_DOWNLOAD_SUCCESS="false"
+        
+        while [ "$OPT_DOWNLOAD_SUCCESS" = "false" ] && [ $OPT_ATTEMPT -lt $MAX_OPT_RETRIES ]; do
+            OPT_ATTEMPT=$((OPT_ATTEMPT + 1))
+            echo "Optional model download attempt $OPT_ATTEMPT of $MAX_OPT_RETRIES..." >&2
+            
+            rm -f "$OPT_DONE_FLAG" "$OPT_ERROR_FLAG"
+            
+            cat > "$OPT_MODEL_SCRIPT" << 'OPTMODELSCRIPT'
+#!/bin/bash
+DONE_FLAG="__DONE_FLAG__"
+ERROR_FLAG="__ERROR_FLAG__"
+LOG_FILE="__LOG_FILE__"
+
+clear
+echo ""
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║    NebulonGPT Installer - Downloading Optional Model         ║"
+echo "╠══════════════════════════════════════════════════════════════╣"
+echo "║  Model: __MODEL_NAME__                                       "
+echo "║  Size: __MODEL_SIZE__                                        "
+echo "║  Attempt: __ATTEMPT__ of __MAX_ATTEMPTS__                    "
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Download progress:"
+echo ""
+
+/usr/local/bin/ollama pull "__MODEL_NAME__" 2>&1 | tee "$LOG_FILE"
+EXIT_CODE=${PIPESTATUS[0]}
+
+echo ""
+if [ $EXIT_CODE -eq 0 ]; then
+    MODEL_CHECK=$(/usr/local/bin/ollama list 2>/dev/null | grep -c "__MODEL_NAME__")
+    if [ "$MODEL_CHECK" -gt 0 ]; then
+        echo "✅ Optional model download complete!"
+        echo "success" > "$DONE_FLAG"
+    else
+        echo "❌ Optional model verification failed!"
+        echo "verification_failed" > "$ERROR_FLAG"
+        echo "failed" > "$DONE_FLAG"
+    fi
+else
+    echo "❌ Optional model download failed! (Exit code: $EXIT_CODE)"
+    echo "download_error:$EXIT_CODE" > "$ERROR_FLAG"
+    echo "failed" > "$DONE_FLAG"
+fi
+
+rm -f "$LOG_FILE"
+
+echo ""
+echo "This window will close shortly..."
+sleep 2
+
+(sleep 1 && osascript -e 'tell application "Terminal" to close front window' 2>/dev/null) &
+
+exit 0
+OPTMODELSCRIPT
+            
+            OPT_LOG_FILE="/tmp/nebulon-optional-model-output.log"
+            sed -i '' "s|__MODEL_NAME__|$OPTIONAL_MODEL|g" "$OPT_MODEL_SCRIPT"
+            sed -i '' "s|__MODEL_SIZE__|$OPTIONAL_MODEL_SIZE|g" "$OPT_MODEL_SCRIPT"
+            sed -i '' "s|__DONE_FLAG__|$OPT_DONE_FLAG|g" "$OPT_MODEL_SCRIPT"
+            sed -i '' "s|__ERROR_FLAG__|$OPT_ERROR_FLAG|g" "$OPT_MODEL_SCRIPT"
+            sed -i '' "s|__LOG_FILE__|$OPT_LOG_FILE|g" "$OPT_MODEL_SCRIPT"
+            sed -i '' "s|__ATTEMPT__|$OPT_ATTEMPT|g" "$OPT_MODEL_SCRIPT"
+            sed -i '' "s|__MAX_ATTEMPTS__|$MAX_OPT_RETRIES|g" "$OPT_MODEL_SCRIPT"
+            chmod +x "$OPT_MODEL_SCRIPT"
+            
+            osascript <<EOF
+tell application "Terminal"
+    activate
+    do script "$OPT_MODEL_SCRIPT"
+end tell
+EOF
+            
+            echo "Waiting for optional model download to complete..." >&2
+            OPT_PULL_RESULT=1
+            for i in {1..7200}; do
+                sleep 1
+                if [ -f "$OPT_DONE_FLAG" ]; then
+                    if grep -q "success" "$OPT_DONE_FLAG" 2>/dev/null && [ ! -f "$OPT_ERROR_FLAG" ]; then
+                        OPT_PULL_RESULT=0
+                    fi
+                    break
+                fi
+            done
+            
+            sleep 2
+            osascript -e 'tell application "Terminal" to close (first window whose name contains "nebulon")' 2>/dev/null
+            
+            rm -f "$OPT_MODEL_SCRIPT"
+            
+            if [ $OPT_PULL_RESULT -eq 0 ]; then
+                OPT_DOWNLOAD_SUCCESS="true"
+                echo "Optional model '$OPTIONAL_MODEL' pulled successfully ✓" >&2
+            else
+                rm -f "$OPT_DONE_FLAG" "$OPT_ERROR_FLAG"
+                
+                if [ $OPT_ATTEMPT -lt $MAX_OPT_RETRIES ]; then
+                    OPT_RETRY_RESPONSE=$(osascript <<EOF
+display dialog "⚠️ Optional Model Download Failed (Attempt $OPT_ATTEMPT of $MAX_OPT_RETRIES)
+
+Model: $OPTIONAL_MODEL
+Size: $OPTIONAL_MODEL_SIZE
+
+The optional companion model could not be downloaded. Would you like to try again?
+
+(This is optional — your primary model is already installed.)" with title "NebulonGPT Installer - Optional Model Error" buttons {"Skip Optional Model", "Try Again"} default button "Try Again" with icon caution
+return button returned of result
+EOF
+)
+                    
+                    if [ "$OPT_RETRY_RESPONSE" = "Skip Optional Model" ]; then
+                        echo "User chose to skip optional model" >&2
+                        break
+                    fi
+                else
+                    echo "Optional model download failed after $MAX_OPT_RETRIES attempts" >&2
+                    osascript -e 'display notification "Optional companion model could not be downloaded. You can install it later with: ollama pull '"$OPTIONAL_MODEL"'" with title "NebulonGPT Installer"' 2>/dev/null
+                fi
+            fi
+        done
+        
+        rm -f "$OPT_DONE_FLAG" "$OPT_ERROR_FLAG"
+    fi
+    
+    # ============================================
     # LAUNCH GUI APP FOR STATUS BAR ICON
     # ============================================
     
@@ -550,6 +699,7 @@ rm -f /var/tmp/nebulon-installer-session.txt
 rm -f /var/tmp/nebulon-chosen-model.txt
 rm -f /tmp/nebulon-model-progress.txt
 rm -f /tmp/nebulon-model-output.log
+rm -f /tmp/nebulon-optional-model-output.log
 
 # ============================================
 # FINALIZE INSTALLATION
