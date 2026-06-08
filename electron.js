@@ -2180,7 +2180,13 @@ ipcMain.handle('execute-command', async (event, command) => {
         /^pgrep/,
         /^ps\s+-o\s+pid,rss/,
         /^tasklist/,
-        /^ollama\s+ps$/
+        /^ollama\s+ps$/,
+        // GPU VRAM query via nvidia-smi (read-only, no side-effects)
+        /^nvidia-smi\s+--query-gpu=memory\.used/,
+        // Shared GPU memory via Windows Performance Counter (read-only).
+        // \GPU Adapter Memory(*)\Shared Usage is the exact counter Task Manager
+        // uses for "Shared GPU memory" — system RAM borrowed by the GPU driver.
+        /^powershell\s+.*GPU\s+Adapter\s+Memory/i,
       ];
       
       const isAllowed = allowedPatterns.some(pattern => pattern.test(command));

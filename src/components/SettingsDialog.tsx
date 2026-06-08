@@ -1039,33 +1039,6 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             />
           </Box>
 
-          <Box sx={styles.sectionContainer}>
-            <Typography gutterBottom>
-              GPU Layers
-            </Typography>
-            <TextField
-              fullWidth
-              type="number"
-              value={localNumGpuLayers}
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10);
-                const n = isNaN(v) ? 0 : v;
-                setLocalNumGpuLayers(n);
-                setNumGpuLayersError(n < 0 ? 'Must be 0 or greater (999 = maximize GPU)' : '');
-              }}
-              onFocus={(e) => e.target.select()}
-              inputProps={{ min: 0, step: 1 }}
-              error={!!numGpuLayersError}
-              helperText={
-                numGpuLayersError ||
-                'Number of model layers to offload to GPU VRAM. 999 = fill VRAM first, then overflow to RAM. 0 = CPU only.'
-              }
-              margin="normal"
-              variant="outlined"
-              size="small"
-            />
-          </Box>
-
           <Box sx={styles.sliderContainer}>
             <Typography id="temperature-slider" gutterBottom>
               Temperature: {localTemperature.toFixed(2)}

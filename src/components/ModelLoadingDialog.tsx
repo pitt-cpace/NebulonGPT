@@ -233,38 +233,93 @@ const ModelLoadingDialog: React.FC<ModelLoadingDialogProps> = ({
           )}
 
           {/* Memory Info */}
-          {(progress.currentSize > 0 || progress.totalSize > 0) && (
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 1,
-                mt: 2,
-                p: 2,
-                bgcolor: 'action.hover',
-                borderRadius: 2,
-                width: '100%',
-              }}
-            >
-              <Typography variant="subtitle2" color="text.secondary">
-                Memory Usage
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'baseline' }}>
-                <Typography
-                  variant="h5"
-                  sx={{ fontWeight: 'bold', color: 'primary.main' }}
-                >
-                  {formatBytes(progress.currentSize)}
+          {(progress.currentSize > 0 || progress.totalSize > 0) && (() => {
+            const total = progress.currentSize;
+            const vram  = progress.vramSize ?? 0;
+            const ram   = vram > 0 && total > vram ? total - vram : 0;
+            const hasBreakdown = vram > 0;
+
+            return (
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 1,
+                  mt: 2,
+                  p: 2,
+                  bgcolor: 'action.hover',
+                  borderRadius: 2,
+                  width: '100%',
+                }}
+              >
+                <Typography variant="subtitle2" color="text.secondary">
+                  Memory Usage
                 </Typography>
-                {progress.totalSize > 0 && (
-                  <Typography variant="body2" color="text.secondary">
-                    / {formatBytes(progress.totalSize)}
+
+                {/* Total */}
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'baseline' }}>
+                  <Typography
+                    variant="h5"
+                    sx={{ fontWeight: 'bold', color: 'primary.main' }}
+                  >
+                    {formatBytes(total)}
                   </Typography>
+                  {progress.totalSize > 0 && (
+                    <Typography variant="body2" color="text.secondary">
+                      / {formatBytes(progress.totalSize)}
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* VRAM + RAM breakdown */}
+                {hasBreakdown && (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      gap: 3,
+                      mt: 0.5,
+                      flexWrap: 'wrap',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Box
+                        sx={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          bgcolor: 'success.main',
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Typography variant="caption" color="text.secondary">
+                        GPU&nbsp;VRAM:&nbsp;
+                        <strong>{formatBytes(vram)}</strong>
+                      </Typography>
+                    </Box>
+                    {ram > 0 && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Box
+                          sx={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: '50%',
+                            bgcolor: 'warning.main',
+                            flexShrink: 0,
+                          }}
+                        />
+                        <Typography variant="caption" color="text.secondary">
+                          System&nbsp;RAM:&nbsp;
+                          <strong>{formatBytes(ram)}</strong>
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
                 )}
               </Box>
-            </Box>
-          )}
+            );
+          })()}
 
           {/* Load Time */}
           {progress.status === 'loaded' && progress.startTime && progress.endTime && (
