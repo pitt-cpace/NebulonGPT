@@ -249,6 +249,40 @@ if [ -f "/var/tmp/nebulon-installer-session.txt" ]; then
 fi
 
 
+# Close a download progress Terminal window identified by its tty. This runs
+# from the installer process (outside the target window), so when it fires the
+# only thing left in that window is the idle login shell -- Terminal closes it
+# without showing the "Do you want to terminate running processes?" prompt.
+close_download_window() {
+    local tty_file="$1"
+    local target_tty=""
+
+    if [ -f "$tty_file" ]; then
+        target_tty=$(cat "$tty_file" 2>/dev/null)
+    fi
+
+    if [ -n "$target_tty" ]; then
+        osascript <<APPLESCRIPT 2>/dev/null
+tell application "Terminal"
+    repeat with w in (every window)
+        try
+            repeat with t in (tabs of w)
+                if (tty of t) is "$target_tty" then
+                    close w saving no
+                end if
+            end repeat
+        end try
+    end repeat
+end tell
+APPLESCRIPT
+    else
+        # Fallback: best-effort close by window name (older behavior)
+        osascript -e 'tell application "Terminal" to close (first window whose name contains "nebulon")' 2>/dev/null
+    fi
+
+    rm -f "$tty_file"
+}
+
 # Check if Ollama is installed and running
 if [ -d "/Applications/Ollama.app" ]; then
     echo "Ollama is installed, checking status..." >&2
@@ -309,6 +343,12 @@ if [ -d "/Applications/Ollama.app" ]; then
 DONE_FLAG="__DONE_FLAG__"
 ERROR_FLAG="__ERROR_FLAG__"
 LOG_FILE="__LOG_FILE__"
+TTY_FILE="__TTY_FILE__"
+
+# Record this window's tty so the installer can close it later from the
+# outside (closing from inside via a backgrounded osascript would leave a
+# running child process and trigger Terminal's "terminate processes?" prompt).
+tty > "$TTY_FILE" 2>/dev/null
 
 clear
 echo ""
@@ -369,22 +409,25 @@ fi
 rm -f "$LOG_FILE"
 
 echo ""
-echo "This window will close shortly..."
-sleep 2
-
-# Schedule window close
-(sleep 1 && osascript -e 'tell application "Terminal" to close front window' 2>/dev/null) &
+echo "Download finished. This window will close automatically..."
+# NOTE: We intentionally do NOT close the window from here. The installer
+# (postinstall) closes it from outside once it detects completion, when only
+# the idle login shell remains -- so Terminal closes it without prompting to
+# terminate running processes.
 
 exit 0
 MODELSCRIPT
             
             # Replace placeholders in the script
             LOG_FILE="/tmp/nebulon-model-output.log"
+            TTY_FILE="/tmp/nebulon-model-tty.txt"
+            rm -f "$TTY_FILE"
             sed -i '' "s|__MODEL_NAME__|$CHOSEN_MODEL|g" "$MODEL_SCRIPT"
             sed -i '' "s|__MODEL_SIZE__|$MODEL_SIZE|g" "$MODEL_SCRIPT"
             sed -i '' "s|__DONE_FLAG__|$DONE_FLAG|g" "$MODEL_SCRIPT"
             sed -i '' "s|__ERROR_FLAG__|$ERROR_FLAG|g" "$MODEL_SCRIPT"
             sed -i '' "s|__LOG_FILE__|$LOG_FILE|g" "$MODEL_SCRIPT"
+            sed -i '' "s|__TTY_FILE__|$TTY_FILE|g" "$MODEL_SCRIPT"
             sed -i '' "s|__ATTEMPT__|$MODEL_ATTEMPT|g" "$MODEL_SCRIPT"
             sed -i '' "s|__MAX_ATTEMPTS__|$MAX_MODEL_RETRIES|g" "$MODEL_SCRIPT"
             chmod +x "$MODEL_SCRIPT"
@@ -412,10 +455,11 @@ EOF
             
             # Give user a moment to see the completion message
             sleep 2
-            
-            # Close the Terminal window
-            osascript -e 'tell application "Terminal" to close (first window whose name contains "nebulon")' 2>/dev/null
-            
+
+            # Close the Terminal window from here (outside the window) so no
+            # leftover process triggers the "terminate processes?" prompt.
+            close_download_window "$TTY_FILE"
+
             rm -f "$MODEL_SCRIPT"
             
             if [ $PULL_RESULT -eq 0 ]; then
@@ -550,6 +594,12 @@ EOF
 DONE_FLAG="__DONE_FLAG__"
 ERROR_FLAG="__ERROR_FLAG__"
 LOG_FILE="__LOG_FILE__"
+TTY_FILE="__TTY_FILE__"
+
+# Record this window's tty so the installer can close it later from the
+# outside (closing from inside via a backgrounded osascript would leave a
+# running child process and trigger Terminal's "terminate processes?" prompt).
+tty > "$TTY_FILE" 2>/dev/null
 
 clear
 echo ""
@@ -587,20 +637,24 @@ fi
 rm -f "$LOG_FILE"
 
 echo ""
-echo "This window will close shortly..."
-sleep 2
-
-(sleep 1 && osascript -e 'tell application "Terminal" to close front window' 2>/dev/null) &
+echo "Download finished. This window will close automatically..."
+# NOTE: We intentionally do NOT close the window from here. The installer
+# (postinstall) closes it from outside once it detects completion, when only
+# the idle login shell remains -- so Terminal closes it without prompting to
+# terminate running processes.
 
 exit 0
 OPTMODELSCRIPT
             
             OPT_LOG_FILE="/tmp/nebulon-optional-model-output.log"
+            OPT_TTY_FILE="/tmp/nebulon-optional-model-tty.txt"
+            rm -f "$OPT_TTY_FILE"
             sed -i '' "s|__MODEL_NAME__|$OPTIONAL_MODEL|g" "$OPT_MODEL_SCRIPT"
             sed -i '' "s|__MODEL_SIZE__|$OPTIONAL_MODEL_SIZE|g" "$OPT_MODEL_SCRIPT"
             sed -i '' "s|__DONE_FLAG__|$OPT_DONE_FLAG|g" "$OPT_MODEL_SCRIPT"
             sed -i '' "s|__ERROR_FLAG__|$OPT_ERROR_FLAG|g" "$OPT_MODEL_SCRIPT"
             sed -i '' "s|__LOG_FILE__|$OPT_LOG_FILE|g" "$OPT_MODEL_SCRIPT"
+            sed -i '' "s|__TTY_FILE__|$OPT_TTY_FILE|g" "$OPT_MODEL_SCRIPT"
             sed -i '' "s|__ATTEMPT__|$OPT_ATTEMPT|g" "$OPT_MODEL_SCRIPT"
             sed -i '' "s|__MAX_ATTEMPTS__|$MAX_OPT_RETRIES|g" "$OPT_MODEL_SCRIPT"
             chmod +x "$OPT_MODEL_SCRIPT"
@@ -625,8 +679,8 @@ EOF
             done
             
             sleep 2
-            osascript -e 'tell application "Terminal" to close (first window whose name contains "nebulon")' 2>/dev/null
-            
+            close_download_window "$OPT_TTY_FILE"
+
             rm -f "$OPT_MODEL_SCRIPT"
             
             if [ $OPT_PULL_RESULT -eq 0 ]; then
@@ -700,6 +754,8 @@ rm -f /var/tmp/nebulon-chosen-model.txt
 rm -f /tmp/nebulon-model-progress.txt
 rm -f /tmp/nebulon-model-output.log
 rm -f /tmp/nebulon-optional-model-output.log
+rm -f /tmp/nebulon-model-tty.txt
+rm -f /tmp/nebulon-optional-model-tty.txt
 
 # ============================================
 # FINALIZE INSTALLATION
