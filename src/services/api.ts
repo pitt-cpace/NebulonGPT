@@ -233,15 +233,14 @@ export const sendMessage = async (
   // Initialize token counting variables outside try block for proper scope
   let tokensSent = 0;
 
-  // Read GPU layers setting: how many model layers to offload to VRAM.
-  // Default 999 = "as many as possible" so Ollama fills dedicated VRAM
-  // first and only spills to shared RAM when VRAM is exhausted.
-  const _gpuLayersRaw = parseInt(localStorage.getItem('numGpuLayers') || '999', 10);
-  const _numGpu = isNaN(_gpuLayersRaw) ? 999 : _gpuLayersRaw;
+  // GPU/CPU layer placement is left entirely to Ollama. We deliberately do
+  // NOT send num_gpu — Ollama auto-detects how many layers fit in dedicated
+  // VRAM and keeps the overflow on the CPU. Forcing a layer count made large
+  // models spill into shared GPU memory (system RAM over PCIe), which loads
+  // and runs far slower than Ollama's own placement.
   // Build the effective options once, shared by both streaming and non-streaming paths.
   const effectiveOptions: Record<string, any> = {
     ...(options || { num_ctx: 4096, temperature: 0.8 }),
-    num_gpu: _numGpu,
   };
 
   try {
@@ -480,7 +479,7 @@ const endpoint = '/chat';
         messages: msgs,
         stream: true,
         keep_alive: -1, // Keep model loaded in RAM indefinitely
-        options: effectiveOptions, // includes num_gpu to maximize VRAM usage
+        options: effectiveOptions, // GPU/CPU split left entirely to Ollama
       });
 
       // We try up to 3 progressions: original images → 1 image per msg → 0 images.
@@ -638,7 +637,7 @@ const endpoint = '/chat';
         messages: finalMessages,
         stream: false,
         keep_alive: -1, // Keep model loaded in RAM indefinitely
-        options: effectiveOptions, // includes num_gpu to maximize VRAM usage
+        options: effectiveOptions, // GPU/CPU split left entirely to Ollama
       };
       
       // Log the number of images being sent (now included in the messages)

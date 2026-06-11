@@ -80,12 +80,6 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
 }) => {
   const [localContextLength, setLocalContextLength] = useState(contextLength);
   const [localTemperature, setLocalTemperature] = useState(temperature);
-  const [localNumGpuLayers, setLocalNumGpuLayers] = useState<number>(() => {
-    const saved = localStorage.getItem('numGpuLayers');
-    const parsed = parseInt(saved || '999', 10);
-    return isNaN(parsed) ? 999 : parsed;
-  });
-  const [numGpuLayersError, setNumGpuLayersError] = useState('');
   const [contextLengthError, setContextLengthError] = useState('');
   const [temperatureError, setTemperatureError] = useState('');
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
@@ -361,9 +355,6 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     // Reset to original values
     setLocalContextLength(contextLength);
     setLocalTemperature(temperature);
-    const savedGpuLayers = parseInt(localStorage.getItem('numGpuLayers') || '999', 10);
-    setLocalNumGpuLayers(isNaN(savedGpuLayers) ? 999 : savedGpuLayers);
-    setNumGpuLayersError('');
     setContextLengthError('');
     setTemperatureError('');
     
@@ -404,9 +395,10 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
     // Save model settings
     onSaveSettings(localContextLength, localTemperature);
 
-    // Save GPU layers setting to localStorage (read by api.ts on every request)
-    localStorage.setItem('numGpuLayers', String(localNumGpuLayers));
-    
+    // GPU/CPU placement is handled entirely by Ollama now. Clean up any
+    // previously persisted manual layer count so it can't affect requests.
+    localStorage.removeItem('numGpuLayers');
+
     // Save TTS settings to localStorage
     ttsService.saveSettings();
     
