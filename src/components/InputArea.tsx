@@ -20,7 +20,6 @@ import {
 
 import { FileAttachment, PdfImageMeta } from '../types';
 import { getTextDirectionStyles } from '../services/rtlDetection';
-import { describePdfImage } from '../services/api';
 import * as styles from '../styles/components/ChatArea.styles';
 
 
@@ -578,14 +577,17 @@ const InputArea: React.FC<InputAreaProps> = ({
         // tables, charts, complex layout) may be lost. The notice is shown
         // unconditionally — no sessionStorage gate — per the product
         // requirement that the user be reminded on each PDF upload.
+        // DISABLED — this advisory is no longer accurate now that figures,
+        // charts, tables and images ARE extracted. Kept (commented) for
+        // reference.
         // eslint-disable-next-line no-alert
-        alert(
-          `Heads up about PDF uploads:\n\n` +
-          `PDF files are supported, but only their TEXT is extracted and ` +
-          `sent to the model. Tables, figures, charts, images and complex ` +
-          `page layouts are NOT extracted, so the result may not be 100% ` +
-          `accurate and some information from the document may be lost.`,
-        );
+        // alert(
+        //   `Heads up about PDF uploads:\n\n` +
+        //   `PDF files are supported, but only their TEXT is extracted and ` +
+        //   `sent to the model. Tables, figures, charts, images and complex ` +
+        //   `page layouts are NOT extracted, so the result may not be 100% ` +
+        //   `accurate and some information from the document may be lost.`,
+        // );
 
         // PDFs are processed server-side by the unified Python backend
         // (PyMuPDF). The backend returns extracted text, metadata, TOC and
@@ -685,30 +687,30 @@ const InputArea: React.FC<InputAreaProps> = ({
               }
             }
 
-            // ---- Commit the attachment. If we have figures AND a vision
-            // model, we ALSO synchronously stamp the name with the
-            // "(describing figures 0/N…)" suffix so the Send button is
-            // immediately disabled (via the isExtracting flag that watches
-            // this regex). This closes the race window where the async
-            // describe loop hadn't yet executed its first iteration: in that
-            // window the placeholder name would briefly be just `file.name`
-            // and the user could (and DID, per the bug report) click Send,
-            // persisting the attachment with empty descriptions.
+            // ---- Commit the attachment.
+            // Background per-figure description is DISABLED: we extract the
+            // figures/charts/tables and attach the raw figure images (for
+            // vision models) plus their caption/label metadata, but we do NOT
+            // ask the model to pre-describe each figure. The images are sent
+            // as-is when the user submits their prompt.
             //
-            // The describe loop below will overwrite this name as it
-            // progresses (0/N → 1/N → … → N/N → restored to file.name).
-            const willDescribe =
-              visionEnabled &&
-              !!modelName &&
-              imageMeta.length > 0 &&
-              imageList.length === imageMeta.length;
-            const initialName = willDescribe
-              ? `${file.name} (describing figures 0/${imageMeta.length}…)`
-              : file.name;
-
+            // DISABLED — kept (commented) for reference. When the background
+            // describe loop below is re-enabled, restore this name-stamping so
+            // the Send button is disabled (via the isExtracting regex) until
+            // the first describe iteration runs, and use `initialName` for the
+            // attachment `name` instead of `file.name`:
+            //
+            // const willDescribe =
+            //   visionEnabled &&
+            //   !!modelName &&
+            //   imageMeta.length > 0 &&
+            //   imageList.length === imageMeta.length;
+            // const initialName = willDescribe
+            //   ? `${file.name} (describing figures 0/${imageMeta.length}…)`
+            //   : file.name;
             const finalAttachment: FileAttachment = {
               id: placeholderId,
-              name: initialName,
+              name: file.name,
               type: 'pdf',
               content: textContent,
               images: visionEnabled && imageList.length > 0 ? imageList : undefined,
@@ -741,6 +743,26 @@ const InputArea: React.FC<InputAreaProps> = ({
               `${result.stats.total_charts_detected} chart regions`,
             );
 
+            // Background per-figure description is intentionally DISABLED.
+            // We keep the extracted figure images + caption/label metadata on
+            // the attachment, but we never send figures to the model for a
+            // pre-description pass. Vision models receive the raw images at
+            // prompt time instead.
+            console.info(
+              `[PDF] Figure pre-description disabled — ` +
+              `extracted ${imageMeta.length} figure(s), ` +
+              `${imageList.length} image payload(s) attached ` +
+              `(visionEnabled=${visionEnabled}, model=${modelName || '(none)'}).`,
+            );
+
+            // ---------------------------------------------------------------
+            // DISABLED — background per-figure description loop.
+            // Kept (commented) for reference so it can be re-enabled later.
+            // To restore: import `describePdfImage` from '../services/api',
+            // stamp the attachment name with "(describing figures 0/N…)" via
+            // the `willDescribe`/`initialName` logic above, and uncomment.
+            // ---------------------------------------------------------------
+            /*
             // ---- BACKGROUND: generate per-figure descriptions ---------------
             // We send each extracted figure to the user's CURRENT vision-
             // capable model and ask it for a short factual description, then
@@ -759,12 +781,6 @@ const InputArea: React.FC<InputAreaProps> = ({
             //
             // If the user removes the attachment, switches the chat, or the
             // request stalls, the AbortController halts the whole batch.
-            // Loud diagnostic log so it's obvious in DevTools whether the
-            // describer loop is even entered. If the user reports "no GPU
-            // activity", we want to be able to tell at a glance whether:
-            //   (a) we never entered the loop (vision flag / no figures), OR
-            //   (b) we entered but the network calls themselves never produced
-            //       any compute (see [describePdfImage] → / ← logs).
             console.info(
               `[PDF describe] visionEnabled=${visionEnabled} ` +
               `modelName=${modelName || '(none)'} ` +
@@ -804,8 +820,7 @@ const InputArea: React.FC<InputAreaProps> = ({
                   // is always read as its initial `false` value and the loop
                   // aborts on iteration 0 — that was the original bug where
                   // the console showed "starting loop" but no
-                  // `[describePdfImage] → POST /generate` ever followed and
-                  // neither GPU nor CPU lit up.
+                  // POST /generate ever followed and neither GPU nor CPU lit up.
                   //
                   // `attachmentsRef.current` is kept in sync by a top-level
                   // useEffect on [message, attachments], so reading it here
@@ -888,6 +903,7 @@ const InputArea: React.FC<InputAreaProps> = ({
                 `Figure captions/labels will still be sent to the LLM.`,
               );
             }
+            */
 
 
           } catch (err: any) {
