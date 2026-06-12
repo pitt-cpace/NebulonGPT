@@ -415,9 +415,8 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
     """
 
     import fitz  # PyMuPDF
-    # NOTE: pdfplumber + Pillow are no longer needed for the active code path
-    # (tables / figures / images extraction is disabled below). They're left
-    # imported lazily inside the disabled blocks if those are ever re-enabled.
+    from PIL import Image  # Pillow — re-encode rendered figure-region crops
+    # NOTE: pdfplumber is imported lazily inside the table-extraction block.
     import re
 
     # ------------------------------------------------------------------------
@@ -429,7 +428,7 @@ def _extract_pdf_payload(pdf_bytes: bytes, filename: str,
     # was unreliable on diverse PDF layouts and sometimes injected noisy or
     # incorrect data into the LLM context. Set to False to restore the full
     # pipeline (see commented `if not TEXT_ONLY_MODE:` blocks below).
-    TEXT_ONLY_MODE = True
+    TEXT_ONLY_MODE = False
 
     result = {
         "filename": filename,
