@@ -40,6 +40,7 @@ import {
   DialogActions,
   Chip,
   Slider,
+  Collapse,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -68,6 +69,7 @@ import {
   Computer as ComputerIcon,
   Loop as LoopIcon,
   Download as DownloadIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 
 import { QRCodeSVG } from 'qrcode.react';
@@ -4415,6 +4417,9 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   // Note: isDarkMode is passed to force re-render when theme changes
   const MessageComponent = React.memo<{ message: MessageType; chatMessages?: MessageType[]; isStreaming: boolean; isDarkMode: boolean }>(({ message, chatMessages, isStreaming, isDarkMode: _ }) => {
     const isUser = message.role === 'user';
+    // Tracks which PDF attachment previews are expanded (collapsed by default).
+    // Kept local to this memoized component so toggling re-renders the message.
+    const [expandedPdfPreviews, setExpandedPdfPreviews] = useState<Record<string, boolean>>({});
     
     // Extract thinking and body from assistant messages
     const { thinking, body } = isUser ? { thinking: null, body: message.content } : takeThinkingThenBody(message.content);
@@ -4592,9 +4597,33 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       </Box>
                     );
                   } else if (attachment.type === 'pdf') {
+                    const isPdfExpanded = !!expandedPdfPreviews[attachment.id];
                     return (
                       <Box key={attachment.id} sx={{ mb: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+                        {/* Clickable attachment header — toggles the entire preview (collapsed by default) */}
+                        <Box
+                          onClick={() => setExpandedPdfPreviews((prev) => ({
+                            ...prev,
+                            [attachment.id]: !prev[attachment.id],
+                          }))}
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            mb: 0.5,
+                            cursor: 'pointer',
+                            userSelect: 'none',
+                            '&:hover': { opacity: 0.8 },
+                          }}
+                        >
+                          <ExpandMoreIcon
+                            sx={{
+                              fontSize: 18,
+                              mr: 0.25,
+                              color: 'text.secondary',
+                              transition: 'transform 0.2s',
+                              transform: isPdfExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                            }}
+                          />
                           <DescriptionIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />
                           <Typography variant="body2" sx={styles.attachmentName}>
                             {attachment.name} (PDF)
@@ -4603,9 +4632,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                             {formatFileSize(attachment.size)}
                           </Typography>
                         </Box>
-                        
+
+                        <Collapse in={isPdfExpanded} timeout="auto" unmountOnExit>
                         {/* Simple PDF preview with extracted content */}
-                        <Box sx={{ 
+                        <Box sx={{
                           border: '1px solid',
                           borderColor: 'divider',
                           borderRadius: 1,
@@ -4615,7 +4645,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
                             PDF Content Preview
                           </Typography>
-                          
                           {/* Show a small preview of the text */}
                           {attachment.content && (
                             <Box 
@@ -4765,6 +4794,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                             </Box>
                           )}
                         </Box>
+                        </Collapse>
                       </Box>
                     );
                   } else {
