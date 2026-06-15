@@ -28,7 +28,7 @@ TOTAL_RAM_GB=$((TOTAL_RAM_BYTES / 1024 / 1024 / 1024))
 echo "System RAM: ${TOTAL_RAM_GB}GB" >&2
 
 # Determine recommended model based on RAM
-# > 32GB        -> GPT-OSS 20B (best performance) + optional Gemma 4 E4B IT Q8_0
+# > 32GB        -> GPT-OSS 20B (best performance) + optional Gemma 4 12B IT BF16
 # 16 - 32GB     -> Granite 4.1 8B Q5_K_M (balanced)
 #  8 - 16GB     -> Granite 4.1 3B Q5_K_M (lightweight)
 OPTIONAL_MODEL=""
@@ -37,8 +37,8 @@ if [ "$TOTAL_RAM_GB" -gt 32 ]; then
     RECOMMENDED_MODEL="gpt-oss:20b"
     RECOMMENDED_ITEM="GPT-OSS 20B (Recommended - 32GB+ RAM)"
     MODEL_SIZE="~14GB"
-    OPTIONAL_MODEL="gemma4:e4b-it-q8_0"
-    OPTIONAL_MODEL_SIZE="~12GB"
+    OPTIONAL_MODEL="gemma4:12b-it-bf16"
+    OPTIONAL_MODEL_SIZE="~24GB"
 elif [ "$TOTAL_RAM_GB" -gt 16 ]; then
     RECOMMENDED_MODEL="granite4.1:8b-q5_K_M"
     RECOMMENDED_ITEM="Granite 4.1 8B Q5_K_M (Recommended - 16-32GB RAM)"
@@ -125,9 +125,9 @@ On the next screen, you'll be able to select which AI model to install. Here are
   For advanced tasks and complex reasoning
   Requires: 32GB+ RAM | Download: ~14GB
 
-• Gemma 4 E4B IT Q8_0 (Optional Companion)
+• Gemma 4 12B IT BF16 (Optional Companion)
   Multimodal text + image assistant for 32GB+ systems
-  Requires: 32GB+ RAM | Download: ~12GB
+  Requires: 32GB+ RAM | Download: ~24GB
 
 • Granite 4.1 8B Q5_K_M (Balanced)
   Great performance for general use
@@ -175,7 +175,7 @@ esac
 # Loop for model selection (allows going back if user clicks Skip)
 while true; do
     SELECTED_MODEL=$(osascript <<EOF
-set modelList to {"GPT-OSS 20B (Best - 32GB+ RAM)", "Gemma 4 E4B IT Q8_0 (Optional Companion - 32GB+ RAM)", "Granite 4.1 8B Q5_K_M (Balanced - 16-32GB RAM)", "Granite 4.1 3B Q5_K_M (Light - 8-16GB RAM)"}
+set modelList to {"GPT-OSS 20B (Best - 32GB+ RAM)", "Gemma 4 12B IT BF16 (Optional Companion - 32GB+ RAM)", "Granite 4.1 8B Q5_K_M (Balanced - 16-32GB RAM)", "Granite 4.1 3B Q5_K_M (Light - 8-16GB RAM)"}
 
 set defaultItem to "$DEFAULT_ITEM"
 set modelChoice to choose from list modelList with title "NebulonGPT Installer - Model Selection" with prompt "Select an AI model to install:
@@ -231,9 +231,9 @@ case "$SELECTED_MODEL" in
         CHOSEN_MODEL="gpt-oss:20b"
         MODEL_SIZE="~14GB"
         ;;
-    *"Gemma 4 E4B"*)
-        CHOSEN_MODEL="gemma4:e4b-it-q8_0"
-        MODEL_SIZE="~12GB"
+    *"Gemma 4 12B"*)
+        CHOSEN_MODEL="gemma4:12b-it-bf16"
+        MODEL_SIZE="~24GB"
         ;;
     *"Granite 4.1 8B"*)
         CHOSEN_MODEL="granite4.1:8b-q5_K_M"
@@ -261,7 +261,7 @@ fi
 # ============================================
 # STEP 2b: OPTIONAL COMPANION MODEL (32GB+ RAM only)
 # ============================================
-# For 32GB+ systems, offer Gemma 4 E4B IT Q8_0 as an additional
+# For 32GB+ systems, offer Gemma 4 12B IT BF16 as an additional
 # optional companion model alongside the chosen primary model.
 
 INSTALL_OPTIONAL_MODEL="false"
@@ -285,8 +285,8 @@ display dialog "Your system has ${TOTAL_RAM_GB}GB of RAM, which is enough to als
 
 Would you like to additionally install:
 
-• Gemma 4 E4B IT Q8_0 (Optional)
-  Lightweight assistant model for quick tasks
+• Gemma 4 12B IT BF16 (Optional)
+  Multimodal text + image assistant
   Download: ${OPTIONAL_MODEL_SIZE}
 
 This is completely optional. You can always install it later using:
