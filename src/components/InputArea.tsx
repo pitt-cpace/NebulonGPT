@@ -319,7 +319,7 @@ const InputArea: React.FC<InputAreaProps> = ({
       `Heads up: ${namesPreview} contains ${parts.join(', ')}, but "${modelLabel}" is a text-only model ` +
       `and cannot analyze visual content. Only the extracted text will be sent. ` +
       `For accurate answers about charts/figures/images, switch to a vision-capable model ` +
-      `(e.g. llava, qwen2.5-vl, llama3.2-vision, gemma3, minicpm-v).`,
+      `(e.g. gemma4:12b-it-bf16, llava, qwen2.5-vl, llama3.2-vision, gemma3, minicpm-v).`,
     );
   }, [attachments, modelName, modelSupportsVision]);
 
