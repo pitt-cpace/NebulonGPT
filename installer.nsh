@@ -16,13 +16,11 @@ Var kokoroTemp
 ;   ModelGPTOSS   -> gpt-oss:20b           (32GB+ primary)
 ;   ModelMistral  -> granite4.1:8b-q5_K_M  (16-32GB primary)  *was Gemma 4 E4B*
 ;   ModelGranite  -> granite4.1:3b-q5_K_M  (8-16GB primary)   *was Granite 3.1 1B*
-;   ModelGemma    -> gemma4:e4b-it-q8_0    (32GB+ OPTIONAL companion - new)
 Var ComponentDialog
 Var OllamaCheckbox
 Var ModelGPTOSSCheckbox
 Var ModelMistralCheckbox
 Var ModelGraniteCheckbox
-Var ModelGemmaCheckbox
 Var DisclaimerCheckbox
 Var InstallButton
 Var OllamaInstalled
@@ -31,12 +29,10 @@ Var InstallOllama
 Var InstallModelGPTOSS
 Var InstallModelMistral
 Var InstallModelGranite
-Var InstallModelGemma
 Var DisclaimerAccepted
 Var ModelGPTOSSExists
 Var ModelMistralExists
 Var ModelGraniteExists
-Var ModelGemmaExists
 Var NeedToInstallAnything
 
 
@@ -447,47 +443,6 @@ Var NeedToInstallAnything
       PullGraniteDone:
     ${EndIf}
 
-    ; ──────────────────────────────────────────
-    ; MODEL 4 – Gemma 4 E4B IT Q8_0 (OPTIONAL companion for 32GB+ systems)
-    ; ──────────────────────────────────────────
-    ${If} $InstallModelGemma == "1"
-    ${AndIf} $ModelGemmaExists == "0"
-
-      PullGemmaRetry:
-        DetailPrint ""
-        DetailPrint "Downloading Gemma 4 E4B IT Q8_0 Model (optional companion)..."
-        DetailPrint "This may take several minutes depending on your internet connection..."
-
-        nsExec::ExecToLog '"$3" pull gemma4:e4b-it-q8_0'
-        Pop $1
-
-        ; Secondary guard: verify model actually exists in ollama list
-        ${If} $1 == 0
-          nsExec::ExecToStack '"$3" list'
-          Pop $2
-          Pop $2
-          nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$2\" -match \"gemma4\") { exit 0 } else { exit 1 }"'
-          Pop $2
-          ${If} $2 != 0
-            DetailPrint "⚠ Gemma 4 E4B IT Q8_0 Model not found after pull - download may be incomplete"
-            StrCpy $1 "1"
-          ${EndIf}
-        ${EndIf}
-
-        ${If} $1 != 0
-          DetailPrint "⚠ Gemma 4 E4B IT Q8_0 Model download failed (exit code: $1)"
-          ; Optional companion - allow skip without abort
-          MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION|MB_DEFBUTTON1 "❌ Optional Companion Model Failed (exit code: $1)$\r$\n$\r$\nThis is the OPTIONAL Gemma 4 E4B IT Q8_0 companion model. Your primary model is unaffected.$\r$\n$\r$\n[Retry]   Try pulling the model again$\r$\n[Cancel]  Skip optional model and continue" IDRETRY PullGemmaRetry
-          DetailPrint "⚠ Gemma 4 E4B IT Q8_0 Model (optional) skipped"
-          DetailPrint "⚠ Run manually later: ollama pull gemma4:e4b-it-q8_0"
-          Goto PullGemmaDone
-        ${EndIf}
-
-        DetailPrint "✓ Gemma 4 E4B IT Q8_0 Model installed successfully"
-
-      PullGemmaDone:
-    ${EndIf}
-
     Goto ModelPullDone
 
   SkipModelPull:
@@ -593,7 +548,6 @@ Function ComponentPageCreate
   StrCpy $InstallModelGPTOSS "1"  ; Recommended by default
   StrCpy $InstallModelMistral "0"
   StrCpy $InstallModelGranite "0"
-  StrCpy $InstallModelGemma "0"
   StrCpy $DisclaimerAccepted "0"
   
   ; Check if Ollama is already installed
@@ -647,18 +601,12 @@ Function ComponentPageCreate
   Pop $0
   SetCtlColors $0 666666 transparent
   
-  ${NSD_CreateCheckbox} 30u 122u 90% 12u "├─ Granite 4.1 3B Q5_K_M Model (Lightweight)"
+  ${NSD_CreateCheckbox} 30u 122u 90% 12u "└─ Granite 4.1 3B Q5_K_M Model (Lightweight)"
   Pop $ModelGraniteCheckbox
   ${NSD_CreateLabel} 40u 134u 90% 10u "Lightweight AI model for limited hardware (recommend 8-16GB RAM)  (Optional)"
   Pop $0
   SetCtlColors $0 666666 transparent
-  
-  ${NSD_CreateCheckbox} 30u 148u 90% 12u "└─ Gemma 4 E4B IT Q8_0 Model (Optional Companion - 32GB+ RAM)"
-  Pop $ModelGemmaCheckbox
-  ${NSD_CreateLabel} 40u 160u 90% 10u "Optional lightweight companion model for high-RAM systems (recommend 32GB+ RAM)  (Optional)"
-  Pop $0
-  SetCtlColors $0 666666 transparent
-  
+
   ; Warning box
   ${NSD_CreateGroupBox} 10u 178u 97% 55u ""
   Pop $0
@@ -683,8 +631,7 @@ Function ComponentPageCreate
   ${NSD_OnClick} $ModelGPTOSSCheckbox ComponentPageModelClick
   ${NSD_OnClick} $ModelMistralCheckbox ComponentPageModelClick
   ${NSD_OnClick} $ModelGraniteCheckbox ComponentPageModelClick
-  ${NSD_OnClick} $ModelGemmaCheckbox ComponentPageModelClick
-  
+
   nsDialogs::Show
 FunctionEnd
 
@@ -736,13 +683,6 @@ Function ComponentPageModelClick
   ${Else}
     StrCpy $InstallModelGranite "0"
   ${EndIf}
-  
-  ${NSD_GetState} $ModelGemmaCheckbox $InstallModelGemma
-  ${If} $InstallModelGemma == ${BST_CHECKED}
-    StrCpy $InstallModelGemma "1"
-  ${Else}
-    StrCpy $InstallModelGemma "0"
-  ${EndIf}
 FunctionEnd
 
 ; ============================================
@@ -762,7 +702,6 @@ Var ModelDialogDisclaimer
 ; Function: Detect RAM and Auto-Select Model
 ; Detects system RAM and auto-selects appropriate model:
 ;   >32GB RAM      -> gpt-oss:20b              (Best Performance)
-;                     + optional gemma4:e4b-it-q8_0 companion
 ;   16-32GB RAM    -> granite4.1:8b-q5_K_M     (Balanced)
 ;    8-16GB RAM    -> granite4.1:3b-q5_K_M     (Lightweight)
 ; ============================================
@@ -783,23 +722,19 @@ Function DetectRAMAndSelectModel
   ; Auto-select model based on RAM
   ${If} $3 > 32
     ; >32GB RAM: Select GPT-OSS 20B (Best Performance)
-    ;            + Gemma 4 E4B IT Q8_0 optional companion auto-suggested
     StrCpy $InstallModelGPTOSS "1"
     StrCpy $InstallModelMistral "0"
     StrCpy $InstallModelGranite "0"
-    StrCpy $InstallModelGemma "1"
   ${ElseIf} $3 > 16
     ; 16-32GB RAM: Select Granite 4.1 8B Q5_K_M (Balanced)
     StrCpy $InstallModelGPTOSS "0"
     StrCpy $InstallModelMistral "1"
     StrCpy $InstallModelGranite "0"
-    StrCpy $InstallModelGemma "0"
   ${Else}
     ; 8-16GB RAM: Select Granite 4.1 3B Q5_K_M (Lightweight)
     StrCpy $InstallModelGPTOSS "0"
     StrCpy $InstallModelMistral "0"
     StrCpy $InstallModelGranite "1"
-    StrCpy $InstallModelGemma "0"
   ${EndIf}
 
   ; Always install Ollama
@@ -1102,7 +1037,6 @@ FunctionEnd
   StrCpy $InstallModelGPTOSS "0"
   StrCpy $InstallModelMistral "0"
   StrCpy $InstallModelGranite "0"
-  StrCpy $InstallModelGemma "0"
   StrCpy $DisclaimerAccepted "0"
   StrCpy $OllamaInstalled "0"
 !macroend
@@ -1122,7 +1056,6 @@ FunctionEnd
   StrCpy $ModelGPTOSSExists "0"
   StrCpy $ModelMistralExists "0"
   StrCpy $ModelGraniteExists "0"
-  StrCpy $ModelGemmaExists "0"
   StrCpy $NeedToInstallAnything "0"
   
   ; Check if Ollama is installed
@@ -1177,13 +1110,6 @@ FunctionEnd
     ${If} $0 == 0
       StrCpy $ModelGraniteExists "1"
     ${EndIf}
-    
-    ; Check if gemma4:e4b-it-q8_0 exists (optional companion model)
-    nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$1\" -match \"gemma4\") { exit 0 } else { exit 1 }"'
-    Pop $0
-    ${If} $0 == 0
-      StrCpy $ModelGemmaExists "1"
-    ${EndIf}
   ${EndIf}
   
   ; Build list of components to install (only show what's needed)
@@ -1214,13 +1140,7 @@ FunctionEnd
     StrCpy $4 "$4$\r$\n  • Granite 4.1 3B Q5_K_M Model - needs to be downloaded"
     StrCpy $NeedToInstallAnything "1"
   ${EndIf}
-  
-  ${If} $InstallModelGemma == "1"
-  ${AndIf} $ModelGemmaExists == "0"
-    StrCpy $4 "$4$\r$\n  • Gemma 4 E4B IT Q8_0 Model (optional companion) - needs to be downloaded"
-    StrCpy $NeedToInstallAnything "1"
-  ${EndIf}
-  
+
   ; Only show confirmation dialog if something needs to be installed
   ${If} $NeedToInstallAnything == "1"
     ; Show component selection and disclaimer MessageBox
@@ -1279,11 +1199,7 @@ FunctionEnd
   ${AndIf} $ModelGraniteExists == "0"
     StrCpy $5 "1"
   ${EndIf}
-  ${If} $InstallModelGemma == "1"
-  ${AndIf} $ModelGemmaExists == "0"
-    StrCpy $5 "1"
-  ${EndIf}
-  
+
   ${If} $5 == "1"
     DetailPrint ""
     DetailPrint "=== Installing AI Models ==="
@@ -1362,10 +1278,7 @@ FunctionEnd
   ${If} $InstallModelGranite == "1"
     DetailPrint "✓ Granite 4.1 3B Q5_K_M Model installed"
   ${EndIf}
-  ${If} $InstallModelGemma == "1"
-    DetailPrint "✓ Gemma 4 E4B IT Q8_0 Model (optional companion) installed"
-  ${EndIf}
-  
+
   DetailPrint "✓ NebulonGPT application installed"
   DetailPrint "✓ Python runtime environment ready"
   DetailPrint "✓ Speech recognition (Vosk) configured"
