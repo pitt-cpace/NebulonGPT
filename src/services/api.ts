@@ -180,21 +180,59 @@ if (response.data && response.data.models) {
 // Variable to store the current reader for cancellation
 let currentReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
+// AbortController for the active streaming fetch. This is the PRIMARY cancel
+// mechanism (Chatbox-style): aborting the controller tears down the underlying
+// HTTP connection to Ollama immediately, which makes any pending
+// `await reader.read()` throw at once — so the Stop button never hangs.
+//
+// Relying on `reader.cancel()` alone is unreliable: it does NOT abort the
+// underlying fetch and can block while a read is pending (e.g. while the model
+// is still "thinking" and no bytes are flowing yet), which is exactly what made
+// the old Stop button hang.
+let currentAbortController: AbortController | null = null;
+
+// Flag so the read loop can distinguish a user-initiated stop from a real
+// network error when the AbortController fires.
+let userCancelledStream = false;
+
 // Function to cancel the current stream
 // Returns true if successfully cancelled, false otherwise
 export const cancelStream = async (): Promise<boolean> => {
+  // Nothing is streaming — treat as already-stopped success.
+  if (!currentAbortController && !currentReader) {
+    return true;
+  }
+
+  userCancelledStream = true;
+
+  // 1) PRIMARY: abort the fetch. This is synchronous and immediately unblocks
+  //    a pending read(), so the Stop button responds instantly.
+  if (currentAbortController) {
+    try {
+      currentAbortController.abort();
+    } catch (error) {
+      console.error('Error aborting stream fetch:', error);
+    }
+    currentAbortController = null;
+  }
+
+  // 2) SECONDARY: cancel the reader too (best-effort). We do NOT await this —
+  //    awaiting reader.cancel() is what could hang. After an abort the reader
+  //    is already being torn down, so a fire-and-forget cancel is enough.
   if (currentReader) {
     try {
-      await currentReader.cancel('User cancelled the response');
-      currentReader = null;
-      return true;
+      currentReader.cancel('User cancelled the response').catch(() => {
+        /* ignore — abort() above already handled teardown */
+      });
     } catch (error) {
-      console.error('Error cancelling stream:', error);
-      return false;
+      /* ignore */
     }
+    currentReader = null;
   }
-  return true; // No active reader to cancel, so return true
+
+  return true;
 };
+
 
 // Helper function to filter out chain-of-thought reasoning (text starting with asterisk)
 const filterThinkingText = (text: string): string => {
@@ -490,6 +528,13 @@ const endpoint = '/chat';
       let attempt = 0;
       let lastErrorBody = '';
 
+      // Create a fresh AbortController for THIS streaming request and expose it
+      // globally so cancelStream() can abort the underlying fetch instantly
+      // (Chatbox-style). Reset the user-cancel flag for the new request.
+      const abortController = new AbortController();
+      currentAbortController = abortController;
+      userCancelledStream = false;
+
       for (; attempt < imageCaps.length; attempt++) {
         const cap = imageCaps[attempt];
         const msgsForAttempt =
@@ -506,7 +551,11 @@ const endpoint = '/chat';
           method: 'POST',
           headers: getHeaders(),
           body: JSON.stringify(buildPayload(msgsForAttempt)),
+          // PRIMARY cancel hook: aborting this signal tears down the HTTP
+          // connection immediately so a pending read() unblocks at once.
+          signal: abortController.signal,
         });
+
 
         if (response.ok) break;
 
@@ -612,8 +661,17 @@ const endpoint = '/chat';
           }
         }
       } catch (error: any) {
-        // Check if this is a cancellation error
-        if (error.message === 'User cancelled the response') {
+        // Treat any of the following as a clean, user-initiated stop and
+        // return whatever text we've accumulated so far:
+        //   • reader.cancel('User cancelled the response') → message match
+        //   • abortController.abort() → DOMException with name "AbortError"
+        //   • our userCancelledStream flag set by cancelStream()
+        const isUserCancel =
+          userCancelledStream ||
+          error?.name === 'AbortError' ||
+          error?.message === 'User cancelled the response';
+
+        if (isUserCancel) {
           console.log('Stream was cancelled by user');
           const tokensReceived = tokenCountingService.countTokens(fullResponse);
           console.log(`📥 Tokens received from LLM: ${tokensReceived} (cancelled)`);
@@ -623,7 +681,14 @@ const endpoint = '/chat';
         throw error;
       } finally {
         currentReader = null;
+        // Clear the controller only if it's still the one we created for this
+        // request (a newer request may have replaced it).
+        if (currentAbortController === abortController) {
+          currentAbortController = null;
+        }
+        userCancelledStream = false;
       }
+
       
       // Calculate tokens received and return complete object
       const tokensReceived = tokenCountingService.countTokens(fullResponse);
