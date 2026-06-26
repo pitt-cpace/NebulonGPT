@@ -220,6 +220,8 @@ interface ChatAreaProps {
    * (e.g. ["completion","vision"]). When true, image upload UI is enabled.
    */
   modelSupportsVision?: boolean;
+  /** The current model's native max context window (tokens), forwarded to InputArea. */
+  maxContextLength?: number;
 }
 
 
@@ -246,6 +248,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   onOpenSettings,
   isMobile,
   modelSupportsVision = false,
+  maxContextLength = 32768,
 }) => {
 
   // Get theme for syntax highlighting
@@ -5765,6 +5768,7 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               isMobile={isMobile}
               modelName={model?.name}
               modelSupportsVision={modelSupportsVision}
+              maxContextLength={maxContextLength}
             />
 
           </FixedInputOverlay>

@@ -5,6 +5,7 @@ import {
   IconButton,
   Paper,
   Typography,
+  CircularProgress,
 } from '@mui/material';
 import {
   Send as SendIcon,
@@ -16,6 +17,7 @@ import {
   Error as ErrorIcon,
   Warning as WarningIcon,
   Block as BlockIcon,
+  InfoOutlined as InfoIcon,
 } from '@mui/icons-material';
 
 import { FileAttachment, PdfImageMeta } from '../types';
@@ -55,6 +57,13 @@ interface InputAreaProps {
    */
   modelSupportsVision?: boolean;
 
+  /**
+   * The current model's maximum native context window (tokens), detected from
+   * Ollama's /api/show. Used to advise the user how high they can raise the
+   * configured context length when a token-heavy PDF is attached.
+   */
+  maxContextLength?: number;
+
 }
 
 
@@ -76,6 +85,7 @@ const InputArea: React.FC<InputAreaProps> = ({
   isMobile,
   modelName,
   modelSupportsVision = false,
+  maxContextLength = 32768,
 }) => {
   // Vision support is sourced entirely from Ollama's /api/show "capabilities" array,
   // resolved in App.tsx and passed down as `modelSupportsVision`. On model switch the
@@ -123,6 +133,33 @@ const InputArea: React.FC<InputAreaProps> = ({
   const pdfVisualStatsRef = useRef<Record<string, { images: number; charts: number; tables: number }>>({});
   const [contextWarning, setContextWarning] = useState<string | null>(null);
   const [isContextExceeded, setIsContextExceeded] = useState(false);
+  // Non-blocking informational tip shown when a token-heavy PDF is attached and the
+  // configured context length is below the model's native maximum. PDFs consume a lot
+  // of tokens, so we nudge the user to raise their context length (in Settings) toward
+  // the model's max so the full document — and more chat history — actually fits.
+  const [pdfContextTip, setPdfContextTip] = useState<string | null>(null);
+  // Key (sorted PDF attachment ids) the tip currently describes, and the key
+  // the user has dismissed it for. A dismissal sticks for that PDF set but the
+  // tip reappears when a different PDF is attached.
+  const [pdfContextTipKey, setPdfContextTipKey] = useState<string | null>(null);
+  const [pdfTipDismissedKey, setPdfTipDismissedKey] = useState<string | null>(null);
+  // Remaining-time progress (100 → 0) for the auto-dismiss countdown ring
+  // drawn around the tip's close button.
+  const [pdfTipProgress, setPdfTipProgress] = useState(100);
+  // Mirror of the persisted `contextLength` setting, kept in state so the PDF context
+  // tip recomputes when the user changes it in Settings (via the contextLengthChanged event).
+  const [contextLengthSetting, setContextLengthSetting] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('contextLength');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 2000) return parsed;
+      }
+    } catch (error) {
+      console.error('Error reading context length:', error);
+    }
+    return 4096;
+  });
 
   const [textDirection, setTextDirection] = useState<{
     direction: 'ltr' | 'rtl';
@@ -206,7 +243,7 @@ const InputArea: React.FC<InputAreaProps> = ({
           
           setContextWarning(
             `Context limit exceeded! ~${totalTokens}/${contextLength} tokens ` +
-            `(Current: ${currentPromptTokens + currentAttachmentsTokens}, Chat History Included: ${historyTokensUsed}, Safety Buffer: 500). ` +
+            `(Current: ${currentPromptTokens + currentAttachmentsTokens}, Chat History Included: ${historyTokensUsed}, Safety Buffer: 2000). ` +
             `${historyMessage}You must remove text/attachments or increase context length from settings before sending.`
           );
         } else {
@@ -332,6 +369,103 @@ const InputArea: React.FC<InputAreaProps> = ({
     }
   }, [attachments]);
 
+  // PDFs are token-heavy. Whenever a PDF is attached (and finished extracting)
+  // and the user's configured context length is below the model's native max,
+  // surface a non-blocking, dismissible tip showing how many tokens the PDF(s)
+  // add and nudging them to raise the context length toward the max so the full
+  // document — and more chat history — fits.
+  // Skipped for trivially small PDFs and for any PDF set the user has dismissed.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const extractedPdfs = attachments.filter(
+        a => a.type === 'pdf' && !!a.content && a.content.trim().length > 0,
+      );
+
+      if (extractedPdfs.length === 0 || contextLengthSetting >= maxContextLength) {
+        setPdfContextTip(null);
+        return;
+      }
+
+      // Stable key for this PDF set so a dismissal sticks until the set changes.
+      const tipKey = extractedPdfs.map(a => a.id).sort().join('|');
+      if (tipKey === pdfTipDismissedKey) {
+        if (!cancelled) setPdfContextTip(null);
+        return;
+      }
+
+      try {
+        const { tokenCountingService } = await import('../services/tokenCountingService');
+
+        // PDF-only token cost — used purely to decide whether the PDF is big
+        // enough to bother warning about.
+        let pdfTokens = 0;
+        for (const att of extractedPdfs) {
+          pdfTokens += tokenCountingService.countAttachmentTokens(att);
+        }
+
+        // Don't nag for tiny PDFs that comfortably fit the current window.
+        if (pdfTokens < 1000) {
+          if (!cancelled) setPdfContextTip(null);
+          return;
+        }
+
+        // Display the SAME "current prompt" total the context-limit banner uses
+        // (prompt text + base overhead + all attachments) so the two banners
+        // never show conflicting numbers. Mirrors calculateTokens().
+        const promptTokens = tokenCountingService.countTokens(message) + 10;
+        let attachmentsTokens = 0;
+        for (const att of attachments) {
+          attachmentsTokens += tokenCountingService.countAttachmentTokens(att);
+        }
+        const currentTokens = promptTokens + attachmentsTokens;
+
+        const label = extractedPdfs.length === 1 ? 'This PDF' : `These ${extractedPdfs.length} PDFs`;
+        if (!cancelled) {
+          setPdfContextTipKey(tipKey);
+          setPdfContextTip(
+            `${label} make your prompt ~${currentTokens.toLocaleString()} tokens. Your context length is set to ` +
+            `${contextLengthSetting.toLocaleString()} (model max ${maxContextLength.toLocaleString()}). ` +
+            `For best results, raise it toward ${maxContextLength.toLocaleString()} in Settings so the full ` +
+            `document and more chat history fit in context. If you run into issues like incomplete answers or ` +
+            `hallucinations, increase the context length as much as your hardware can handle.`,
+          );
+        }
+      } catch (error) {
+        console.error('Error computing PDF context tip:', error);
+        if (!cancelled) setPdfContextTip(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [attachments, message, contextLengthSetting, maxContextLength, pdfTipDismissedKey]);
+
+  // Auto-dismiss the PDF context tip after 1 minute so it doesn't linger, and
+  // drive the countdown ring around its close button. Keyed on visibility +
+  // the PDF set (not the tip text) so the live token count updating as the
+  // user types doesn't keep resetting the timer.
+  const pdfContextTipVisible = pdfContextTip !== null;
+  useEffect(() => {
+    if (!pdfContextTipVisible || !pdfContextTipKey) return;
+    const DURATION = 60000;
+    const start = Date.now();
+    setPdfTipProgress(100);
+    const interval = setInterval(() => {
+      const remaining = DURATION - (Date.now() - start);
+      if (remaining <= 0) {
+        clearInterval(interval);
+        setPdfTipProgress(0);
+        setPdfTipDismissedKey(pdfContextTipKey);
+        setPdfContextTip(null);
+      } else {
+        setPdfTipProgress((remaining / DURATION) * 100);
+      }
+    }, 200);
+    return () => clearInterval(interval);
+  }, [pdfContextTipVisible, pdfContextTipKey]);
+
 
 
 
@@ -405,6 +539,16 @@ const InputArea: React.FC<InputAreaProps> = ({
     const handleContextLengthChanged = () => {
       // Recalculate tokens when context length setting changes
       calculateTokens(messageRef.current, attachmentsRef.current);
+      // Keep the mirrored setting in sync so the PDF context tip recomputes.
+      try {
+        const saved = localStorage.getItem('contextLength');
+        if (saved) {
+          const parsed = parseInt(saved, 10);
+          if (!isNaN(parsed) && parsed >= 2000) setContextLengthSetting(parsed);
+        }
+      } catch (error) {
+        console.error('Error reading context length:', error);
+      }
     };
 
     window.addEventListener('contextLengthChanged', handleContextLengthChanged);
@@ -1524,6 +1668,79 @@ const InputArea: React.FC<InputAreaProps> = ({
               >
                 {pdfVisualWarning}
               </Typography>
+            </Box>
+          )}
+
+
+          {/* PDF context-length tip: PDFs are token-heavy, so when one is
+              attached and the configured context length is below the model's
+              max, nudge the user to raise it for better results. Suppressed
+              while the context-limit warning (which already advises increasing
+              context) or the image-blocked banner is showing, to avoid clutter. */}
+          {pdfContextTip && !contextWarning && !imageBlocked && (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 1,
+                p: 1,
+                mb: 1,
+                borderRadius: 1,
+                bgcolor: 'rgba(33, 150, 243, 0.1)',
+                border: '1px solid rgba(33, 150, 243, 0.3)',
+                width: '100%'
+              }}
+            >
+              <InfoIcon sx={{ fontSize: 16, color: 'info.main', mt: 0.25, flexShrink: 0 }} />
+              <Typography
+                variant="caption"
+                sx={{
+                  color: 'info.main',
+                  lineHeight: 1.4,
+                  flex: 1
+                }}
+              >
+                {pdfContextTip}
+              </Typography>
+              <Box
+                sx={{
+                  position: 'relative',
+                  width: 26,
+                  height: 26,
+                  flexShrink: 0,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {/* Countdown ring showing time left before the tip auto-dismisses */}
+                <CircularProgress
+                  variant="determinate"
+                  value={pdfTipProgress}
+                  size={26}
+                  thickness={2.5}
+                  sx={{
+                    color: 'info.main',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    pointerEvents: 'none',
+                  }}
+                />
+                <IconButton
+                  size="small"
+                  aria-label="Dismiss tip"
+                  onClick={() => {
+                    // Remember the dismissed PDF set so the tip stays closed for
+                    // it, then hide the banner immediately.
+                    setPdfTipDismissedKey(pdfContextTipKey);
+                    setPdfContextTip(null);
+                  }}
+                  sx={{ p: 0, color: 'info.main' }}
+                >
+                  <CloseIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Box>
             </Box>
           )}
 

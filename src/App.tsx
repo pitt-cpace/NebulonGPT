@@ -1467,6 +1467,7 @@ const App: React.FC = () => {
         onOpenSettings={() => setSettingsOpen(true)}
         isMobile={isMobile}
         modelSupportsVision={modelSupportsVision}
+        maxContextLength={maxContextLength}
       />
 
       </Box>
