@@ -1069,6 +1069,16 @@ const ChatArea: React.FC<ChatAreaProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  // Format a model's on-disk size (bytes) the way `ollama ls` does, e.g.
+  // "24 GB", "9.6 GB", "1.4 GB". Scales up to TB and drops trailing ".0".
+  const formatModelSize = (bytes?: number): string | null => {
+    if (!bytes || bytes <= 0) return null;
+    const k = 1024;
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), units.length - 1);
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${units[i]}`;
+  };
+
   // Helper function to parse HTML table to data structure
   const parseHtmlTable = (htmlString: string): { headers: string[], rows: string[][] } | null => {
     try {
@@ -5156,14 +5166,21 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   selected={m.id === model?.id}
                   onClick={() => handleSelectModel(m)}
                   disabled={!ollamaStatus.isAvailable}
-                  sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}
+                  sx={{ display: 'flex', alignItems: 'center', gap: 1.5, justifyContent: 'space-between' }}
                 >
                   <span>{m.name}</span>
-                  {visionSupportByModelId[m.id] && (
-                    <Tooltip title="Supports vision (image input)">
-                      <VisibilityIcon sx={{ fontSize: 18, color: 'primary.main' }} />
-                    </Tooltip>
-                  )}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {visionSupportByModelId[m.id] && (
+                      <Tooltip title="Supports vision (image input)">
+                        <VisibilityIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                      </Tooltip>
+                    )}
+                    {formatModelSize(m.size) && (
+                      <Typography variant="caption" color="text.secondary" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {formatModelSize(m.size)}
+                      </Typography>
+                    )}
+                  </Box>
                 </MenuItem>
               ))}
             

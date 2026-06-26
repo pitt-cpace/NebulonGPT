@@ -3,7 +3,7 @@ export interface ModelType {
   name: string;
   description?: string;
   parameters?: Record<string, any>;
-  size?: string;
+  size?: number; // On-disk size in bytes, as reported by Ollama's /api/tags
   quantization?: string;
   isDefault?: boolean;
 }
