@@ -39,6 +39,7 @@ import {
   Close as CloseIcon,
 } from '@mui/icons-material';
 import { ChatType } from '../types';
+import { electronApi } from '../services/electronApi';
 import * as styles from '../styles/components/Sidebar.styles';
 import { RO } from '../hooks/ResizeObserverManager';
 
@@ -291,10 +292,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <Typography variant="caption" color="text.secondary" sx={styles.byText}>
                   BY
                 </Typography>
-                <Box component="img" 
-                  src="./cpace-logo.png" 
-                  alt="CPACE Logo" 
-                  sx={styles.cpaceLogo} 
+                <Box component="img"
+                  src="./cpace-logo.png"
+                  alt="CPACE Logo"
+                  role="link"
+                  aria-label="Visit CPACE website"
+                  title="Visit cpace.pitt.edu"
+                  onClick={() => electronApi.openExternal('https://cpace.pitt.edu')}
+                  sx={{ ...styles.cpaceLogo, cursor: 'pointer' }}
                 />
               </Box>
             </Box>
