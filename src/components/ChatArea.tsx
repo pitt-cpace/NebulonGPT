@@ -23,6 +23,7 @@ import {
   Toolbar,
   Menu,
   MenuItem,
+  Tooltip,
   Button,
   Grid,
   Card,
@@ -70,12 +71,13 @@ import {
   Loop as LoopIcon,
   Download as DownloadIcon,
   ExpandMore as ExpandMoreIcon,
+  Visibility as VisibilityIcon,
 } from '@mui/icons-material';
 
 import { QRCodeSVG } from 'qrcode.react';
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
-import { getSuggestedPrompts } from '../services/api';
+import { getSuggestedPrompts, fetchModelVisionSupport } from '../services/api';
 import { VoskRecognitionService } from '../services/vosk';
 import { ttsService } from '../services/ttsService';
 import { electronApi } from '../services/electronApi';
@@ -257,6 +259,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
   
   const [message, setMessage] = useState('');
   const [modelMenuAnchor, setModelMenuAnchor] = useState<null | HTMLElement>(null);
+  // Vision capability per model id, resolved lazily from Ollama's /api/show
+  // `capabilities` array when the model dropdown is opened. Used to render a
+  // vision icon next to vision-capable models in the list.
+  const [visionSupportByModelId, setVisionSupportByModelId] = useState<Record<string, boolean>>({});
   const [attachMenuAnchor, setAttachMenuAnchor] = useState<null | HTMLElement>(null);
   const [contributorsOpen, setContributorsOpen] = useState(false);
   const [networkAccessOpen, setNetworkAccessOpen] = useState(false);
@@ -862,6 +868,21 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
   const handleOpenModelMenu = (event: React.MouseEvent<HTMLElement>) => {
     setModelMenuAnchor(event.currentTarget);
+
+    // Lazily resolve each model's vision capability from Ollama's /api/show
+    // `capabilities` array so we can flag vision-capable models in the list.
+    // Results are cached per model id, so we only probe models not seen yet.
+    const unknownModels = models.filter((m) => !(m.id in visionSupportByModelId));
+    if (unknownModels.length === 0) return;
+
+    unknownModels.forEach(async (m) => {
+      try {
+        const supportsVision = await fetchModelVisionSupport(m.name);
+        setVisionSupportByModelId((prev) => ({ ...prev, [m.id]: supportsVision }));
+      } catch {
+        setVisionSupportByModelId((prev) => ({ ...prev, [m.id]: false }));
+      }
+    });
   };
 
   const handleCloseModelMenu = () => {
@@ -5135,8 +5156,14 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                   selected={m.id === model?.id}
                   onClick={() => handleSelectModel(m)}
                   disabled={!ollamaStatus.isAvailable}
+                  sx={{ display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'space-between' }}
                 >
-                  {m.name}
+                  <span>{m.name}</span>
+                  {visionSupportByModelId[m.id] && (
+                    <Tooltip title="Supports vision (image input)">
+                      <VisibilityIcon sx={{ fontSize: 18, color: 'primary.main' }} />
+                    </Tooltip>
+                  )}
                 </MenuItem>
               ))}
             

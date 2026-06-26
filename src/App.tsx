@@ -9,7 +9,7 @@ import StartupLoader from './components/StartupLoader';
 import ModelLoadingDialog from './components/ModelLoadingDialog';
 import { modelLoadingService } from './services/modelLoadingService';
 import { ModelType, ChatType, MessageType, FileAttachment } from './types';
-import { fetchModels, cancelStream, fetchModelDetails } from './services/api';
+import { fetchModels, cancelStream, fetchModelDetails, detectVisionCapability } from './services/api';
 import { chunkQueueService } from './services/chunkQueueService';
 import { voskRecognition } from './services/vosk';
 import { ttsService } from './services/ttsService';
@@ -99,40 +99,9 @@ const App: React.FC = () => {
   // Determined dynamically from Ollama's /api/show "capabilities" array
   const [modelSupportsVision, setModelSupportsVision] = useState<boolean>(false);
 
-  // Helper: detect "vision" capability from an Ollama /api/show response.
-  //
-  // We rely EXCLUSIVELY on the authoritative `capabilities` array that modern
-  // Ollama (>= 0.4) returns for every model. Any fuzzy fallback (matching
-  // model_info keys, modelfile text, `details.families`, etc.) is unsafe
-  // because text-only models like gpt-oss frequently contain unrelated
-  // tokens/fields that incidentally match — producing false positives that
-  // let the user attach images Ollama will then reject.
-  //
-  // Authoritative shapes:
-  //   1. Top-level:  modelDetails.capabilities          = ["completion", "vision", ...]
-  //   2. Nested:     modelDetails.model_info.capabilities = ["completion", "vision", ...]
-  //
-  // If neither array exists OR neither contains "vision", we treat the model
-  // as text-only. This matches what Ollama itself enforces server-side.
-  const detectVisionCapability = (modelDetails: any): boolean => {
-    if (!modelDetails) return false;
-
-    const hasVisionIn = (arr: any): boolean =>
-      Array.isArray(arr) &&
-      arr.some((c: any) => typeof c === 'string' && c.toLowerCase() === 'vision');
-
-    if (hasVisionIn(modelDetails.capabilities)) return true;
-    if (hasVisionIn(modelDetails?.model_info?.capabilities)) return true;
-
-    // Helpful one-line diagnostic so we can see exactly what Ollama returned
-
-    // if a vision model isn't being detected on the user's setup.
-    console.debug('[detectVisionCapability] No "vision" in capabilities arrays:',
-      'top:', modelDetails.capabilities,
-      'nested:', modelDetails?.model_info?.capabilities,
-    );
-    return false;
-  };
+  // Vision capability is detected from Ollama's /api/show `capabilities` array
+  // via the shared `detectVisionCapability` helper in services/api (also used
+  // by the model dropdown in ChatArea), keeping a single source of truth.
 
   // Helper: extract the model's native context length (= the "context length"
   // field shown by `ollama show <model>`) from a /api/show response.

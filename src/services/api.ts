@@ -796,6 +796,40 @@ export const fetchModelDetails = async (modelName: string): Promise<any> => {
   }
 };
 
+// Detect "vision" capability from an Ollama /api/show response.
+//
+// We rely EXCLUSIVELY on the authoritative `capabilities` array that modern
+// Ollama (>= 0.4) returns for every model. Any fuzzy fallback (matching
+// model_info keys, modelfile text, `details.families`, etc.) is unsafe
+// because text-only models like gpt-oss frequently contain unrelated
+// tokens/fields that incidentally match — producing false positives.
+//
+// Authoritative shapes:
+//   1. Top-level:  modelDetails.capabilities          = ["completion", "vision", ...]
+//   2. Nested:     modelDetails.model_info.capabilities = ["completion", "vision", ...]
+export const detectVisionCapability = (modelDetails: any): boolean => {
+  if (!modelDetails) return false;
+
+  const hasVisionIn = (arr: any): boolean =>
+    Array.isArray(arr) &&
+    arr.some((c: any) => typeof c === 'string' && c.toLowerCase() === 'vision');
+
+  return (
+    hasVisionIn(modelDetails.capabilities) ||
+    hasVisionIn(modelDetails?.model_info?.capabilities)
+  );
+};
+
+/**
+ * Fetch a single model's vision capability via Ollama's /api/show.
+ * Returns false on any error (never throws) — vision is opt-in, so an
+ * unknown model is treated as text-only.
+ */
+export const fetchModelVisionSupport = async (modelName: string): Promise<boolean> => {
+  const details = await fetchModelDetails(modelName);
+  return detectVisionCapability(details);
+};
+
 // =============================================================================
 // PDF FIGURE DESCRIPTION (vision-model captioning of extracted figures)
 // =============================================================================
