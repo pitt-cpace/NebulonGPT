@@ -32,7 +32,6 @@ import {
   Search as SearchIcon,
   ExpandLess,
   ExpandMore,
-  Workspaces as WorkspacesIcon,
   AutoAwesome as AutoAwesomeIcon,
   ChevronLeft as ChevronLeftIcon,
   CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
@@ -357,17 +356,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       <Divider sx={styles.divider} />
 
-      <List>
-        <ListItem disablePadding>
-          <ListItemButton>
-            <ListItemIcon>
-              <WorkspacesIcon />
-            </ListItemIcon>
-            <ListItemText primary="Workspace" />
-          </ListItemButton>
-        </ListItem>
-      </List>
-
       <Box sx={styles.searchContainer}>
         <TextField
           fullWidth
@@ -472,7 +460,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             ref={chatListRef}
             onScroll={handleScroll}
             sx={{
-              maxHeight: 'calc(100vh - 400px)', // Adjust based on your layout
+              maxHeight: 'calc(100vh - 340px)', // Offset of the fixed header stack above the list (logo, New Chat, search, Chats header)
               overflowY: 'auto',
               overflowX: 'hidden',
             }}
