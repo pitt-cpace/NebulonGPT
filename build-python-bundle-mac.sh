@@ -17,7 +17,10 @@ else
 fi
 
 # Python version to use
-PYTHON_VERSION="3.9.19"
+# Bumped from 3.9.19 → 3.10.14 because spaCy 3.8.13 + thinc 8.3.12 (transitive
+# requirement) now require Python ≥ 3.10. The 20240726 python-build-standalone
+# release ships 3.10.14 for both aarch64-apple-darwin and x86_64-apple-darwin.
+PYTHON_VERSION="3.10.14"
 
 # python-build-standalone release tag
 PBS_VERSION="20240726"

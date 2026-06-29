@@ -67,7 +67,9 @@ import {
   QrCode2 as QrCodeIcon,
   Computer as ComputerIcon,
   Loop as LoopIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
+
 import { QRCodeSVG } from 'qrcode.react';
 import ReactMarkdown from 'react-markdown';
 import { ModelType, ChatType, MessageType, FileAttachment } from '../types';
@@ -4639,9 +4641,91 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                           {/* Show thumbnails of extracted images if any */}
                           {attachment.images && attachment.images.length > 0 && (
                             <Box>
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                                {attachment.images.length} image{attachment.images.length !== 1 ? 's' : ''} extracted
-                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                                <Typography variant="caption" color="text.secondary">
+                                  {attachment.images.length} image{attachment.images.length !== 1 ? 's' : ''} extracted
+                                </Typography>
+                                {/* Download-all button — bundles every extracted figure /
+                                    rendered page / embedded image from this PDF into a
+                                    single ZIP and triggers a browser download. JSZip is
+                                    imported lazily so it never bloats the main bundle. */}
+                                <Button
+                                  size="small"
+                                  startIcon={<DownloadIcon sx={{ fontSize: 14 }} />}
+                                  onClick={async (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (!attachment.images || attachment.images.length === 0) return;
+                                    try {
+                                      // Dynamic import keeps JSZip out of the initial bundle.
+                                      const JSZipModule = await import('jszip');
+                                      const JSZip = JSZipModule.default || (JSZipModule as any);
+                                      const zip = new JSZip();
+
+                                      // Derive a clean base name (drop the .pdf extension)
+                                      // for both the folder inside the ZIP and the ZIP filename.
+                                      const baseName = (attachment.name || 'document')
+                                        .replace(/\.pdf$/i, '')
+                                        .replace(/[^a-zA-Z0-9._-]+/g, '_');
+                                      const folder = zip.folder(baseName) || zip;
+
+                                      // Decide width of the numeric suffix so files sort
+                                      // correctly in any file manager (e.g. 001 vs 1).
+                                      const pad = Math.max(2, String(attachment.images.length).length);
+
+                                      attachment.images.forEach((src, idx) => {
+                                        // Expected shape: "data:image/<fmt>;base64,<payload>".
+                                        // Be defensive in case some entries are bare base64.
+                                        const m = src.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
+                                        let ext = 'png';
+                                        let payload = src;
+                                        if (m) {
+                                          // Normalize jpeg → jpg for friendlier extensions
+                                          ext = m[1].toLowerCase() === 'jpeg' ? 'jpg' : m[1].toLowerCase();
+                                          payload = m[2];
+                                        }
+                                        const idxStr = String(idx + 1).padStart(pad, '0');
+                                        folder.file(`${baseName}-image-${idxStr}.${ext}`, payload, { base64: true });
+                                      });
+
+                                      const blob = await zip.generateAsync({ type: 'blob' });
+
+                                      // Trigger the download via a temporary <a download>.
+                                      const url = URL.createObjectURL(blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      a.download = `${baseName}-images.zip`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      document.body.removeChild(a);
+                                      // Free the blob URL after the click is processed.
+                                      setTimeout(() => URL.revokeObjectURL(url), 1000);
+                                    } catch (err) {
+                                      console.error('Failed to build images ZIP:', err);
+                                      alert('Failed to build the images ZIP. Please check the console for details.');
+                                    }
+                                  }}
+                                  sx={{
+                                    textTransform: 'none',
+                                    fontSize: '0.7rem',
+                                    py: 0.25,
+                                    px: 1,
+                                    minWidth: 'auto',
+                                    color: 'primary.main',
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    borderRadius: '12px',
+                                    '&:hover': {
+                                      borderColor: 'primary.main',
+                                      backgroundColor: 'rgba(33, 150, 243, 0.08)',
+                                    },
+                                  }}
+                                  title={`Download all ${attachment.images.length} images as a ZIP`}
+                                >
+                                  Download all
+                                </Button>
+                              </Box>
+
                               <Box sx={{ 
                                 display: 'flex', 
                                 flexWrap: 'wrap', 

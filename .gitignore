@@ -216,3 +216,9 @@ builder-*.yaml
 Certification/*.cer
 Certification/*.p12
 Certification/*.key
+
+# Python bytecode / cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

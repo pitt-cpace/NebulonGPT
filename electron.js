@@ -947,12 +947,29 @@ function startFastAPIBackend() {
       PYTHONUTF8: '1'
     };
 
-    // Determine backend script path
+    // Determine backend script path.
+    //
+    // In dev mode (`isDev`) we ALWAYS prefer the dev source (`./backend/main.py`)
+    // over any previously-extracted bundle copy in `~/.nebulon-gpt/python-bundle/`.
+    // Otherwise edits to backend/main.py won't take effect until the user manually
+    // wipes the extracted bundle, which previously caused stale-route 404s
+    // (e.g. /api/pdf/extract returning 404 even though the source defined it).
+    //
+    // In production the dev source isn't available, so we fall back to the
+    // extracted bundle as before.
     const extractedBackendScript = path.join(PATHS.pythonBundleDir, 'backend/main.py');
     const devBackendScript = getResourcePath('backend/main.py');
-    
-    const backendScript = fs.existsSync(extractedBackendScript) ? extractedBackendScript : devBackendScript;
-    
+
+    let backendScript;
+    if (isDev && fs.existsSync(devBackendScript)) {
+      backendScript = devBackendScript;
+      console.log('🐍 Dev mode: using live backend source (ignoring any extracted bundle copy)');
+    } else if (fs.existsSync(extractedBackendScript)) {
+      backendScript = extractedBackendScript;
+    } else {
+      backendScript = devBackendScript;
+    }
+
     console.log(`🐍 Using backend script: ${backendScript}`);
     console.log(`🐍 Backend script exists: ${fs.existsSync(backendScript)}`);
 
@@ -972,16 +989,21 @@ function startFastAPIBackend() {
     logStream.write(`[${timestamp}] Starting FastAPI Backend\n`);
     logStream.write(`${'='.repeat(80)}\n\n`);
 
-    // Determine correct working directory
-    // For bundled: use python-bundle (contains backend/ subdirectory)
-    // For dev: use project root (contains backend/ subdirectory)
+    // Determine correct working directory.
+    //
+    // IMPORTANT: this must match where `backendScript` was resolved from,
+    // otherwise uvicorn's `backend.main:app` import string will load a
+    // *different* main.py than we intended (e.g. stale extracted bundle
+    // vs. live dev source). Previously this only looked at whether the
+    // extracted bundle existed, which caused the dev edits to /api/pdf/extract
+    // to be silently ignored.
     let workingDir;
-    if (fs.existsSync(extractedBackendScript)) {
-      // Bundled mode: backend is in python-bundle/backend/
-      workingDir = PATHS.pythonBundleDir;
+    if (backendScript === devBackendScript) {
+      // Dev (or forced-dev) mode: project root contains the `backend/` package
+      workingDir = path.dirname(path.dirname(backendScript)); // up two levels from main.py
     } else {
-      // Dev mode: backend is in project/backend/
-      workingDir = path.dirname(path.dirname(backendScript)); // Go up two levels from main.py
+      // Bundled mode: backend lives at python-bundle/backend/
+      workingDir = PATHS.pythonBundleDir;
     }
     
     console.log(`🐍 Working directory: ${workingDir}`);
@@ -1196,21 +1218,43 @@ function startHTTPSServer() {
           console.log(`🔐 HTTPS dev proxy: ${req.method} ${req.url} -> port ${targetPort}`);
         }
         
-        // Collect request body for non-GET/HEAD requests
-        let body = '';
+        // Collect request body for non-GET/HEAD requests.
+        //
+        // CRITICAL: chunks MUST be kept as raw Buffers and concatenated with
+        // Buffer.concat() — NEVER chunk.toString(). The previous string-based
+        // implementation silently corrupted every byte > 0x7F (it forced a
+        // UTF-8 decode, replacing invalid byte sequences with U+FFFD), which
+        // mangled the binary contents of every multipart/form-data upload.
+        // That broke PDF uploads end-to-end when accessing the app via HTTPS
+        // on a LAN IP (e.g. https://10.110.187.156:3443/api/pdf/extract → 400
+        // Bad Request from FastAPI because the boundary delimiter no longer
+        // matched the now-replaced bytes of the file content).
+        //
+        // Tracking Content-Length separately also lets us send an explicit
+        // Content-Length header to the backend, which is required by some
+        // strict HTTP parsers and avoids confusion with chunked transfer.
+        const bodyChunks = [];
+        let bodyLength = 0;
         req.on('data', chunk => {
-          body += chunk.toString();
+          // Defensive: if somehow we receive a string chunk (shouldn't happen
+          // on a raw http(s).Server request stream), coerce back to Buffer
+          // using latin-1 which is the only single-byte-identity encoding.
+          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'binary');
+          bodyChunks.push(buf);
+          bodyLength += buf.length;
         });
-        
+
         req.on('end', () => {
+          const body = bodyChunks.length > 0 ? Buffer.concat(bodyChunks, bodyLength) : null;
+
           // Build headers for the proxy request
           const proxyHeaders = { ...req.headers };
-          
+
           // Remove/modify headers that shouldn't be forwarded or cause issues
           delete proxyHeaders['host'];
           delete proxyHeaders['origin'];
           delete proxyHeaders['referer'];
-          
+
           // Set appropriate host header based on target
           if (isOllamaRequest) {
             proxyHeaders['host'] = 'localhost:11434';
@@ -1219,25 +1263,36 @@ function startHTTPSServer() {
           } else {
             proxyHeaders['host'] = `localhost:${targetPort}`;
           }
-          
+
           const config = {
             method: req.method,
             url: targetUrl,
             headers: proxyHeaders,
             responseType: 'stream',
-            timeout: 60000, // 60 second timeout
+            // Raise the per-request timeout from 60s → 5min so large PDF
+            // extractions (the FastAPI side can take 30-60s on big papers)
+            // don't get cut off by the proxy before the backend responds.
+            timeout: 300000,
             validateStatus: () => true, // Accept all status codes
-            maxRedirects: 0
+            maxRedirects: 0,
+            // Multipart uploads from /api/pdf/extract can easily exceed
+            // axios' default 10 MB request body cap (the new figure-rendering
+            // pipeline returns big base64 blobs too). Lift the cap.
+            maxContentLength: 200 * 1024 * 1024,
+            maxBodyLength: 200 * 1024 * 1024,
           };
-          
-          // Add body for POST/PUT/PATCH requests
+
+          // Add body for POST/PUT/PATCH requests. We pass it through as a
+          // raw Buffer (no parsing!) so multipart boundaries, binary file
+          // contents, embedded JSON, etc. all reach the backend byte-for-byte.
           if (body && req.method !== 'GET' && req.method !== 'HEAD') {
-            try {
-              config.data = body;
-            } catch (e) {
-              console.error('Error parsing request body:', e);
-            }
+            config.data = body;
+            // Re-stamp Content-Length from the actual buffered size so the
+            // backend doesn't fall back to chunked transfer (FastAPI/Starlette
+            // accepts both but some intermediate parsers don't).
+            config.headers['content-length'] = String(bodyLength);
           }
+
           
           axios(config).then(response => {
             console.log(`✅ HTTPS proxy response: ${response.status} for ${req.url}`);
@@ -2125,7 +2180,13 @@ ipcMain.handle('execute-command', async (event, command) => {
         /^pgrep/,
         /^ps\s+-o\s+pid,rss/,
         /^tasklist/,
-        /^ollama\s+ps$/
+        /^ollama\s+ps$/,
+        // GPU VRAM query via nvidia-smi (read-only, no side-effects)
+        /^nvidia-smi\s+--query-gpu=memory\.used/,
+        // Shared GPU memory via Windows Performance Counter (read-only).
+        // \GPU Adapter Memory(*)\Shared Usage is the exact counter Task Manager
+        // uses for "Shared GPU memory" — system RAM borrowed by the GPU driver.
+        /^powershell\s+.*GPU\s+Adapter\s+Memory/i,
       ];
       
       const isAllowed = allowedPatterns.some(pattern => pattern.test(command));

@@ -28,22 +28,27 @@ TOTAL_RAM_GB=$((TOTAL_RAM_BYTES / 1024 / 1024 / 1024))
 echo "System RAM: ${TOTAL_RAM_GB}GB" >&2
 
 # Determine recommended model based on RAM
-# > 32GB         -> GPT-OSS 20B  (best performance)
-# 16 - 32GB     -> Gemma 4 E4B IT Q8_0 (balanced)
-# < 16GB         -> Granite 3.1 1B (lightweight)
+# > 32GB        -> GPT-OSS 20B (best performance) + optional Gemma 4 E4B IT Q8_0
+# 16 - 32GB     -> Granite 4.1 8B Q5_K_M (balanced)
+#  8 - 16GB     -> Granite 4.1 3B Q5_K_M (lightweight)
+OPTIONAL_MODEL=""
+OPTIONAL_MODEL_SIZE=""
 if [ "$TOTAL_RAM_GB" -gt 32 ]; then
     RECOMMENDED_MODEL="gpt-oss:20b"
     RECOMMENDED_ITEM="GPT-OSS 20B (Recommended - 32GB+ RAM)"
-    MODEL_SIZE="~12GB"
-elif [ "$TOTAL_RAM_GB" -ge 16 ]; then
-    RECOMMENDED_MODEL="gemma4:e4b-it-q8_0"
-    RECOMMENDED_ITEM="Gemma 4 E4B IT Q8_0 (Recommended - 16-32GB RAM)"
-    MODEL_SIZE="~4GB"
+    MODEL_SIZE="~14GB"
+    OPTIONAL_MODEL="gemma4:e4b-it-q8_0"
+    OPTIONAL_MODEL_SIZE="~12GB"
+elif [ "$TOTAL_RAM_GB" -gt 16 ]; then
+    RECOMMENDED_MODEL="granite4.1:8b-q5_K_M"
+    RECOMMENDED_ITEM="Granite 4.1 8B Q5_K_M (Recommended - 16-32GB RAM)"
+    MODEL_SIZE="~6.3GB"
 else
-    RECOMMENDED_MODEL="granite3.1-moe:1b"
-    RECOMMENDED_ITEM="Granite 3.1 1B (Recommended - <16GB RAM)"
-    MODEL_SIZE="~1GB"
+    RECOMMENDED_MODEL="granite4.1:3b-q5_K_M"
+    RECOMMENDED_ITEM="Granite 4.1 3B Q5_K_M (Recommended - 8-16GB RAM)"
+    MODEL_SIZE="~2.4GB"
 fi
+
 
 
 # Check if Ollama is already installed
@@ -118,15 +123,19 @@ On the next screen, you'll be able to select which AI model to install. Here are
 
 • GPT-OSS 20B (Best Performance)
   For advanced tasks and complex reasoning
+  Requires: 32GB+ RAM | Download: ~14GB
+
+• Gemma 4 E4B IT Q8_0 (Optional Companion)
+  Multimodal text + image assistant for 32GB+ systems
   Requires: 32GB+ RAM | Download: ~12GB
 
-• Gemma 4 E4B IT Q8_0 (Balanced)
+• Granite 4.1 8B Q5_K_M (Balanced)
   Great performance for general use
-  Requires: 16-32GB RAM | Download: ~4GB
+  Requires: 16-32GB RAM | Download: ~6.3GB
 
-• Granite 3.1 1B (Lightweight)
+• Granite 4.1 3B Q5_K_M (Lightweight)
   Fast responses on limited hardware
-  Requires: <16GB RAM | Download: ~1GB"
+  Requires: 8-16GB RAM | Download: ~2.4GB"
 
 
 if [ -n "$INSTALLED_MODELS" ]; then
@@ -155,18 +164,18 @@ case "$RECOMMENDED_MODEL" in
     "gpt-oss:20b")
         DEFAULT_ITEM="GPT-OSS 20B (Best - 32GB+ RAM)"
         ;;
-    "gemma4:e4b-it-q8_0")
-        DEFAULT_ITEM="Gemma 4 E4B IT Q8_0 (Balanced - 16-32GB RAM)"
+    "granite4.1:8b-q5_K_M")
+        DEFAULT_ITEM="Granite 4.1 8B Q5_K_M (Balanced - 16-32GB RAM)"
         ;;
-    "granite3.1-moe:1b")
-        DEFAULT_ITEM="Granite 3.1 1B (Light - <16GB RAM)"
+    "granite4.1:3b-q5_K_M")
+        DEFAULT_ITEM="Granite 4.1 3B Q5_K_M (Light - 8-16GB RAM)"
         ;;
 esac
 
 # Loop for model selection (allows going back if user clicks Skip)
 while true; do
     SELECTED_MODEL=$(osascript <<EOF
-set modelList to {"GPT-OSS 20B (Best - 32GB+ RAM)", "Gemma 4 E4B IT Q8_0 (Balanced - 16-32GB RAM)", "Granite 3.1 1B (Light - <16GB RAM)"}
+set modelList to {"GPT-OSS 20B (Best - 32GB+ RAM)", "Gemma 4 E4B IT Q8_0 (Optional Companion - 32GB+ RAM)", "Granite 4.1 8B Q5_K_M (Balanced - 16-32GB RAM)", "Granite 4.1 3B Q5_K_M (Light - 8-16GB RAM)"}
 
 set defaultItem to "$DEFAULT_ITEM"
 set modelChoice to choose from list modelList with title "NebulonGPT Installer - Model Selection" with prompt "Select an AI model to install:
@@ -220,15 +229,19 @@ done
 case "$SELECTED_MODEL" in
     *"GPT-OSS 20B"*)
         CHOSEN_MODEL="gpt-oss:20b"
-        MODEL_SIZE="~12GB"
+        MODEL_SIZE="~14GB"
         ;;
     *"Gemma 4 E4B"*)
         CHOSEN_MODEL="gemma4:e4b-it-q8_0"
-        MODEL_SIZE="~4GB"
+        MODEL_SIZE="~12GB"
         ;;
-    *"Granite 3.1 1B"*)
-        CHOSEN_MODEL="granite3.1-moe:1b"
-        MODEL_SIZE="~1GB"
+    *"Granite 4.1 8B"*)
+        CHOSEN_MODEL="granite4.1:8b-q5_K_M"
+        MODEL_SIZE="~6.3GB"
+        ;;
+    *"Granite 4.1 3B"*)
+        CHOSEN_MODEL="granite4.1:3b-q5_K_M"
+        MODEL_SIZE="~2.4GB"
         ;;
     *)
         CHOSEN_MODEL=""
@@ -242,6 +255,53 @@ NEED_DOWNLOAD_MODEL="true"
 if [ -n "$CHOSEN_MODEL" ] && [ "$OLLAMA_RUNNING" = "true" ]; then
     if echo "$INSTALLED_MODELS_RAW" | grep -q "\"name\":\"$CHOSEN_MODEL\""; then
         NEED_DOWNLOAD_MODEL="false"
+    fi
+fi
+
+# ============================================
+# STEP 2b: OPTIONAL COMPANION MODEL (32GB+ RAM only)
+# ============================================
+# For 32GB+ systems, offer Gemma 4 E4B IT Q8_0 as an additional
+# optional companion model alongside the chosen primary model.
+
+INSTALL_OPTIONAL_MODEL="false"
+OPTIONAL_NEED_DOWNLOAD="false"
+if [ -n "$OPTIONAL_MODEL" ] && [ "$CHOSEN_MODEL" != "$OPTIONAL_MODEL" ]; then
+    # Check if optional model already exists
+    OPTIONAL_ALREADY_INSTALLED="false"
+    if [ "$OLLAMA_RUNNING" = "true" ]; then
+        if echo "$INSTALLED_MODELS_RAW" | grep -q "\"name\":\"$OPTIONAL_MODEL\""; then
+            OPTIONAL_ALREADY_INSTALLED="true"
+        fi
+    fi
+
+    if [ "$OPTIONAL_ALREADY_INSTALLED" = "true" ]; then
+        echo "Optional model $OPTIONAL_MODEL already installed, skipping prompt" >&2
+        INSTALL_OPTIONAL_MODEL="true"
+        OPTIONAL_NEED_DOWNLOAD="false"
+    else
+        OPTIONAL_RESPONSE=$(osascript <<EOF
+display dialog "Your system has ${TOTAL_RAM_GB}GB of RAM, which is enough to also run a lightweight companion model alongside the primary one.
+
+Would you like to additionally install:
+
+• Gemma 4 E4B IT Q8_0 (Optional)
+  Lightweight assistant model for quick tasks
+  Download: ${OPTIONAL_MODEL_SIZE}
+
+This is completely optional. You can always install it later using:
+ollama pull ${OPTIONAL_MODEL}" with title "NebulonGPT Installer - Optional Companion Model" buttons {"Skip", "Install Optional Model"} default button "Install Optional Model" with icon note
+return button returned of result
+EOF
+)
+        if [ "$OPTIONAL_RESPONSE" = "Install Optional Model" ]; then
+            echo "User chose to install optional model: $OPTIONAL_MODEL" >&2
+            INSTALL_OPTIONAL_MODEL="true"
+            OPTIONAL_NEED_DOWNLOAD="true"
+        else
+            echo "User skipped optional model" >&2
+            INSTALL_OPTIONAL_MODEL="false"
+        fi
     fi
 fi
 
@@ -278,6 +338,16 @@ else
 • AI Model: Skipped"
 fi
 
+if [ "$INSTALL_OPTIONAL_MODEL" = "true" ] && [ -n "$OPTIONAL_MODEL" ]; then
+    if [ "$OPTIONAL_NEED_DOWNLOAD" = "true" ]; then
+        WARNING_MSG+="
+• Optional Model: $OPTIONAL_MODEL (will be downloaded)"
+    else
+        WARNING_MSG+="
+• Optional Model: $OPTIONAL_MODEL (already installed ✓)"
+    fi
+fi
+
 WARNING_MSG+="
 
 
@@ -305,6 +375,11 @@ echo "OLLAMA_INSTALLED=$OLLAMA_INSTALLED" > "$SESSION_FILE"
 echo "CHOSEN_MODEL=$CHOSEN_MODEL" >> "$SESSION_FILE"
 echo "NEED_DOWNLOAD_MODEL=$NEED_DOWNLOAD_MODEL" >> "$SESSION_FILE"
 echo "MODEL_SIZE=$MODEL_SIZE" >> "$SESSION_FILE"
+if [ "$INSTALL_OPTIONAL_MODEL" = "true" ] && [ -n "$OPTIONAL_MODEL" ]; then
+    echo "OPTIONAL_MODEL=$OPTIONAL_MODEL" >> "$SESSION_FILE"
+    echo "OPTIONAL_NEED_DOWNLOAD=$OPTIONAL_NEED_DOWNLOAD" >> "$SESSION_FILE"
+    echo "OPTIONAL_MODEL_SIZE=$OPTIONAL_MODEL_SIZE" >> "$SESSION_FILE"
+fi
 echo "TIMESTAMP=$(date)" >> "$SESSION_FILE"
 
 echo "$CHOSEN_MODEL" > "$MODEL_FILE"

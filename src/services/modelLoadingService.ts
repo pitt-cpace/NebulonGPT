@@ -15,8 +15,11 @@ import { MessageType } from '../types';
 export interface ModelLoadingProgress {
   status: 'idle' | 'starting' | 'loading' | 'loaded' | 'error' | 'cancelled';
   progress: number;
+  /** Total model size (VRAM + system RAM) in bytes */
   currentSize: number;
   totalSize: number;
+  /** GPU VRAM portion in bytes (subset of currentSize) */
+  vramSize?: number;
   message: string;
   modelName: string;
   error?: string;
@@ -143,19 +146,85 @@ class ModelLoadingService {
   }
 
   /**
-   * Check currently loaded models via Ollama API
+   * Query the OS directly for accurate memory numbers.
+   *
+   * Ollama's /api/ps only reports model-weight bytes and misses the KV cache,
+   * context window, and other runtime allocations. The true numbers live in:
+   *   - nvidia-smi (dedicated GPU VRAM used by ALL compute apps)
+   *   - Ollama process WorkingSet64 (system RAM the process has mapped)
+   *
+   * Returns { vram, ram } in bytes, or null if we're not in Electron / the
+   * required tools are unavailable.
    */
-  private async getLoadedModels(): Promise<{ models: Array<{ name: string; size: number }> }> {
+  private async getSystemMemoryBreakdown(): Promise<{ vram: number; ram: number } | null> {
+    if (!isElectron() || !window.electronAPI?.executeCommand) return null;
+
+    let vram = 0;
+    let ram  = 0;
+
+    // ── Dedicated VRAM: nvidia-smi ────────────────────────────────────────
+    // Returns the total dedicated VRAM used on GPU 0 in MiB.
+    // Matches Task Manager "Dedicated GPU memory".
+    const nvResult = await this.executeCommand(
+      'nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits'
+    );
+    if (nvResult.code === 0 && nvResult.stdout.trim()) {
+      const mib = parseFloat(nvResult.stdout.trim().split('\n')[0]);
+      if (!isNaN(mib) && mib > 0) vram = mib * 1024 * 1024;
+    }
+
+    // ── Shared GPU memory: Windows Performance Counter ────────────────────
+    // \GPU Adapter Memory(*)\Shared Usage is the EXACT counter that Task
+    // Manager reads for "Shared GPU memory" — system RAM the GPU driver has
+    // borrowed as an overflow backing store for model layers that don't fit
+    // in dedicated VRAM.  WorkingSet64 of the ollama.exe process does NOT
+    // capture this because the allocation is owned by the WDDM kernel driver,
+    // not by the userspace process.
+    const sharedResult = await this.executeCommand(
+      "powershell -NoProfile -NonInteractive -Command \"" +
+      "(Get-Counter '\\GPU Adapter Memory(*)\\Shared Usage' -EA SilentlyContinue)" +
+      ".CounterSamples | Where-Object {$_.InstanceName -notlike '*_total*'} | " +
+      "Measure-Object CookedValue -Sum | Select-Object -ExpandProperty Sum\""
+    );
+    if (sharedResult.code === 0 && sharedResult.stdout.trim()) {
+      const bytes = parseFloat(sharedResult.stdout.trim());
+      if (!isNaN(bytes) && bytes > 0) ram = bytes;
+    }
+
+    if (vram === 0 && ram === 0) return null;
+    return { vram, ram };
+  }
+
+  /**
+   * Check currently loaded models via Ollama API.
+   *
+   * Ollama's /api/ps returns two distinct memory fields:
+   *   size      – total model weight bytes (VRAM + system RAM combined)
+   *   size_vram – the portion currently resident in GPU VRAM
+   *
+   * We return BOTH so callers can compute the system-RAM portion as
+   *   systemRam = size - size_vram
+   */
+  private async getLoadedModels(): Promise<{
+    models: Array<{ name: string; size: number; size_vram: number }>;
+  }> {
     try {
       const response = await ollamaApi.get('/ps');
 
       if (response.status === 200) {
         const { data } = response;
         return {
-          models: (data.models || []).map((m: any) => ({
-            name: m.name || m.model,
-            size: m.size || m.size_vram || 0,
-          })),
+          models: (data.models || []).map((m: any) => {
+            const size: number = m.size ?? 0;
+            const size_vram: number = m.size_vram ?? 0;
+            return {
+              name: m.name || m.model,
+              // Use the larger of the two as the "total" so we never show
+              // less than what Ollama says is in VRAM.
+              size: Math.max(size, size_vram),
+              size_vram,
+            };
+          }),
         };
       }
     } catch (error) {
@@ -337,17 +406,38 @@ class ModelLoadingService {
         this.monitoringInterval = null;
       }
 
-      // Get final memory usage
-      const loadedModels = await this.getLoadedModels();
+      // ── Get final memory usage ──────────────────────────────────────────
+      // Prefer OS-level figures (nvidia-smi + process WorkingSet) because
+      // Ollama's /api/ps only counts model-weight bytes, not the full
+      // runtime footprint (KV cache, context window allocations, etc.).
+      const [sysBreakdown, loadedModels] = await Promise.all([
+        this.getSystemMemoryBreakdown(),
+        this.getLoadedModels(),
+      ]);
+
       const loadedModel = loadedModels.models.find(
         m => m.name === modelName || m.name.startsWith(modelName.split(':')[0])
       );
+
+      let finalVram: number | undefined;
+      let finalTotal: number;
+
+      if (sysBreakdown && (sysBreakdown.vram > 0 || sysBreakdown.ram > 0)) {
+        // OS-level data: most accurate
+        finalVram  = sysBreakdown.vram;
+        finalTotal = sysBreakdown.vram + sysBreakdown.ram;
+      } else {
+        // Fallback: Ollama API (weights only — may be less than Task Manager)
+        finalVram  = loadedModel?.size_vram || undefined;
+        finalTotal = loadedModel?.size || loadedModel?.size_vram || 0;
+      }
 
       const endTime = Date.now();
       this.notifyProgress({
         status: 'loaded',
         progress: 100,
-        currentSize: loadedModel?.size || 0,
+        currentSize: finalTotal,
+        vramSize: finalVram,
         message: `Model ${modelName} loaded successfully!`,
         endTime,
       });
