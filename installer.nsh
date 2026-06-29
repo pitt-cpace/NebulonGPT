@@ -30,6 +30,8 @@ Var ModelMistralExists
 Var ModelGraniteExists
 Var NeedToInstallAnything
 
+
+
 ; Macro: Extract Python Bundle
 !macro ExtractPythonBundle
   DetailPrint "Installing Python bundle (Speech Recognition & TTS)..."
@@ -340,17 +342,17 @@ Var NeedToInstallAnything
     ${EndIf}
 
     ; ──────────────────────────────────────────
-    ; MODEL 2 – Mistral 7B
+    ; MODEL 2 – Gemma 4 E4B IT Q8_0
     ; ──────────────────────────────────────────
     ${If} $InstallModelMistral == "1"
     ${AndIf} $ModelMistralExists == "0"
 
       PullMistralRetry:
         DetailPrint ""
-        DetailPrint "Downloading Mistral 7B Model..."
+        DetailPrint "Downloading Gemma 4 E4B IT Q8_0 Model..."
         DetailPrint "This may take several minutes depending on your internet connection..."
 
-        nsExec::ExecToLog '"$3" pull mistral:7b'
+        nsExec::ExecToLog '"$3" pull gemma4:e4b-it-q8_0'
         Pop $1
 
         ; Secondary guard: verify model actually exists in ollama list
@@ -358,33 +360,34 @@ Var NeedToInstallAnything
           nsExec::ExecToStack '"$3" list'
           Pop $2
           Pop $2
-          nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$2\" -match \"mistral\") { exit 0 } else { exit 1 }"'
+          nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$2\" -match \"gemma4\") { exit 0 } else { exit 1 }"'
           Pop $2
           ${If} $2 != 0
-            DetailPrint "⚠ Mistral 7B Model not found after pull - download may be incomplete"
+            DetailPrint "⚠ Gemma 4 E4B IT Q8_0 Model not found after pull - download may be incomplete"
             StrCpy $1 "1"
           ${EndIf}
         ${EndIf}
 
         ${If} $1 != 0
-          DetailPrint "⚠ Mistral 7B Model download failed (exit code: $1)"
+          DetailPrint "⚠ Gemma 4 E4B IT Q8_0 Model download failed (exit code: $1)"
           ; Retry is button 1 - first button and default focus
-          MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION|MB_DEFBUTTON1 "❌ Mistral 7B Model Failed (exit code: $1)$\r$\n$\r$\nCould not download the model. Check your internet and that Ollama is running.$\r$\n$\r$\n[Retry]   Try pulling the model again$\r$\n[Cancel]  Choose to skip or abort" IDRETRY PullMistralRetry
+          MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION|MB_DEFBUTTON1 "❌ Gemma 4 E4B IT Q8_0 Model Failed (exit code: $1)$\r$\n$\r$\nCould not download the model. Check your internet and that Ollama is running.$\r$\n$\r$\n[Retry]   Try pulling the model again$\r$\n[Cancel]  Choose to skip or abort" IDRETRY PullMistralRetry
           ; User clicked Cancel → ask Skip or Abort
-          MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Skip Mistral 7B and continue?$\r$\n$\r$\n[Yes]  Skip this model (run manually later: ollama pull mistral:7b)$\r$\n[No]   Abort the entire installation" IDYES PullMistralSkip
+          MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Skip Gemma 4 E4B IT Q8_0 and continue?$\r$\n$\r$\n[Yes]  Skip this model (run manually later: ollama pull gemma4:e4b-it-q8_0)$\r$\n[No]   Abort the entire installation" IDYES PullMistralSkip
           ; User chose No = Abort
           Abort
 
           PullMistralSkip:
-            DetailPrint "⚠ Mistral 7B Model skipped by user"
-            DetailPrint "⚠ Run manually later: ollama pull mistral:7b"
+            DetailPrint "⚠ Gemma 4 E4B IT Q8_0 Model skipped by user"
+            DetailPrint "⚠ Run manually later: ollama pull gemma4:e4b-it-q8_0"
             Goto PullMistralDone
         ${EndIf}
 
-        DetailPrint "✓ Mistral 7B Model installed successfully"
+        DetailPrint "✓ Gemma 4 E4B IT Q8_0 Model installed successfully"
 
       PullMistralDone:
     ${EndIf}
+
 
     ; ──────────────────────────────────────────
     ; MODEL 3 – Granite4 Tiny-H (granite3.1-moe:1b)
@@ -581,19 +584,19 @@ Function ComponentPageCreate
   ${NSD_CreateCheckbox} 30u 70u 90% 12u "├─ GPT-OSS 20B Model (Recommended)"
   Pop $ModelGPTOSSCheckbox
   ${NSD_Check} $ModelGPTOSSCheckbox
-  ${NSD_CreateLabel} 40u 82u 90% 10u "High-performance AI model for advanced tasks (recommend 16GB+ RAM)  (Optional)"
+  ${NSD_CreateLabel} 40u 82u 90% 10u "High-performance AI model for advanced tasks (recommend 32GB+ RAM)  (Optional)"
   Pop $0
   SetCtlColors $0 666666 transparent
   
-  ${NSD_CreateCheckbox} 30u 96u 90% 12u "├─ Mistral 7B Model (Lightweight)"
+  ${NSD_CreateCheckbox} 30u 96u 90% 12u "├─ Gemma 4 E4B IT Q8_0 Model (Balanced)"
   Pop $ModelMistralCheckbox
-  ${NSD_CreateLabel} 40u 108u 90% 10u "Lightweight AI model for general use (recommend 16GB+ RAM)  (Optional)"
+  ${NSD_CreateLabel} 40u 108u 90% 10u "Balanced AI model for general use (recommend 16-32GB RAM)  (Optional)"
   Pop $0
   SetCtlColors $0 666666 transparent
   
   ${NSD_CreateCheckbox} 30u 122u 90% 12u "└─ Granite4 Tiny-H Model (Ultra-lightweight)"
   Pop $ModelGraniteCheckbox
-  ${NSD_CreateLabel} 40u 134u 90% 10u "Ultra-lightweight AI model for resource-constrained environments (recommend 8GB+ RAM)  (Optional)"
+  ${NSD_CreateLabel} 40u 134u 90% 10u "Ultra-lightweight AI model for resource-constrained environments (recommend <16GB RAM)  (Optional)"
   Pop $0
   SetCtlColors $0 666666 transparent
   
@@ -691,42 +694,71 @@ Var ModelDialogDisclaimer
 ; ============================================
 ; Function: Detect RAM and Auto-Select Model
 ; Detects system RAM and auto-selects appropriate model:
-; - 16GB+ RAM: GPT-OSS 20B (Recommended)
-; - 8-16GB RAM: Mistral 7B (Lightweight)
-; - <8GB RAM: Granite4 Tiny-H (Ultra-lightweight)
+; - >32GB RAM:    GPT-OSS 20B (Recommended)
+; - 16-32GB RAM:  Gemma 4 E4B IT Q8_0 (Balanced)
+; - <16GB RAM:    Granite4 Tiny-H (Ultra-lightweight)
 ; ============================================
 Function DetectRAMAndSelectModel
   ; Get system RAM using PowerShell
   nsExec::ExecToStack 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)"'
   Pop $0  ; Return code
   Pop $1  ; RAM in GB
-  
-  ; Remove any whitespace/newlines
-  StrCpy $2 $1 2  ; Get first 2 chars (handles "16", "32", "8", etc.)
-  
+
+  ; Trim whitespace/newlines from PowerShell output
+  Push $1
+  Call TrimNewlines
+  Pop $1
+
   ; Convert to integer for comparison
-  IntOp $3 $2 + 0
-  
+  IntOp $3 $1 + 0
+
   ; Auto-select model based on RAM
-  ${If} $3 >= 16
-    ; 16GB+ RAM: Select GPT-OSS 20B (Recommended)
+  ${If} $3 > 32
+    ; >32GB RAM: Select GPT-OSS 20B (Recommended)
     StrCpy $InstallModelGPTOSS "1"
     StrCpy $InstallModelMistral "0"
     StrCpy $InstallModelGranite "0"
-  ${ElseIf} $3 >= 8
-    ; 8-16GB RAM: Select Mistral 7B (Lightweight)
+  ${ElseIf} $3 >= 16
+    ; 16-32GB RAM: Select Gemma 4 E4B IT Q8_0 (Balanced)
     StrCpy $InstallModelGPTOSS "0"
     StrCpy $InstallModelMistral "1"
     StrCpy $InstallModelGranite "0"
   ${Else}
-    ; <8GB RAM: Select Granite4 Tiny-H (Ultra-lightweight)
+    ; <16GB RAM: Select Granite4 Tiny-H (Ultra-lightweight)
     StrCpy $InstallModelGPTOSS "0"
     StrCpy $InstallModelMistral "0"
     StrCpy $InstallModelGranite "1"
   ${EndIf}
-  
+
   ; Always install Ollama
   StrCpy $InstallOllama "1"
+FunctionEnd
+
+; ============================================
+; Function: TrimNewlines
+; Strips trailing whitespace/newlines from a string on the stack.
+; ============================================
+Function TrimNewlines
+  Exch $R0
+  Push $R1
+  Push $R2
+  StrCpy $R1 $R0
+  loop:
+    StrLen $R2 $R1
+    IntCmp $R2 0 done
+    StrCpy $R0 $R1 1 -1
+    ${If} $R0 == "$\r"
+    ${OrIf} $R0 == "$\n"
+    ${OrIf} $R0 == " "
+    ${OrIf} $R0 == "$\t"
+      StrCpy $R1 $R1 -1
+      Goto loop
+    ${EndIf}
+  done:
+  StrCpy $R0 $R1
+  Pop $R2
+  Pop $R1
+  Exch $R0
 FunctionEnd
 
 ; ============================================
@@ -760,22 +792,22 @@ Function ShowModelSelectionDialog
   Pop $0
   SetCtlColors $0 666666 transparent
   
-  ; Model 1 - GPT-OSS 20B (Recommended)
-  ${NSD_CreateCheckbox} 15u 34u 90% 10u "├─ GPT-OSS 20B Model (Recommended) - 16GB+ RAM"
+  ; Model 1 - GPT-OSS 20B (Recommended for 32GB+ RAM)
+  ${NSD_CreateCheckbox} 15u 34u 90% 10u "├─ GPT-OSS 20B Model (Recommended) - 32GB+ RAM"
   Pop $ModelDialogGPTOSS
   ${If} $InstallModelGPTOSS == "1"
     ${NSD_Check} $ModelDialogGPTOSS
   ${EndIf}
   
-  ; Model 2 - Mistral 7B (Lightweight)
-  ${NSD_CreateCheckbox} 15u 46u 90% 10u "├─ Mistral 7B Model (Lightweight) - 8GB+ RAM"
+  ; Model 2 - Gemma 4 E4B IT Q8_0 (Balanced)
+  ${NSD_CreateCheckbox} 15u 46u 90% 10u "├─ Gemma 4 E4B IT Q8_0 Model (Balanced) - 16-32GB RAM"
   Pop $ModelDialogMistral
   ${If} $InstallModelMistral == "1"
     ${NSD_Check} $ModelDialogMistral
   ${EndIf}
   
   ; Model 3 - Granite4 Tiny-H (Ultra-lightweight)
-  ${NSD_CreateCheckbox} 15u 58u 90% 10u "└─ Granite4 Tiny-H Model (Ultra-lightweight) - 4GB+ RAM"
+  ${NSD_CreateCheckbox} 15u 58u 90% 10u "└─ Granite4 Tiny-H Model (Ultra-lightweight) - <16GB RAM"
   Pop $ModelDialogGranite
   ${If} $InstallModelGranite == "1"
     ${NSD_Check} $ModelDialogGranite
@@ -1058,8 +1090,8 @@ FunctionEnd
       StrCpy $ModelGPTOSSExists "1"
     ${EndIf}
     
-    ; Check if mistral:7b exists
-    nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$1\" -match \"mistral:7b\") { exit 0 } else { exit 1 }"'
+    ; Check if gemma4:e4b-it-q8_0 exists
+    nsExec::ExecToStack 'powershell -NoProfile -Command "if (\"$1\" -match \"gemma4\") { exit 0 } else { exit 1 }"'
     Pop $0
     ${If} $0 == 0
       StrCpy $ModelMistralExists "1"
@@ -1092,7 +1124,7 @@ FunctionEnd
   
   ${If} $InstallModelMistral == "1"
   ${AndIf} $ModelMistralExists == "0"
-    StrCpy $4 "$4$\r$\n  • Mistral 7B Model - needs to be downloaded"
+    StrCpy $4 "$4$\r$\n  • Gemma 4 E4B IT Q8_0 Model - needs to be downloaded"
     StrCpy $NeedToInstallAnything "1"
   ${EndIf}
   
@@ -1234,7 +1266,7 @@ FunctionEnd
     DetailPrint "✓ GPT-OSS 20B Model installed"
   ${EndIf}
   ${If} $InstallModelMistral == "1"
-    DetailPrint "✓ Mistral 7B Model installed"
+    DetailPrint "✓ Gemma 4 E4B IT Q8_0 Model installed"
   ${EndIf}
   ${If} $InstallModelGranite == "1"
     DetailPrint "✓ Granite4 Tiny-H Model installed"
