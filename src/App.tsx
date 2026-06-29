@@ -95,6 +95,47 @@ const App: React.FC = () => {
   const [temperature, setTemperature] = useState(0.1); // Default temperature
   const [maxContextLength, setMaxContextLength] = useState(32768); // Default max context length for modern models
 
+  // Whether the currently selected model supports vision/image input
+  // Determined dynamically from Ollama's /api/show "capabilities" array
+  const [modelSupportsVision, setModelSupportsVision] = useState<boolean>(false);
+
+  // Helper: detect "vision" capability from an Ollama /api/show response.
+  //
+  // We rely EXCLUSIVELY on the authoritative `capabilities` array that modern
+  // Ollama (>= 0.4) returns for every model. Any fuzzy fallback (matching
+  // model_info keys, modelfile text, `details.families`, etc.) is unsafe
+  // because text-only models like gpt-oss frequently contain unrelated
+  // tokens/fields that incidentally match — producing false positives that
+  // let the user attach images Ollama will then reject.
+  //
+  // Authoritative shapes:
+  //   1. Top-level:  modelDetails.capabilities          = ["completion", "vision", ...]
+  //   2. Nested:     modelDetails.model_info.capabilities = ["completion", "vision", ...]
+  //
+  // If neither array exists OR neither contains "vision", we treat the model
+  // as text-only. This matches what Ollama itself enforces server-side.
+  const detectVisionCapability = (modelDetails: any): boolean => {
+    if (!modelDetails) return false;
+
+    const hasVisionIn = (arr: any): boolean =>
+      Array.isArray(arr) &&
+      arr.some((c: any) => typeof c === 'string' && c.toLowerCase() === 'vision');
+
+    if (hasVisionIn(modelDetails.capabilities)) return true;
+    if (hasVisionIn(modelDetails?.model_info?.capabilities)) return true;
+
+    // Helpful one-line diagnostic so we can see exactly what Ollama returned
+    // if a vision model isn't being detected on the user's setup.
+    console.debug('[detectVisionCapability] No "vision" in capabilities arrays:',
+      'top:', modelDetails.capabilities,
+      'nested:', modelDetails?.model_info?.capabilities,
+    );
+    return false;
+  };
+
+
+
+
   // Lazy loading state
   const [chatPagination, setChatPagination] = useState({
     page: 0,
@@ -316,7 +357,7 @@ const App: React.FC = () => {
           if (defaultModel) {
             setSelectedModel(defaultModel);
             
-            // Fetch context length for the default model
+            // Fetch context length & capabilities for the default model
             try {
               const modelDetails = await fetchModelDetails(defaultModel.id);
               if (modelDetails && modelDetails.model_info && modelDetails.model_info['llama.context_length']) {
@@ -324,9 +365,16 @@ const App: React.FC = () => {
                 setMaxContextLength(contextLength);
                 console.log(`Default model ${defaultModel.id} has context length: ${contextLength}`);
               }
+
+              // Detect vision capability from Ollama's /api/show response
+              const supportsVision = detectVisionCapability(modelDetails);
+              setModelSupportsVision(supportsVision);
+              console.log(`🖼️ Default model ${defaultModel.id} vision support: ${supportsVision}`);
             } catch (error) {
               console.error('Failed to fetch model details for default model:', error);
+              setModelSupportsVision(false);
             }
+
             
             // Load the default model into RAM on app startup using centralized function
             await loadModelWithDialog(defaultModel.id);
@@ -1055,6 +1103,18 @@ const App: React.FC = () => {
     const isDifferentModel = !selectedModel || selectedModel.id !== model.id;
     
     setSelectedModel(model);
+
+    // Pessimistically reset the vision capability flag the moment we switch models.
+    // Otherwise, when the user switches from a vision model (e.g. llama3.2-vision)
+    // to a non-vision model (e.g. gpt-oss:20b) the previous `true` would briefly
+    // remain in state until the async /api/show call below completes — that gap is
+    // exactly when the InputArea fails to show the "this model doesn't support
+    // images" warning if there's an image already attached. Resetting to false
+    // here makes the warning appear instantly; the real value is set right after.
+    if (isDifferentModel) {
+      setModelSupportsVision(false);
+    }
+
     
     // Update the model ID in the current chat
     if (currentChat) {
@@ -1074,7 +1134,7 @@ const App: React.FC = () => {
       setChats(updatedChats);
     }
     
-    // Fetch model details to get context length
+    // Fetch model details to get context length & vision capability
     try {
       const modelDetails = await fetchModelDetails(model.id);
       if (modelDetails && modelDetails.model_info && modelDetails.model_info['llama.context_length']) {
@@ -1083,9 +1143,16 @@ const App: React.FC = () => {
         setMaxContextLength(contextLength);
         console.log(`Model ${model.id} has context length: ${contextLength}`);
       }
+
+      // Detect vision capability from Ollama's /api/show response
+      const supportsVision = detectVisionCapability(modelDetails);
+      setModelSupportsVision(supportsVision);
+      console.log(`🖼️ Model ${model.id} vision support: ${supportsVision}`);
     } catch (error) {
       console.error('Failed to fetch model details:', error);
+      setModelSupportsVision(false);
     }
+
     
     // If switching to a different model, trigger model loading with progress dialog
     if (isDifferentModel) {
@@ -1306,7 +1373,9 @@ const App: React.FC = () => {
         onHideLoadingAnimation={onHideLoadingAnimationRef}
         onOpenSettings={() => setSettingsOpen(true)}
         isMobile={isMobile}
+        modelSupportsVision={modelSupportsVision}
       />
+
       </Box>
     </ThemeProvider>
   );
