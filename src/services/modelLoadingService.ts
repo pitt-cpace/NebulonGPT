@@ -10,6 +10,7 @@
 
 import { ollamaApi, sendMessage } from './api';
 import { isElectron } from './electronApi';
+import { checkOllamaStatus } from './ollamaStatus';
 import { MessageType } from '../types';
 
 export interface ModelLoadingProgress {
@@ -386,7 +387,7 @@ class ModelLoadingService {
 
       // Use sendMessage from api.ts with SAME settings as main chat
       // IMPORTANT: num_ctx and temperature must match to prevent Ollama KV cache reallocation
-      await sendMessage(
+      const triggerResult = await sendMessage(
         modelName,
         triggerMessages,
         {
@@ -404,6 +405,25 @@ class ModelLoadingService {
       if (this.monitoringInterval) {
         clearInterval(this.monitoringInterval);
         this.monitoringInterval = null;
+      }
+
+      // IMPORTANT: sendMessage() does NOT throw on failure. When Ollama is
+      // unreachable (e.g. not running / 404) it swallows the error in its
+      // catch block and RETURNS an error string instead (see api.ts). If we
+      // don't detect that here, a failed load falls through to the "loaded
+      // successfully" branch below. Detect the known failure responses and
+      // throw so the catch block reports the real error state to the dialog.
+      const responseText = (triggerResult?.response || '').trim();
+      const loadFailed =
+        !responseText ||
+        responseText.startsWith('Error: Failed to get a response from the model.') ||
+        responseText.startsWith('No response from the model');
+
+      if (loadFailed) {
+        throw new Error(
+          responseText ||
+            'Ollama appears to be inactive — make sure it is installed and running properly.'
+        );
       }
 
       // ── Get final memory usage ──────────────────────────────────────────
@@ -458,13 +478,42 @@ class ModelLoadingService {
         return false;
       }
 
+      // Turn ANY failure into a clear, user-friendly message rather than
+      // surfacing raw internal strings like "Failed to fetch".
+      const friendlyError = await this.buildFriendlyError(error);
+
       this.notifyProgress({
         status: 'error',
         message: 'Failed to load model',
-        error: error.message || 'Unknown error',
+        error: friendlyError,
       });
       return false;
     }
+  }
+
+  /**
+   * Convert any load failure into a clear, user-friendly error message.
+   *
+   * We first ask checkOllamaStatus() what's actually wrong so the wording
+   * stays consistent with the global "Ollama Inactive — Connection Error"
+   * banner AND so every failure mode is covered (connection refused, 404,
+   * timeout, no response, unexpected status, …) instead of only one. If
+   * Ollama is actually reachable, the load failed for a model-specific
+   * reason, so we surface the underlying error message instead.
+   */
+  private async buildFriendlyError(error: any): Promise<string> {
+    try {
+      const status = await checkOllamaStatus();
+      if (!status.isAvailable) {
+        const detail = status.error || 'Ollama is not responding';
+        return `${detail}. Ollama appears to be inactive — make sure it is installed and running properly.`;
+      }
+    } catch {
+      // Status check itself failed — fall through to the raw error below.
+    }
+
+    const raw = (error?.message || String(error ?? '')).trim();
+    return raw || 'Failed to load the model due to an unknown error.';
   }
 
   /**
