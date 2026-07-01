@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Box, CssBaseline, ThemeProvider } from '@mui/material';
+import { Box, CssBaseline, ThemeProvider, Snackbar, Alert, AlertTitle, Button } from '@mui/material';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { createAppTheme, getThemeMode } from './styles/theme';
 import * as styles from './styles/components/App.styles';
 import Sidebar from './components/Sidebar';
@@ -89,6 +90,9 @@ const App: React.FC = () => {
   
   // Ollama status state
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>({ isAvailable: true });
+  // Controls the auto-appearing popup that alerts the user when Ollama is not
+  // reachable, so they don't have to discover the header dropdown themselves.
+  const [showOllamaErrorPopup, setShowOllamaErrorPopup] = useState(false);
   
   // Model settings
   const [contextLength, setContextLength] = useState(12000); // Default context length
@@ -1361,12 +1365,57 @@ const App: React.FC = () => {
     }
   }, [models]);
 
+  // Surface a prominent popup whenever Ollama becomes unreachable. This runs
+  // only when the availability/error actually changes, so dismissing the popup
+  // won't make it immediately reappear while the error persists.
+  useEffect(() => {
+    if (!ollamaStatus.isAvailable && ollamaStatus.error) {
+      setShowOllamaErrorPopup(true);
+    } else {
+      setShowOllamaErrorPopup(false);
+    }
+  }, [ollamaStatus.isAvailable, ollamaStatus.error]);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={styles.container}>
         {/* Startup loader overlay */}
         <StartupLoader sidebarOpen={sidebarOpen} />
+
+      {/* Ollama connection error popup — auto-appears so users don't need to
+          discover the header status dropdown to learn Ollama isn't running */}
+      <Snackbar
+        open={showOllamaErrorPopup}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ mt: 6 }}
+      >
+        <Alert
+          severity="error"
+          variant="filled"
+          sx={{ alignItems: 'center', boxShadow: 3, maxWidth: 480 }}
+          action={
+            <Button
+              color="inherit"
+              size="small"
+              startIcon={<RefreshIcon />}
+              onClick={async () => {
+                const status = await handleRefreshOllamaStatus();
+                if (status?.isAvailable) {
+                  setShowOllamaErrorPopup(false);
+                }
+              }}
+            >
+              Retry
+            </Button>
+          }
+        >
+          <AlertTitle>Ollama Inactive — Connection Error</AlertTitle>
+          {ollamaStatus.error
+            ? `${ollamaStatus.error}. Ollama appears to be inactive — make sure it is installed and running properly.`
+            : 'Ollama appears to be inactive — make sure it is installed and running properly.'}
+        </Alert>
+      </Snackbar>
       
       {/* Settings dialog */}
       <SettingsDialog
