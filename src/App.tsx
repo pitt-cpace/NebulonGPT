@@ -96,7 +96,7 @@ const App: React.FC = () => {
   
   // Model settings
   const [contextLength, setContextLength] = useState(12000); // Default context length
-  const [temperature, setTemperature] = useState(0.1); // Default temperature
+  const [temperature, setTemperature] = useState(0.3); // Default temperature
   const [maxContextLength, setMaxContextLength] = useState(32768); // Default max context length for modern models
 
   // Whether the currently selected model supports vision/image input

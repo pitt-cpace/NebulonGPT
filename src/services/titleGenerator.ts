@@ -189,7 +189,7 @@ export const generateChatTitle = async (
   try {
     // Read settings to match main chat (prevents model reload due to different options)
     let contextLength = 12000; // Default fallback
-    let temperature = 0.1;     // Default fallback
+    let temperature = 0.3;     // Default fallback
     try {
       const savedContextLength = localStorage.getItem('contextLength');
       if (savedContextLength) {
